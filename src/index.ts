@@ -109,12 +109,9 @@ async function main() {
         const newBal = b.balance?.toString() || '0';
         const newLocked = (b.locked_balance ?? b.locked ?? '0').toString();
         
-        // Prevent Spot REST API (0) from overwriting Futures WS balances
         const existing = state.balanceMap.get(currency);
-        if (existing && parseFloat(newBal) === 0 && parseFloat(existing.balance) > 0) {
-          return;
-        }
-
+        
+        // Use the new futures wallet data directly
         state.balanceMap.set(currency, {
           balance: newBal,
           locked: newLocked,

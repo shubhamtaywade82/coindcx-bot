@@ -32,11 +32,11 @@ export class CoinDCXApi {
   static async getBalances() {
     const { body, headers } = this.buildSignedRequest({ timestamp: Date.now() });
     try {
-      const response = await axios.post(
-        `${config.apiBaseUrl}/exchange/v1/users/balances`,
-        body,
-        { headers, timeout: 10000 },
-      );
+      const response = await axios.get(`${config.apiBaseUrl}/exchange/v1/derivatives/futures/wallets`, {
+        data: body,
+        headers,
+        timeout: 10000,
+      });
       return response.data;
     } catch (error: any) {
       const status = error.response?.status;
