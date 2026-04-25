@@ -33,6 +33,10 @@ export async function bootstrap(): Promise<Context> {
     enableStdout: false,
   });
 
+  // Intercept all console calls to prevent TUI corruption
+  const { interceptConsole } = await import('../logging/interceptor');
+  interceptConsole(logger);
+
   logger.info({ mod: 'boot' }, 'boot start');
 
   const pool = await connectWithRetry(async () => {

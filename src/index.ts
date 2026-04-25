@@ -311,7 +311,7 @@ async function runApp(ctx: Context) {
     tui.log(`✗ WS error: ${error.message}`);
     tui.updateStatus({ connected: false });
   });
-  ws.on('debug', (msg) => tui.log(msg));
+  ws.on('debug', (msg) => ctx.logger.debug({ mod: 'ws' }, msg));
 
   // ── new-trade: { T, RT, p, q, m, s:"B-SOL_USDT", pr:"f" } ──
   ws.on('new-trade', (raw) => {
@@ -528,7 +528,8 @@ async function main() {
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error('Fatal error:', err);
+  // Use a fallback logger if ctx is not yet initialized
+  const msg = err instanceof Error ? err.stack : String(err);
+  process.stderr.write(`\n\nFATAL ERROR: ${msg}\n`);
   process.exit(1);
 });
