@@ -257,72 +257,75 @@ async function runApp(ctx: Context) {
   }
 
   function refreshBalanceDisplay() {
-    const activePnlMap = new Map<string, number>();
     let totalEqInr = 0;
     let totalWalInr = 0;
     let totalPnlInr = 0;
+    let totalPnlUsdt = 0;
 
+    // 1. Sum up PnL from all positions
     Array.from(state.positions.values()).forEach((p: any) => {
        const pnl = parseFloat(p.unrealized_pnl || '0');
-       const currency = (p.margin_currency_short_name || p.settlement_currency_short_name || 'USDT').toUpperCase();
-       activePnlMap.set(currency, (activePnlMap.get(currency) || 0) + pnl);
+       const pair = (p.pair || '').toUpperCase();
        
-       // Add to total global PnL (converted to INR)
-       if (currency === 'INR') {
+       if (pair.endsWith('INR')) {
          totalPnlInr += pnl;
-       } else if (currency === 'USDT' || currency === 'USD') {
+         totalPnlUsdt += pnl / (state.usdtInrRate || 88);
+       } else {
+         totalPnlUsdt += pnl;
          totalPnlInr += pnl * state.usdtInrRate;
        }
     });
 
     const rows: string[][] = [];
 
+    // 2. Build rows from balanceMap
     Array.from(state.balanceMap.entries())
       .filter(([_, info]) => parseFloat(info.balance) > 0 || parseFloat(info.locked) > 0)
       .forEach(([currency, info]) => {
         const available = parseFloat(info.balance || '0');
         const locked = parseFloat(info.locked || '0');
         const walletBalance = available + locked;
-        let activePnl = activePnlMap.get(currency) || 0;
         
-        // For the main INR row, show the total aggregated PnL across all currencies
-        if (currency === 'INR') {
-          activePnl = totalPnlInr;
-        }
+        const isInrRow = currency === 'INR' || currency === 'USDTINR';
+        const isUsdtRow = currency === 'USDT' || currency === 'USD';
         
-        const currentValue = walletBalance + activePnl;
-        const pnlPct = walletBalance > 0 ? (activePnl / walletBalance) * 100 : 0;
+        let rowPnl = 0;
+        if (isInrRow) rowPnl = totalPnlInr;
+        else if (isUsdtRow) rowPnl = totalPnlUsdt;
+
+        const pnlInRowCurrency = isInrRow ? totalPnlInr : (isUsdtRow ? totalPnlUsdt : 0);
+        const currentValue = walletBalance + pnlInRowCurrency;
+        const pnlPct = walletBalance > 0 ? (rowPnl / walletBalance) * 100 : 0;
         const utilPct = walletBalance > 0 ? (locked / walletBalance) * 100 : 0;
 
-        // Add to global totals (converted to INR)
-        const inrValue = currency === 'INR' ? currentValue : currentValue * state.usdtInrRate;
-        const inrWallet = currency === 'INR' ? walletBalance : walletBalance * state.usdtInrRate;
+        // Global Totals (INR)
+        const inrValue = isInrRow ? currentValue : currentValue * state.usdtInrRate;
+        const inrWallet = isInrRow ? walletBalance : walletBalance * state.usdtInrRate;
         totalEqInr += inrValue;
         totalWalInr += inrWallet;
 
-        const isInr = currency === 'INR' || currency === 'USDTINR'; // Special case for INR-settled
-        const prefix = isInr ? '₹' : '';
-
+        const prefix = isInrRow ? '₹' : (isUsdtRow ? '$' : '');
         rows.push([
-          isInr ? '₹ INR' : currency,
+          isInrRow ? '₹ INR' : currency,
           `${prefix}${formatQty(currentValue)}`,
           `${prefix}${formatQty(walletBalance)}`,
-          formatPnl(activePnl, prefix),
+          formatPnl(rowPnl, prefix),
           `{${pnlPct >= 0 ? 'green' : 'red'}-fg}${pnlPct.toFixed(2)}%{/${pnlPct >= 0 ? 'green' : 'red'}-fg}`,
           `${prefix}${formatQty(available)}`,
           `${prefix}${formatQty(locked)}`,
           `{yellow-fg}${utilPct.toFixed(1)}%{/yellow-fg}`
         ]);
 
-        if (isInr && state.usdtInrRate > 0) {
-          const usdEq = currentValue / state.usdtInrRate;
-          const usdWal = walletBalance / state.usdtInrRate;
+        // Virtual USD row below INR
+        if (isInrRow && state.usdtInrRate > 0) {
+          const usdEq = totalEqInr / state.usdtInrRate;
+          const usdWal = totalWalInr / state.usdtInrRate;
           rows.push([
             '{cyan-fg}$ USD{/cyan-fg}',
             `{cyan-fg}$${formatQty(usdEq, 2)}{/cyan-fg}`,
             `{cyan-fg}$${formatQty(usdWal, 2)}{/cyan-fg}`,
-            formatPnl(activePnl / state.usdtInrRate, '$'),
-            `{${pnlPct >= 0 ? 'green' : 'red'}-fg}${pnlPct.toFixed(2)}%{/${pnlPct >= 0 ? 'green' : 'red'}-fg}`,
+            formatPnl(totalPnlUsdt, '$'),
+            `{${totalPnlUsdt >= 0 ? 'green' : 'red'}-fg}${pnlPct.toFixed(2)}%{/${totalPnlUsdt >= 0 ? 'green' : 'red'}-fg}`,
             `{cyan-fg}$${formatQty(available / state.usdtInrRate, 2)}{/cyan-fg}`,
             `{cyan-fg}$${formatQty(locked / state.usdtInrRate, 2)}{/cyan-fg}`,
             `{yellow-fg}${utilPct.toFixed(1)}%{/yellow-fg}`
@@ -332,12 +335,12 @@ async function runApp(ctx: Context) {
       
     tui.updateBalances(rows.length > 0 ? rows : [['No balances', '—', '—', '—', '—', '—']]);
     
-    // Update top summary bar
+    // 3. Update Summary
     tui.updateSummary({
       equity: `₹${formatQty(totalEqInr)} (${formatQty(totalEqInr / state.usdtInrRate, 2)} USDT)`,
       wallet: `₹${formatQty(totalWalInr)} (${formatQty(totalWalInr / state.usdtInrRate, 2)} USDT)`,
       net: formatPnl(totalPnlInr, '₹'),
-      unrealUsdt: `${formatQty(totalPnlInr / state.usdtInrRate, 2)} USDT`
+      unrealUsdt: `${formatQty(totalPnlUsdt, 2)} USDT`
     });
   }
 
