@@ -30,6 +30,7 @@ export async function bootstrap(): Promise<Context> {
     level: config.LOG_LEVEL,
     rotateMb: config.LOG_FILE_ROTATE_MB,
     keep: config.LOG_FILE_KEEP,
+    enableStdout: false,
   });
 
   logger.info({ mod: 'boot' }, 'boot start');

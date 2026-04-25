@@ -9,6 +9,7 @@ export interface LoggerOptions {
   level: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
   rotateMb: number;
   keep: number;
+  enableStdout?: boolean;
 }
 
 export type AppLogger = Logger;
@@ -25,9 +26,12 @@ export async function createLogger(opts: LoggerOptions): Promise<AppLogger> {
   });
 
   const streams: pino.StreamEntry[] = [
-    { level: opts.level, stream: process.stdout },
     { level: opts.level, stream: fileStream as NodeJS.WritableStream },
   ];
+
+  if (opts.enableStdout) {
+    streams.push({ level: opts.level, stream: process.stdout });
+  }
 
   return pino(
     {
