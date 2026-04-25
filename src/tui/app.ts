@@ -210,7 +210,7 @@ export class TuiApp {
     const wsStatus = this.isConnected ? '{green-fg}●{/green-fg}' : '{red-fg}○{/red-fg}';
     const time = new Date().toLocaleTimeString();
     
-    const modeStr = config.isReadOnly ? '{red-fg}PAPER{/red-fg}' : '{green-fg}LIVE{/green-fg}';
+    const modeStr = config.isReadOnly ? '{yellow-fg}MONITOR{/yellow-fg}' : '{green-fg}LIVE{/green-fg}';
     const orderStr = config.isReadOnly ? '{red-fg}OFF{/red-fg}' : '{green-fg}ON{/green-fg}';
     
     const content = ` {bold}ENGINE: {green-fg}RUN{/green-fg}{/bold}  │  MODE: ${modeStr}  │  ORDER: ${orderStr}  │  WS: ${wsStatus}  │  FEED: {green-fg}OK{/green-fg}  │  FOCUS: ${this.focusedPairClean}  │  TIME: ${time}`;
