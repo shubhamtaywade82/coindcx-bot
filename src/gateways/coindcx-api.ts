@@ -10,43 +10,54 @@ export class CoinDCXApi {
       .digest('hex');
   }
 
-  static async getBalances() {
-    const timestamp = Math.floor(Date.now());
-    const body = { timestamp };
+  private static get authHeaders() {
+    return {
+      'Content-Type': 'application/json',
+    };
+  }
+
+  private static buildSignedRequest(body: Record<string, any>) {
     const payload = JSON.stringify(body);
     const signature = this.sign(payload);
+    return {
+      body,
+      headers: {
+        ...this.authHeaders,
+        'X-AUTH-APIKEY': config.apiKey,
+        'X-AUTH-SIGNATURE': signature,
+      },
+    };
+  }
 
+  static async getBalances() {
+    const { body, headers } = this.buildSignedRequest({ timestamp: Date.now() });
     try {
-      const response = await axios.post(`${config.apiBaseUrl}/exchange/v1/users/balances`, body, {
-        headers: {
-          'X-AUTH-APIKEY': config.apiKey,
-          'X-AUTH-SIGNATURE': signature,
-        },
-        timeout: 5000,
-      });
+      const response = await axios.post(
+        `${config.apiBaseUrl}/exchange/v1/users/balances`,
+        body,
+        { headers, timeout: 10000 },
+      );
       return response.data;
     } catch (error: any) {
-      throw new Error(`Balances API: ${error.response?.data?.message || error.message}`);
+      const status = error.response?.status;
+      const msg = error.response?.data?.message || error.message;
+      throw new Error(`Balances API [${status || 'timeout'}]: ${msg}`);
     }
   }
 
   static async getFuturesPositions() {
-    const timestamp = Math.floor(Date.now());
-    const body = { timestamp };
-    const payload = JSON.stringify(body);
-    const signature = this.sign(payload);
-
+    const { body, headers } = this.buildSignedRequest({ timestamp: Date.now() });
     try {
-      const response = await axios.post(`${config.apiBaseUrl}/exchange/v1/derivatives/futures/positions`, body, {
-        headers: {
-          'X-AUTH-APIKEY': config.apiKey,
-          'X-AUTH-SIGNATURE': signature,
-        },
-        timeout: 5000,
-      });
+      const response = await axios.post(
+        `${config.apiBaseUrl}/exchange/v1/derivatives/futures/positions`,
+        body,
+        { headers, timeout: 10000 },
+      );
       return response.data;
     } catch (error: any) {
-      throw new Error(`Positions API: ${error.response?.data?.message || error.message}`);
+      const status = error.response?.status;
+      const msg = error.response?.data?.message || error.message;
+      throw new Error(`Positions API [${status || 'timeout'}]: ${msg}`);
     }
   }
 
