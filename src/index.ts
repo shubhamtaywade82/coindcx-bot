@@ -137,8 +137,15 @@ async function runApp(ctx: Context) {
 
     Array.from(state.positions.values()).forEach((p: any) => {
        const pnl = parseFloat(p.unrealized_pnl || '0');
-       const currency = p.margin_currency_short_name || p.settlement_currency_short_name || 'USDT';
+       const currency = (p.margin_currency_short_name || p.settlement_currency_short_name || 'USDT').toUpperCase();
        activePnlMap.set(currency, (activePnlMap.get(currency) || 0) + pnl);
+       
+       // Add to total global PnL (converted to INR)
+       if (currency === 'INR') {
+         totalPnlInr += pnl;
+       } else if (currency === 'USDT' || currency === 'USD') {
+         totalPnlInr += pnl * state.usdtInrRate;
+       }
     });
 
     const rows: string[][] = [];
@@ -149,26 +156,31 @@ async function runApp(ctx: Context) {
         const available = parseFloat(info.balance || '0');
         const locked = parseFloat(info.locked || '0');
         const walletBalance = available + locked;
-        const activePnl = activePnlMap.get(currency) || 0;
-        const currentValue = walletBalance + activePnl;
-
+        let activePnl = activePnlMap.get(currency) || 0;
+        
+        // For the main INR row, show the total aggregated PnL across all currencies
         if (currency === 'INR') {
-          totalEqInr += currentValue;
-          totalWalInr += walletBalance;
-          totalPnlInr += activePnl;
+          activePnl = totalPnlInr;
         }
-
+        
+        const currentValue = walletBalance + activePnl;
         const pnlPct = walletBalance > 0 ? (activePnl / walletBalance) * 100 : 0;
         const utilPct = walletBalance > 0 ? (locked / walletBalance) * 100 : 0;
 
-        const isInr = currency === 'INR';
+        // Add to global totals (converted to INR)
+        const inrValue = currency === 'INR' ? currentValue : currentValue * state.usdtInrRate;
+        const inrWallet = currency === 'INR' ? walletBalance : walletBalance * state.usdtInrRate;
+        totalEqInr += inrValue;
+        totalWalInr += inrWallet;
+
+        const isInr = currency === 'INR' || currency === 'USDTINR'; // Special case for INR-settled
         const prefix = isInr ? '₹' : '';
 
         rows.push([
           isInr ? '₹ INR' : currency,
           `${prefix}${formatQty(currentValue)}`,
           `${prefix}${formatQty(walletBalance)}`,
-          formatPnl(activePnl, isInr),
+          formatPnl(activePnl, prefix),
           `{${pnlPct >= 0 ? 'green' : 'red'}-fg}${pnlPct.toFixed(2)}%{/${pnlPct >= 0 ? 'green' : 'red'}-fg}`,
           `${prefix}${formatQty(available)}`,
           `${prefix}${formatQty(locked)}`,
@@ -182,7 +194,7 @@ async function runApp(ctx: Context) {
             '{cyan-fg}$ USD{/cyan-fg}',
             `{cyan-fg}$${formatQty(usdEq, 2)}{/cyan-fg}`,
             `{cyan-fg}$${formatQty(usdWal, 2)}{/cyan-fg}`,
-            formatPnl(activePnl / state.usdtInrRate, false),
+            formatPnl(activePnl / state.usdtInrRate, '$'),
             `{${pnlPct >= 0 ? 'green' : 'red'}-fg}${pnlPct.toFixed(2)}%{/${pnlPct >= 0 ? 'green' : 'red'}-fg}`,
             `{cyan-fg}$${formatQty(available / state.usdtInrRate, 2)}{/cyan-fg}`,
             `{cyan-fg}$${formatQty(locked / state.usdtInrRate, 2)}{/cyan-fg}`,
@@ -197,7 +209,7 @@ async function runApp(ctx: Context) {
     tui.updateSummary({
       equity: `₹${formatQty(totalEqInr)} (${formatQty(totalEqInr / state.usdtInrRate, 2)} USDT)`,
       wallet: `₹${formatQty(totalWalInr)} (${formatQty(totalWalInr / state.usdtInrRate, 2)} USDT)`,
-      net: formatPnl(totalPnlInr, true),
+      net: formatPnl(totalPnlInr, '₹'),
       unrealUsdt: `${formatQty(totalPnlInr / state.usdtInrRate, 2)} USDT`
     });
   }
@@ -359,7 +371,8 @@ async function runApp(ctx: Context) {
           change: changeVal?.toString() || '0',
         });
 
-        if (pair === 'USDTINR') {
+        const clean = cleanPair(pair);
+        if (clean === 'USDTINR') {
           state.usdtInrRate = parseFloat(price.toString());
         }
       }
@@ -389,6 +402,10 @@ async function runApp(ctx: Context) {
         markPrice: markPrice?.toString() || existing.markPrice,
         change: changePct?.toString() || existing.change,
       });
+
+      if (pair === 'USDTINR') {
+        state.usdtInrRate = parseFloat(lastPrice?.toString() || state.usdtInrRate.toString());
+      }
 
       // Update active positions PnL in real-time
       if (markPrice) {

@@ -63,7 +63,7 @@ export class TuiApp {
       border: { type: 'line', fg: 'blue' },
       style: { fg: 'white' },
       tags: true,
-      content: ' {gray-fg}S PRICE{/gray-fg}{right}{gray-fg}QTY{/gray-fg}  {/right}',
+      content: ' {gray-fg}S PRICE              QTY{/gray-fg}',
       scrollable: true
     });
 
@@ -241,18 +241,20 @@ export class TuiApp {
   }
 
   updateTrades(data: string[][]) {
-    // Header with gray color and right-aligned QTY
-    let content = ' {gray-fg}S PRICE{/gray-fg}{right}{gray-fg}QTY{/gray-fg}  {/right}\n';
+    const totalWidth = 26;
+    const headerLeft = ' S PRICE';
+    const headerRight = 'QTY  ';
+    const headerPadding = Math.max(1, totalWidth - (headerLeft.length + headerRight.trim().length));
+    let content = ` {gray-fg}${headerLeft}${' '.repeat(headerPadding)}${headerRight.trim()}{/gray-fg}\n`;
+
     content += data.map(row => {
       if (row.length < 3) return '';
       const side = row[0] || '';
       const price = row[1] || '';
       const qty = row[2] || '';
       
-      // Manual padding to push QTY to the right
       const leftPart = ` ${this.pad(side, 2)}${this.pad(price, 10)}`;
       const qtyPlain = qty.replace(/\{[^\}]+\}/g, '');
-      const totalWidth = 26; // Adjust based on grid size
       const padding = Math.max(1, totalWidth - (leftPart.replace(/\{[^\}]+\}/g, '').length + qtyPlain.length));
       
       return `${leftPart}${' '.repeat(padding)}${qty}`;

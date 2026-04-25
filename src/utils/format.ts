@@ -14,12 +14,11 @@ export function formatPrice(value: string | number | undefined): string {
   return num.toFixed(8);
 }
 
-export function formatPnl(value: string | number | undefined, useInr: boolean = false): string {
+export function formatPnl(value: string | number | undefined, prefix: string = ''): string {
   if (value === undefined || value === null || value === '') return '—';
   const num = typeof value === 'string' ? parseFloat(value) : value;
   if (isNaN(num)) return '—';
   const sign = num > 0 ? '+' : '';
-  const prefix = useInr ? '₹' : '';
   const val = `${sign}${prefix}${Math.abs(num).toFixed(2)}`;
   return num > 0 ? `{green-fg}${val}{/green-fg}` : num < 0 ? `{red-fg}${val}{/red-fg}` : val;
 }
