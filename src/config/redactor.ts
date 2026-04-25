@@ -1,8 +1,15 @@
 const SENSITIVE = /(secret|token|key|password)/i;
 
-export const REDACT_KEYS = [
-  '*.secret', '*.token', '*.key', '*.password',
+const SENSITIVE_NAMES = [
   'secret', 'token', 'key', 'password',
+  'apiKey', 'apiSecret', 'accessToken', 'refreshToken',
+  'COINDCX_API_KEY', 'COINDCX_API_SECRET',
+  'TELEGRAM_BOT_TOKEN', 'PG_URL',
+];
+
+export const REDACT_KEYS: string[] = [
+  ...SENSITIVE_NAMES,
+  ...SENSITIVE_NAMES.map((n) => `*.${n}`),
 ];
 
 export function redact<T>(obj: T): T {
