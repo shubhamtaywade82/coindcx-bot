@@ -32,6 +32,17 @@ export class TuiApp {
     this.screen = blessed.screen({
       smartCSR: true,
       title: 'SMC Alpha Terminal',
+      input: process.stdin,
+      output: process.stdout,
+      terminal: 'xterm-256color',
+      fullUnicode: true
+    });
+
+    // Debug: Log all keypresses to help diagnose terminal issues
+    this.screen.on('keypress', (ch: any, key: any) => {
+      if (key && key.name) {
+        this.log(`Key detected: ${key.name} (ch: ${ch || 'none'})`);
+      }
     });
 
     this.grid = new contrib.grid({ rows: 12, cols: 12, screen: this.screen });
@@ -199,7 +210,10 @@ export class TuiApp {
     const wsStatus = this.isConnected ? '{green-fg}●{/green-fg}' : '{red-fg}○{/red-fg}';
     const time = new Date().toLocaleTimeString();
     
-    const content = ` {bold}LIVE{/bold}  │  ENGINE: {green-fg}RUN{/green-fg}  │  WS: ${wsStatus}  │  FEED: {green-fg}OK{/green-fg}  │  FOCUS: ${this.focusedPairClean}  │  TIME: ${time}`;
+    const modeStr = config.isReadOnly ? '{red-fg}PAPER{/red-fg}' : '{green-fg}LIVE{/green-fg}';
+    const orderStr = config.isReadOnly ? '{red-fg}OFF{/red-fg}' : '{green-fg}ON{/green-fg}';
+    
+    const content = ` {bold}ENGINE: {green-fg}RUN{/green-fg}{/bold}  │  MODE: ${modeStr}  │  ORDER: ${orderStr}  │  WS: ${wsStatus}  │  FEED: {green-fg}OK{/green-fg}  │  FOCUS: ${this.focusedPairClean}  │  TIME: ${time}`;
     this.statusBar.setContent(content);
     this.render();
   }
@@ -255,33 +269,25 @@ export class TuiApp {
     this.logPanel.log(`[${new Date().toLocaleTimeString()}] ${message}`);
   }
 
-  private pad(str: string, width: number) {
-    const plain = str.replace(/\{[^\}]+\}/g, '');
-    const len = plain.length;
-    if (len >= width) return str;
-    return str + ' '.repeat(width - len);
-  }
-
   updateOrderBook(asks: string[][], bids: string[][], lastPrice: string) {
-    const _totalWidth = 26;
-    const header = ' {gray-fg}PRICE      AMOUNT      SUM{/gray-fg}\n';
+    const header = ' {gray-fg}PRICE           AMOUNT            SUM{/gray-fg}\n';
     
-    // Asks (Red) - Should be descending from top to spread
+    // Asks (Red)
     const askRows = asks.slice(0, 10).map(row => {
-      const price = `{red-fg}${this.pad(row[0], 10)}{/red-fg}`;
-      const amount = this.pad(row[1], 10);
-      const sum = row[2];
+      const price = `{red-fg}${this.padRight(row[0], 12)}{/red-fg}`;
+      const amount = this.padRight(row[1], 15);
+      const sum = this.padRight(row[2], 15);
       return ` ${price}${amount}${sum}`;
     }).reverse();
 
     // Last Price Row
-    const ltpRow = `\n {bold}${this.pad(lastPrice, 10)}{/bold}\n`;
+    const ltpRow = `\n {bold}${this.padRight(lastPrice, 12)}{/bold}\n`;
 
-    // Bids (Green) - Should be descending
+    // Bids (Green)
     const bidRows = bids.slice(0, 10).map(row => {
-      const price = `{green-fg}${this.pad(row[0], 10)}{/green-fg}`;
-      const amount = this.pad(row[1], 10);
-      const sum = row[2];
+      const price = `{green-fg}${this.padRight(row[0], 12)}{/green-fg}`;
+      const amount = this.padRight(row[1], 15);
+      const sum = this.padRight(row[2], 15);
       return ` ${price}${amount}${sum}`;
     });
 
@@ -302,28 +308,101 @@ export class TuiApp {
     this.render();
   }
 
+  private padLeft(str: string, width: number) {
+    const plain = str.replace(/\{[^\}]+\}/g, '');
+    const len = plain.length;
+    if (len >= width) return str;
+    return str + ' '.repeat(width - len);
+  }
+
+  private padRight(str: string, width: number) {
+    const plain = str.replace(/\{[^\}]+\}/g, '');
+    const len = plain.length;
+    if (len >= width) return str;
+    return ' '.repeat(width - len) + str;
+  }
+
   updatePositions(rows: string[][]) {
-    const data = [['SYM', 'SIDE', 'QTY', 'ENT', 'LAST', 'MARK', 'SL', 'PNL'], ...rows];
+    // SYM(10) SIDE(6) QTY(10) ENT(10) LAST(10) MARK(10) SL(10) PNL(12)
+    const headers = [
+      this.padLeft('SYM', 8),
+      this.padLeft('SIDE', 6),
+      this.padRight('QTY', 12),
+      this.padRight('ENT', 12),
+      this.padRight('LAST', 12),
+      this.padRight('MARK', 12),
+      this.padRight('SL', 12),
+      this.padRight('PNL', 14)
+    ];
+
+    const data = [headers];
+    rows.forEach(r => {
+      data.push([
+        this.padLeft(r[0] || '', 8),
+        this.padLeft(r[1] || '', 6),
+        this.padRight(r[2] || '', 12),
+        this.padRight(r[3] || '', 12),
+        this.padRight(r[4] || '', 12),
+        this.padRight(r[5] || '', 12),
+        this.padRight(r[6] || '', 12),
+        this.padRight(r[7] || '', 14)
+      ]);
+    });
+
     this.positionsTable.setData(data);
     this.render();
   }
 
   updateBalances(rows: string[][]) {
-    let content = ' {green-fg}Asset       Value       Wallet      PnL        %           Available   Locked      Util%{/green-fg}\n';
-    content += rows.map(row => {
-      // row: [asset, val, wal, pnl, pnl%, avail, locked, util%]
-      return ` ${this.pad(row[0] || '', 12)}${this.pad(row[1] || '', 12)}${this.pad(row[2] || '', 12)}${this.pad(row[3] || '', 11)}${this.pad(row[4] || '', 12)}${this.pad(row[5] || '', 12)}${this.pad(row[6] || '', 12)}${row[7] || ''}`;
-    }).join('\n');
-    this.balanceTable.setContent(content);
+    // ASSET(8) VALUE(12) WALLET(12) PNL(12) %(8) AVAIL(12) LOCK(12) UTIL(10)
+    const headers = [
+      this.padLeft('ASSET', 8),
+      this.padRight('VALUE', 12),
+      this.padRight('WALLET', 12),
+      this.padRight('PNL', 12),
+      this.padRight('%', 8),
+      this.padRight('AVAIL', 12),
+      this.padRight('LOCK', 12),
+      this.padRight('UTIL%', 10)
+    ];
+
+    const data = [headers];
+    rows.forEach(r => {
+      data.push([
+        this.padLeft(r[0] || '', 8),
+        this.padRight(r[1] || '', 12),
+        this.padRight(r[2] || '', 12),
+        this.padRight(r[3] || '', 12),
+        this.padRight(r[4] || '', 8),
+        this.padRight(r[5] || '', 12),
+        this.padRight(r[6] || '', 12),
+        this.padRight(r[7] || '', 10)
+      ]);
+    });
+
+    this.balanceTable.setData(data);
     this.render();
   }
 
-  updateOrders(data: string[][]) {
-    let content = ' {magenta-fg}T   PAIR        ST        LAT{/magenta-fg}\n';
-    content += data.map(row => {
-      return ` ${this.pad(row[0], 4)}${this.pad(row[1], 12)}${this.pad(row[2], 10)}${row[3]}`;
-    }).join('\n');
-    this.orderTable.setContent(content);
+  updateOrders(rows: string[][]) {
+    const headers = [
+      this.padLeft('T', 4),
+      this.padLeft('PAIR', 12),
+      this.padLeft('ST', 10),
+      this.padRight('LAT', 8)
+    ];
+
+    const data = [headers];
+    rows.forEach(r => {
+      data.push([
+        this.padLeft(r[0] || '', 4),
+        this.padLeft(r[1] || '', 12),
+        this.padLeft(r[2] || '', 10),
+        this.padRight(r[3] || '', 8)
+      ]);
+    });
+
+    this.orderTable.setData(data);
     this.render();
   }
 }
