@@ -241,7 +241,7 @@ export class TuiApp {
   }
 
   updateOrderBook(asks: string[][], bids: string[][], lastPrice: string) {
-    const totalWidth = 26;
+    const _totalWidth = 26;
     const header = ' {gray-fg}PRICE      AMOUNT      SUM{/gray-fg}\n';
     
     // Asks (Red) - Should be descending from top to spread

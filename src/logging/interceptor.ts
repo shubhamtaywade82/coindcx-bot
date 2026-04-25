@@ -22,6 +22,7 @@ export function interceptConsole(logger: AppLogger) {
     }).join(' ');
   };
 
+  /* eslint-disable no-console */
   console.log = (...args: any[]) => {
     logger.info({ mod, source: 'stdout' }, formatArgs(args));
   };
@@ -41,4 +42,5 @@ export function interceptConsole(logger: AppLogger) {
   console.debug = (...args: any[]) => {
     logger.debug({ mod, source: 'stdout' }, formatArgs(args));
   };
+  /* eslint-enable no-console */
 }
