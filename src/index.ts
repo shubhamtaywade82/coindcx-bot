@@ -99,6 +99,24 @@ async function runApp(ctx: Context) {
 
   const MAX_TRADES = 50;
 
+  function log(msg: any) {
+    if (typeof msg === 'string' && msg.startsWith('{')) {
+      try {
+        const data = JSON.parse(msg);
+        if (data.type === 'clock_skew') {
+          const skew = data.payload?.localVsNtp || 0;
+          tui.log(`{red-fg}{bold}[CRITICAL]{/bold} Clock Skew: ${skew}ms. Run 'sudo chronyc -a makestep' to sync.{/red-fg}`);
+          return;
+        }
+        if (data.strategy === 'integrity') {
+          tui.log(`{yellow-fg}[INTEGRITY] ${data.type}: ${data.payload?.reason || 'check failed'}{/yellow-fg}`);
+          return;
+        }
+      } catch { /* fallback to raw */ }
+    }
+    tui.log(msg);
+  }
+
   function safeParse(data: any) {
     if (typeof data === 'string') {
       try { return JSON.parse(data); } catch { return null; }
@@ -376,7 +394,7 @@ async function runApp(ctx: Context) {
     if (!state.hasValidAuth) return;
 
     try {
-      tui.log('Fetching account balances...');
+      log('Fetching account balances...');
       const balances = await CoinDCXApi.getBalances();
       const balArr = Array.isArray(balances) ? balances : [];
       balArr.forEach((b: any) => {
@@ -390,15 +408,15 @@ async function runApp(ctx: Context) {
           locked: newLocked,
         });
       });
-      tui.log(`✓ Loaded ${state.balanceMap.size} balances`);
+      log(`✓ Loaded ${state.balanceMap.size} balances`);
       refreshBalanceDisplay();
     } catch (err: any) {
-      tui.log(`⚠ Balance fetch failed: ${err.message}`);
+      log(`⚠ Balance fetch failed: ${err.message}`);
       tui.updateBalances([['API error', err.message.substring(0, 30), '—', '—', '—', '—']]);
     }
 
     try {
-      tui.log('Fetching futures positions...');
+      log('Fetching futures positions...');
       const posRaw = await CoinDCXApi.getFuturesPositions();
       const posArr = Array.isArray(posRaw) ? posRaw : (posRaw?.data || []);
 
@@ -410,9 +428,9 @@ async function runApp(ctx: Context) {
 
       refreshPositionsDisplay();
       refreshBalanceDisplay(); // Because PnL depends on positions
-      tui.log(`✓ Loaded ${state.positions.size} active positions`);
+      log(`✓ Loaded ${state.positions.size} active positions`);
     } catch (err: any) {
-      tui.log(`⚠ Position fetch failed: ${err.message}`);
+      log(`⚠ Position fetch failed: ${err.message}`);
       tui.updatePositions([['API error', '—', '—', '—', '—', '—']]);
     }
   }
@@ -424,7 +442,7 @@ async function runApp(ctx: Context) {
     void fetchPrivateData();
     setInterval(fetchPrivateData, 30000); // refresh every 30s as a fallback
   } else {
-    tui.log('⚠ API Key/Secret missing — PUBLIC ONLY mode');
+    log('⚠ API Key/Secret missing — PUBLIC ONLY mode');
     state.hasValidAuth = false;
     tui.updateBalances([['No API key', '—', '—', '—', '—', '—']]);
     tui.updatePositions([['No API key', '—', '—', '—', '—', '—']]);
@@ -434,17 +452,17 @@ async function runApp(ctx: Context) {
 
   ws.on('connected', () => {
     state.isWsConnected = true;
-    tui.log('✓ WebSocket connected');
+    log('✓ WebSocket connected');
     tui.updateStatus({ connected: true });
     ctx.audit.recordEvent({ kind: 'ws_reconnect', source: 'ws', payload: {} });
   });
   ws.on('disconnected', (reason) => {
     state.isWsConnected = false;
-    tui.log(`✗ Disconnected: ${reason}`);
+    log(`✗ Disconnected: ${reason}`);
     tui.updateStatus({ connected: false });
   });
   ws.on('error', (error) => {
-    tui.log(`✗ WS error: ${error.message}`);
+    log(`✗ WS error: ${error.message}`);
     tui.updateStatus({ connected: false });
   });
   ws.on('debug', (msg) => ctx.logger.debug({ mod: 'ws' }, msg));
@@ -616,7 +634,7 @@ async function runApp(ctx: Context) {
     const data = safeParse(raw);
     if (!data) return;
     const positions = Array.isArray(data) ? data : [data];
-    tui.log(`Position update: ${positions.length} received`);
+    log(`Position update: ${positions.length} received`);
 
     positions.forEach((p: any) => {
       if (p.id) {
@@ -633,7 +651,7 @@ async function runApp(ctx: Context) {
     const data = safeParse(raw);
     if (!data) return;
     const orders = Array.isArray(data) ? data : [data];
-    tui.log(`Order update: ${orders.length} received`);
+    log(`Order update: ${orders.length} received`);
 
     orders.forEach((o: any) => {
       if (o.id) {
@@ -653,7 +671,7 @@ async function runApp(ctx: Context) {
     const data = safeParse(raw);
     if (!data) return;
     const balances = Array.isArray(data) ? data : [data];
-    tui.log(`Balance update: ${balances.length} assets`);
+    log(`Balance update: ${balances.length} assets`);
 
     balances.forEach((b: any) => {
       const name = b.currency_short_name || b.currency || 'N/A';
@@ -698,7 +716,7 @@ async function runApp(ctx: Context) {
       });
       refreshBalanceDisplay();
     } catch (err: any) {
-      tui.log(`Refresh error: ${err.message}`);
+      log(`Refresh error: ${err.message}`);
     }
   }, 30_000);
 }
