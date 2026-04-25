@@ -161,25 +161,28 @@ async function runApp(ctx: Context) {
         const pnlPct = walletBalance > 0 ? (activePnl / walletBalance) * 100 : 0;
         const utilPct = walletBalance > 0 ? (locked / walletBalance) * 100 : 0;
 
+        const isInr = currency === 'INR';
+        const prefix = isInr ? '₹' : '';
+
         rows.push([
-          currency,
-          formatQty(currentValue),
-          formatQty(walletBalance),
-          formatPnl(activePnl),
+          isInr ? '₹ INR' : currency,
+          `${prefix}${formatQty(currentValue)}`,
+          `${prefix}${formatQty(walletBalance)}`,
+          formatPnl(activePnl, isInr),
           `{${pnlPct >= 0 ? 'green' : 'red'}-fg}${pnlPct.toFixed(2)}%{/${pnlPct >= 0 ? 'green' : 'red'}-fg}`,
-          formatQty(available),
-          formatQty(locked),
+          `${prefix}${formatQty(available)}`,
+          `${prefix}${formatQty(locked)}`,
           `{yellow-fg}${utilPct.toFixed(1)}%{/yellow-fg}`
         ]);
 
-        if (currency === 'INR' && state.usdtInrRate > 0) {
+        if (isInr && state.usdtInrRate > 0) {
           const usdEq = currentValue / state.usdtInrRate;
           const usdWal = walletBalance / state.usdtInrRate;
           rows.push([
-            '{cyan-fg}USD{/cyan-fg}',
+            '{cyan-fg}$ USD{/cyan-fg}',
             `{cyan-fg}$${formatQty(usdEq, 2)}{/cyan-fg}`,
             `{cyan-fg}$${formatQty(usdWal, 2)}{/cyan-fg}`,
-            formatPnl(activePnl / state.usdtInrRate),
+            formatPnl(activePnl / state.usdtInrRate, false),
             `{${pnlPct >= 0 ? 'green' : 'red'}-fg}${pnlPct.toFixed(2)}%{/${pnlPct >= 0 ? 'green' : 'red'}-fg}`,
             `{cyan-fg}$${formatQty(available / state.usdtInrRate, 2)}{/cyan-fg}`,
             `{cyan-fg}$${formatQty(locked / state.usdtInrRate, 2)}{/cyan-fg}`,
@@ -194,7 +197,7 @@ async function runApp(ctx: Context) {
     tui.updateSummary({
       equity: `₹${formatQty(totalEqInr)} (${formatQty(totalEqInr / state.usdtInrRate, 2)} USDT)`,
       wallet: `₹${formatQty(totalWalInr)} (${formatQty(totalWalInr / state.usdtInrRate, 2)} USDT)`,
-      net: formatPnl(totalPnlInr),
+      net: formatPnl(totalPnlInr, true),
       unrealUsdt: `${formatQty(totalPnlInr / state.usdtInrRate, 2)} USDT`
     });
   }
@@ -346,10 +349,10 @@ async function runApp(ctx: Context) {
     if (!prices || typeof prices !== 'object' || Array.isArray(prices)) return;
 
     Object.entries(prices).forEach(([pair, val]: [string, any]) => {
-      const price = typeof val === 'object' ? (val.ls || val.mp || val.p) : val;
+      const price = (val && typeof val === 'object') ? (val.ls || val.mp || val.p) : val;
       if (price !== undefined && price !== null) {
         const existing = state.tickers.get(pair) || { price: '0', markPrice: '0', change: '0' };
-        const changeVal = typeof val === 'object' ? (val.pc || existing.change) : existing.change;
+        const changeVal = (val && typeof val === 'object') ? (val.pc || existing.change) : existing.change;
         state.tickers.set(pair, {
           ...existing,
           price: price.toString(),
