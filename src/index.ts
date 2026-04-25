@@ -30,10 +30,11 @@ async function main() {
   const state = {
     tickers: new Map<string, TickerInfo>(),
     allTrades: [] as TradeEntry[],
-    positions: [] as string[][],
-    orders: [] as string[][],
+    positions: new Map<string, any>(),
+    orders: new Map<string, any>(),
     balanceMap: new Map<string, { balance: string; locked: string }>(),
     hasValidAuth: true,
+    usdtInrRate: 88.5, // Fallback rate
   };
 
   const MAX_TRADES = 50;
@@ -75,11 +76,74 @@ async function main() {
     }
   }
 
+  function refreshPositionsDisplay() {
+    const rows = Array.from(state.positions.values())
+      .filter((p: any) => p.active_pos !== 0) // Only show active positio
+      .map((p: any) => [
+        cleanPair(p.pair || 'N/A'),
+        p.active_pos > 0 ? 'LONG' : 'SHORT',
+        `${p.leverage || 1}x`,
+        formatPrice(p.avg_price),
+        formatPrice(p.mark_price),
+        formatPnl(p.unrealized_pnl || 0),
+      ]);
+    tui.updatePositions(rows.length > 0 ? rows : [['No active positions', '—', '—', '—', '—', '—']]);
+  }
+
+  function refreshOrdersDisplay() {
+    const rows = Array.from(state.orders.values())
+      .map((o: any) => [
+        cleanPair(o.pair || 'N/A'),
+        (o.side || 'N/A').toUpperCase(),
+        formatPrice(o.price),
+        formatQty(o.total_quantity),
+        (o.status || 'N/A').toUpperCase(),
+      ]);
+    tui.updateOrders(rows.length > 0 ? rows : [['No open orders', '—', '—', '—', '—']]);
+  }
+
   function refreshBalanceDisplay() {
-    const rows = Array.from(state.balanceMap.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([currency, info]) => [currency, info.balance, info.locked]);
-    tui.updateBalances(rows.length > 0 ? rows : [['No balances', '—', '—']]);
+    const activePnlMap = new Map<string, number>();
+
+    Array.from(state.positions.values()).forEach((p: any) => {
+       const pnl = parseFloat(p.unrealized_pnl || '0');
+       const currency = p.margin_currency_short_name || p.settlement_currency_short_name || 'USDT';
+       activePnlMap.set(currency, (activePnlMap.get(currency) || 0) + pnl);
+    });
+
+    const rows: string[][] = [];
+
+    Array.from(state.balanceMap.entries())
+      .filter(([_, info]) => parseFloat(info.balance) > 0 || parseFloat(info.locked) > 0)
+      .forEach(([currency, info]) => {
+        const available = parseFloat(info.balance || '0');
+        const locked = parseFloat(info.locked || '0');
+        const walletBalance = available + locked;
+        const activePnl = activePnlMap.get(currency) || 0;
+        const currentValue = walletBalance + activePnl;
+
+        rows.push([
+          currency,
+          formatQty(currentValue),
+          formatQty(walletBalance),
+          formatPnl(activePnl),
+          formatQty(available),
+          formatQty(locked)
+        ]);
+
+        if (currency === 'INR' && state.usdtInrRate > 0) {
+          rows.push([
+            'USD',
+            `$${formatQty(currentValue / state.usdtInrRate)}`,
+            `$${formatQty(walletBalance / state.usdtInrRate)}`,
+            formatPnl(activePnl / state.usdtInrRate),
+            `$${formatQty(available / state.usdtInrRate)}`,
+            `$${formatQty(locked / state.usdtInrRate)}`
+          ]);
+        }
+      });
+      
+    tui.updateBalances(rows.length > 0 ? rows : [['No balances', '—', '—', '—', '—', '—']]);
   }
 
   // ── On Focus Change: re-filter trades + update header ──
@@ -91,16 +155,24 @@ async function main() {
   // ── Set initial placeholders ──
   tui.updateTrades([['Connecting...', '—', '—', '—', '—']]);
   tui.updatePositions([['Connecting...', '—', '—', '—', '—', '—']]);
-  tui.updateBalances([['Connecting...', '—', '—']]);
+  tui.updateBalances([['Connecting...', '—', '—', '—', '—', '—']]);
   tui.updateOrders([['No open orders', '—', '—', '—', '—']]);
 
-  // ══════════════════════════════════════════════════════
-  // ── Initial REST API Fetch ──
-  // ══════════════════════════════════════════════════════
-  if (config.apiKey && config.apiSecret) {
-    // Fetch balances
+  async function fetchPrivateData() {
     try {
-      tui.log('Fetching balances...');
+      const tickers = await CoinDCXApi.getTickers();
+      const usdtInrTicker = tickers.find((t: any) => t.market === 'USDTINR');
+      if (usdtInrTicker && usdtInrTicker.last_price) {
+        state.usdtInrRate = parseFloat(usdtInrTicker.last_price);
+      }
+    } catch (err) {
+      // Ignore ticker fetch errors
+    }
+
+    if (!state.hasValidAuth) return;
+
+    try {
+      tui.log('Fetching account balances...');
       const balances = await CoinDCXApi.getBalances();
       const balArr = Array.isArray(balances) ? balances : [];
       balArr.forEach((b: any) => {
@@ -108,10 +180,7 @@ async function main() {
         if (!currency) return;
         const newBal = b.balance?.toString() || '0';
         const newLocked = (b.locked_balance ?? b.locked ?? '0').toString();
-        
-        const existing = state.balanceMap.get(currency);
-        
-        // Use the new futures wallet data directly
+
         state.balanceMap.set(currency, {
           balance: newBal,
           locked: newLocked,
@@ -121,39 +190,41 @@ async function main() {
       refreshBalanceDisplay();
     } catch (err: any) {
       tui.log(`⚠ Balance fetch failed: ${err.message}`);
-      tui.updateBalances([['API error', err.message.substring(0, 30), '—']]);
+      tui.updateBalances([['API error', err.message.substring(0, 30), '—', '—', '—', '—']]);
     }
 
-    // Fetch positions
     try {
       tui.log('Fetching futures positions...');
       const posRaw = await CoinDCXApi.getFuturesPositions();
       const posArr = Array.isArray(posRaw) ? posRaw : (posRaw?.data || []);
-      state.positions = posArr
-        .map((p: any) => [
-          cleanPair(p.pair || 'N/A'),
-          p.active_pos > 0 ? 'LONG' : (p.active_pos < 0 ? 'SHORT' : 'FLAT'),
-          `${p.leverage || 1}x`,
-          formatPrice(p.avg_price),
-          formatPrice(p.mark_price),
-          formatPnl(p.unrealized_pnl || 0),
-        ]);
-      tui.updatePositions(state.positions.length > 0
-        ? state.positions
-        : [['No active positions', '—', '—', '—', '—', '—']]);
-      tui.log(`✓ Loaded ${state.positions.length} active positions`);
+
+      // Update Map
+      state.positions.clear();
+      posArr.forEach((p: any) => {
+        if (p.id) state.positions.set(p.id, p);
+      });
+
+      refreshPositionsDisplay();
+      refreshBalanceDisplay(); // Because PnL depends on positions
+      tui.log(`✓ Loaded ${state.positions.size} active positions`);
     } catch (err: any) {
       tui.log(`⚠ Position fetch failed: ${err.message}`);
       tui.updatePositions([['API error', '—', '—', '—', '—', '—']]);
     }
-  } else {
-    tui.log('⚠ API Key/Secret missing — PUBLIC ONLY mode');
-    state.hasValidAuth = false;
-    tui.updateBalances([['No API key', '—', '—']]);
-    tui.updatePositions([['No API key', '—', '—', '—', '—', '—']]);
   }
 
   // ══════════════════════════════════════════════════════
+  // ── Initial REST API Fetch ──
+  // ══════════════════════════════════════════════════════
+  if (config.apiKey && config.apiSecret) {
+    fetchPrivateData();
+    setInterval(fetchPrivateData, 30000); // refresh every 30s as a fallback
+  } else {
+    tui.log('⚠ API Key/Secret missing — PUBLIC ONLY mode');
+    state.hasValidAuth = false;
+    tui.updateBalances([['No API key', '—', '—', '—', '—', '—']]);
+    tui.updatePositions([['No API key', '—', '—', '—', '—', '—']]);
+  }
   // ── WebSocket Events ──
   // ══════════════════════════════════════════════════════
 
@@ -219,6 +290,10 @@ async function main() {
           price: price.toString(),
           change: changeVal?.toString() || '0',
         });
+
+        if (pair === 'USDTINR') {
+          state.usdtInrRate = parseFloat(price.toString());
+        }
       }
     });
     refreshHeader();
@@ -230,6 +305,8 @@ async function main() {
     if (!data) return;
     const prices = data.prices || data;
     if (!prices || typeof prices !== 'object' || Array.isArray(prices)) return;
+
+    let positionsUpdated = false;
 
     Object.entries(prices).forEach(([rawPair, info]: [string, any]) => {
       if (!info || typeof info !== 'object') return;
@@ -244,7 +321,26 @@ async function main() {
         markPrice: markPrice?.toString() || existing.markPrice,
         change: changePct?.toString() || existing.change,
       });
+
+      // Update active positions PnL in real-time
+      if (markPrice) {
+        state.positions.forEach((pos: any) => {
+          if (cleanPair(pos.pair) === pair && pos.active_pos !== 0) {
+            const mp = parseFloat(markPrice);
+            const avg = parseFloat(pos.avg_price || '0');
+            const qty = parseFloat(pos.active_pos || '0');
+            pos.mark_price = mp;
+            pos.unrealized_pnl = (mp - avg) * qty;
+            positionsUpdated = true;
+          }
+        });
+      }
     });
+
+    if (positionsUpdated) {
+      refreshPositionsDisplay();
+      refreshBalanceDisplay();
+    }
     refreshHeader();
   });
 
@@ -255,18 +351,14 @@ async function main() {
     const positions = Array.isArray(data) ? data : [data];
     tui.log(`Position update: ${positions.length} received`);
 
-    state.positions = positions
-      .map((p: any) => [
-        cleanPair(p.pair || 'N/A'),
-        p.active_pos > 0 ? 'LONG' : (p.active_pos < 0 ? 'SHORT' : 'FLAT'),
-        `${p.leverage || 1}x`,
-        formatPrice(p.avg_price),
-        formatPrice(p.mark_price),
-        formatPnl(p.unrealized_pnl || 0),
-      ]);
-    tui.updatePositions(state.positions.length > 0
-      ? state.positions
-      : [['No active positions', '—', '—', '—', '—', '—']]);
+    positions.forEach((p: any) => {
+      if (p.id) {
+        state.positions.set(p.id, p);
+      }
+    });
+
+    refreshPositionsDisplay();
+    refreshBalanceDisplay(); // Update PnL in balance
   });
 
   // ── df-order-update: [{ pair, side, status, price, total_quantity, ... }] ──
@@ -276,18 +368,17 @@ async function main() {
     const orders = Array.isArray(data) ? data : [data];
     tui.log(`Order update: ${orders.length} received`);
 
-    state.orders = orders
-      .filter((o: any) => o.status === 'open' || o.status === 'partially_filled')
-      .map((o: any) => [
-        cleanPair(o.pair || 'N/A'),
-        (o.side || 'N/A').toUpperCase(),
-        formatPrice(o.price),
-        formatQty(o.total_quantity),
-        (o.status || 'N/A').toUpperCase(),
-      ]);
-    tui.updateOrders(state.orders.length > 0
-      ? state.orders
-      : [['No open orders', '—', '—', '—', '—']]);
+    orders.forEach((o: any) => {
+      if (o.id) {
+        if (o.status === 'open' || o.status === 'partially_filled') {
+          state.orders.set(o.id, o);
+        } else {
+          state.orders.delete(o.id);
+        }
+      }
+    });
+
+    refreshOrdersDisplay();
   });
 
   // ── balance-update: [{ balance, locked_balance, currency_short_name }] ──
@@ -318,18 +409,17 @@ async function main() {
     try {
       const posRaw = await CoinDCXApi.getFuturesPositions();
       const posArr = Array.isArray(posRaw) ? posRaw : (posRaw?.data || []);
-      state.positions = posArr
-        .map((p: any) => [
-          cleanPair(p.pair || 'N/A'),
-          p.active_pos > 0 ? 'LONG' : (p.active_pos < 0 ? 'SHORT' : 'FLAT'),
-          `${p.leverage || 1}x`,
-          formatPrice(p.avg_price),
-          formatPrice(p.mark_price),
-          formatPnl(p.unrealized_pnl || 0),
-        ]);
-      tui.updatePositions(state.positions.length > 0
-        ? state.positions
-        : [['No active positions', '—', '—', '—', '—', '—']]);
+
+      state.positions.clear();
+      posArr.forEach((p: any) => {
+        if (p.id) state.positions.set(p.id, p);
+      });
+      refreshPositionsDisplay();
+      const tickers = await CoinDCXApi.getTickers();
+      const usdtInrTicker = tickers.find((t: any) => t.market === 'USDTINR');
+      if (usdtInrTicker && usdtInrTicker.last_price) {
+        state.usdtInrRate = parseFloat(usdtInrTicker.last_price);
+      }
 
       const balances = await CoinDCXApi.getBalances();
       (Array.isArray(balances) ? balances : []).forEach((b: any) => {

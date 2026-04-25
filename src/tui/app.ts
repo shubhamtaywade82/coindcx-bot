@@ -63,13 +63,13 @@ export class TuiApp {
       columnWidth: [14, 6, 10, 10, 10],
     });
 
-    // ── Row 6-9, Col 0-6: Account Balances (global) ──
-    this.balanceTable = this.grid.set(6, 0, 3, 6, contrib.table, {
+    // ── Row 6-9, Col 0-12: Account Balances (global) ──
+    this.balanceTable = this.grid.set(6, 0, 3, 12, contrib.table, {
       label: ' ◉ Account Balances (All) ',
       border: { type: 'line', fg: 'green' },
       fg: 'white',
       columnSpacing: 2,
-      columnWidth: [10, 16, 16],
+      columnWidth: [10, 16, 16, 16, 16, 16],
     });
 
     // ── Row 6-9, Col 6-12: Reserved / extra (logs overflow) ──
@@ -88,8 +88,8 @@ export class TuiApp {
     this.screen.key(['escape', 'q', 'C-c'], () => process.exit(0));
 
     // Arrow keys to switch focused pair
-    this.screen.key(['left', 'h'], () => this.switchFocus(-1));
-    this.screen.key(['right', 'l'], () => this.switchFocus(1));
+    this.screen.key(['left', 'h', 'S-tab'], () => this.switchFocus(-1));
+    this.screen.key(['right', 'l', 'tab'], () => this.switchFocus(1));
 
     // Number keys for direct pair selection (1-9)
     for (let i = 1; i <= 9; i++) {
@@ -103,7 +103,7 @@ export class TuiApp {
 
     const mode = config.isReadOnly ? 'READ-ONLY' : 'LIVE';
     this.log(`CoinDCX Terminal [${mode}] — ${this.pairs.length} pairs loaded`);
-    this.log('Controls: ← → or h/l to switch pair | 1-9 direct select | q to quit');
+    this.log('Controls: ← →, h/l, or Tab to switch pair | 1-9 direct select | q to quit');
   }
 
   // ── Focus Management ──
@@ -121,8 +121,11 @@ export class TuiApp {
   }
 
   private switchFocus(direction: number) {
-    const newIndex = this.focusIndex + direction;
-    if (newIndex >= 0 && newIndex < this.pairs.length) {
+    let newIndex = this.focusIndex + direction;
+    if (newIndex < 0) newIndex = this.pairs.length - 1;
+    if (newIndex >= this.pairs.length) newIndex = 0;
+    
+    if (this.focusIndex !== newIndex) {
       this.focusIndex = newIndex;
       this.emitFocusChange();
     }
@@ -194,10 +197,10 @@ export class TuiApp {
     this.render();
   }
 
-  updateBalances(data: string[][]) {
+  updateBalances(rows: string[][]) {
     this.balanceTable.setData({
-      headers: ['Asset', 'Available', 'Locked'],
-      data,
+      headers: ['Asset', 'Current Value', 'Wallet Balance', 'Active PnL', 'Available', 'Locked'],
+      data: rows,
     });
     this.render();
   }

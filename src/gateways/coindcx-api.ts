@@ -46,7 +46,12 @@ export class CoinDCXApi {
   }
 
   static async getFuturesPositions() {
-    const { body, headers } = this.buildSignedRequest({ timestamp: Date.now() });
+    const { body, headers } = this.buildSignedRequest({
+      timestamp: Date.now(),
+      page: "1",
+      size: "100",
+      margin_currency_short_name: ["USDT", "INR"]
+    });
     try {
       const response = await axios.post(
         `${config.apiBaseUrl}/exchange/v1/derivatives/futures/positions`,
@@ -58,6 +63,16 @@ export class CoinDCXApi {
       const status = error.response?.status;
       const msg = error.response?.data?.message || error.message;
       throw new Error(`Positions API [${status || 'timeout'}]: ${msg}`);
+    }
+  }
+
+  static async getTickers() {
+    try {
+      const response = await axios.get(`${config.publicBaseUrl}/exchange/ticker`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching tickers:', error);
+      return [];
     }
   }
 
