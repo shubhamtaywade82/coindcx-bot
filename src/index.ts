@@ -77,7 +77,6 @@ async function main() {
 
   function refreshBalanceDisplay() {
     const rows = Array.from(state.balanceMap.entries())
-      .filter(([, info]) => parseFloat(info.balance) > 0 || parseFloat(info.locked) > 0)
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([currency, info]) => [currency, info.balance, info.locked]);
     tui.updateBalances(rows.length > 0 ? rows : [['No balances', '—', '—']]);
@@ -124,10 +123,9 @@ async function main() {
       const posRaw = await CoinDCXApi.getFuturesPositions();
       const posArr = Array.isArray(posRaw) ? posRaw : (posRaw?.data || []);
       state.positions = posArr
-        .filter((p: any) => p.active_pos !== undefined && p.active_pos !== 0)
         .map((p: any) => [
           cleanPair(p.pair || 'N/A'),
-          p.active_pos > 0 ? 'LONG' : 'SHORT',
+          p.active_pos > 0 ? 'LONG' : (p.active_pos < 0 ? 'SHORT' : 'FLAT'),
           `${p.leverage || 1}x`,
           formatPrice(p.avg_price),
           formatPrice(p.mark_price),
@@ -315,10 +313,9 @@ async function main() {
       const posRaw = await CoinDCXApi.getFuturesPositions();
       const posArr = Array.isArray(posRaw) ? posRaw : (posRaw?.data || []);
       state.positions = posArr
-        .filter((p: any) => p.active_pos !== undefined && p.active_pos !== 0)
         .map((p: any) => [
           cleanPair(p.pair || 'N/A'),
-          p.active_pos > 0 ? 'LONG' : 'SHORT',
+          p.active_pos > 0 ? 'LONG' : (p.active_pos < 0 ? 'SHORT' : 'FLAT'),
           `${p.leverage || 1}x`,
           formatPrice(p.avg_price),
           formatPrice(p.mark_price),
