@@ -34,13 +34,13 @@ export function cleanPair(pair: string): string {
   return pair.replace(/^B-/, '').replace('_', '');
 }
 
-export function formatQty(value: string | number | undefined): string {
+export function formatQty(value: string | number | undefined, decimals: number = 4): string {
   if (value === undefined || value === null || value === '') return '—';
   const num = typeof value === 'string' ? parseFloat(value) : value;
   if (isNaN(num)) return '—';
   if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(2)}M`;
   if (num >= 1_000) return `${(num / 1_000).toFixed(2)}K`;
-  return num.toFixed(4);
+  return num.toFixed(decimals);
 }
 
 export function formatTime(ts?: number): string {

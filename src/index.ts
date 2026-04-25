@@ -133,12 +133,12 @@ async function main() {
 
         if (currency === 'INR' && state.usdtInrRate > 0) {
           rows.push([
-            'USD',
-            `$${formatQty(currentValue / state.usdtInrRate)}`,
-            `$${formatQty(walletBalance / state.usdtInrRate)}`,
+            '{cyan-fg}USD{/cyan-fg}',
+            `{cyan-fg}$${formatQty(currentValue / state.usdtInrRate, 2)}{/cyan-fg}`,
+            `{cyan-fg}$${formatQty(walletBalance / state.usdtInrRate, 2)}{/cyan-fg}`,
             formatPnl(activePnl / state.usdtInrRate),
-            `$${formatQty(available / state.usdtInrRate)}`,
-            `$${formatQty(locked / state.usdtInrRate)}`
+            `{cyan-fg}$${formatQty(available / state.usdtInrRate, 2)}{/cyan-fg}`,
+            `{cyan-fg}$${formatQty(locked / state.usdtInrRate, 2)}{/cyan-fg}`
           ]);
         }
       });
