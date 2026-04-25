@@ -52,52 +52,69 @@ export class TuiApp {
       content: this.buildHeaderContent(),
     });
 
-    // ── Row 3-7, Col 0-3: Live Trades (Focused) ──
-    this.tradeTable = this.grid.set(3, 0, 5, 3, contrib.table, {
+    // ── Row 3-8, Col 0-2: Book (Focused) ──
+    this.tradeTable = this.grid.set(3, 0, 5, 2, blessed.listtable, {
       label: ' ◉ Book ',
       border: { type: 'line', fg: 'blue' },
-      fg: 'white',
-      columnSpacing: 1,
-      columnWidth: [3, 10, 10],
+      style: {
+        header: { fg: 'blue', bold: true },
+        cell: { fg: 'white' }
+      },
+      align: 'left',
       tags: true,
+      noCellBorders: true,
+      pad: 1
     });
 
-    // ── Row 3-7, Col 3-9: Positions (All) ──
-    this.positionTable = this.grid.set(3, 3, 5, 6, contrib.table, {
+    // ── Row 3-8, Col 2-12: Positions (All) ──
+    this.positionTable = this.grid.set(3, 2, 5, 10, blessed.listtable, {
       label: ' ◉ Positions ',
       border: { type: 'line', fg: 'yellow' },
-      fg: 'white',
-      columnSpacing: 1,
-      columnWidth: [8, 8, 8, 10, 10, 10, 6, 12],
+      style: {
+        header: { fg: 'yellow', bold: true },
+        cell: { fg: 'white' }
+      },
+      align: 'left',
       tags: true,
+      noCellBorders: true,
+      pad: 1
     });
 
-    // ── Row 3-7, Col 9-12: Orders (All) ──
-    this.orderTable = this.grid.set(3, 9, 5, 3, contrib.table, {
-      label: ' ◉ Orders ',
-      border: { type: 'line', fg: 'magenta' },
-      fg: 'white',
-      columnSpacing: 1,
-      columnWidth: [4, 10, 8, 8],
-      tags: true,
-    });
-
-    // ── Row 8-11, Col 0-7: Account Balances ──
-    this.balanceTable = this.grid.set(8, 0, 4, 7, contrib.table, {
+    // ── Row 8-10, Col 0-8: Account Balances ──
+    this.balanceTable = this.grid.set(8, 0, 2, 8, blessed.listtable, {
       label: ' ◉ Account Balances ',
       border: { type: 'line', fg: 'green' },
-      fg: 'white',
-      columnSpacing: 1,
-      columnWidth: [6, 12, 12, 12, 10, 10],
+      style: {
+        header: { fg: 'green', bold: true },
+        cell: { fg: 'white' }
+      },
+      align: 'left',
       tags: true,
+      noCellBorders: true,
+      pad: 1
     });
 
-    // ── Row 8-11, Col 7-12: Log Panel ──
-    this.logPanel = this.grid.set(8, 7, 4, 5, blessed.log, {
+    // ── Row 8-10, Col 8-12: Orders (All) ──
+    this.orderTable = this.grid.set(8, 8, 2, 4, blessed.listtable, {
+      label: ' ◉ Orders ',
+      border: { type: 'line', fg: 'magenta' },
+      style: {
+        header: { fg: 'magenta', bold: true },
+        cell: { fg: 'white' }
+      },
+      align: 'left',
+      tags: true,
+      noCellBorders: true,
+      pad: 1
+    });
+
+    // ── Row 10-12, Col 0-12: Log Panel ──
+    this.logPanel = this.grid.set(10, 0, 2, 12, blessed.log, {
       label: ' ◉ System Logs ',
       border: { type: 'line', fg: 'gray' },
       scrollable: true,
-      alwaysScroll: true,
+      tags: true,
+      style: { fg: 'gray' },
       scrollbar: { ch: ' ', inverse: true },
     });
 
@@ -216,34 +233,34 @@ export class TuiApp {
   }
 
   updateTrades(data: string[][]) {
-    this.tradeTable.setData({
-      headers: ['S', 'PRICE', 'QTY'],
-      data,
-    });
+    this.tradeTable.setData([
+      ['S', 'PRICE', 'QTY'],
+      ...data
+    ]);
     this.render();
   }
 
   updatePositions(data: string[][]) {
-    this.positionTable.setData({
-      headers: ['SYM', 'SIDE', 'QTY', 'ENT', 'LAST', 'MARK', 'SL', 'PNL'],
-      data,
-    });
+    this.positionTable.setData([
+      ['SYM', 'SIDE', 'QTY', 'ENT', 'LAST', 'MARK', 'SL', 'PNL'],
+      ...data
+    ]);
     this.render();
   }
 
   updateBalances(rows: string[][]) {
-    this.balanceTable.setData({
-      headers: ['Asset', 'Current Value', 'Wallet Balance', 'Active PnL', 'Available', 'Locked'],
-      data: rows,
-    });
+    this.balanceTable.setData([
+      ['Asset', 'Current Value', 'Wallet Balance', 'Active PnL', 'Available', 'Locked'],
+      ...rows
+    ]);
     this.render();
   }
 
   updateOrders(data: string[][]) {
-    this.orderTable.setData({
-      headers: ['T', 'PAIR', 'ST', 'LAT'],
-      data,
-    });
+    this.orderTable.setData([
+      ['T', 'PAIR', 'ST', 'LAT'],
+      ...data
+    ]);
     this.render();
   }
 }
