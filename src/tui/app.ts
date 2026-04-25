@@ -107,33 +107,21 @@ export class TuiApp {
     });
 
     // ── Row 8-10, Col 0-8: Account Balances ──
-    this.balanceTable = blessed.listtable({
+    this.balanceTable = blessed.box({
       parent: this.grid.set(8, 0, 2, 8, blessed.box, { label: ' Account Balances ' }),
-      keys: true,
       tags: true,
-      data: [['ASSET', 'VALUE', 'WALLET', 'PNL', '%', 'AVAIL', 'LOCK', 'UTIL']],
-      style: {
-        header: { fg: 'green', bold: true },
-        cell: { fg: 'white' }
-      },
-      align: 'left',
-      pad: 1,
-      noCellBorders: true
+      scrollable: true,
+      alwaysScroll: true,
+      scrollbar: { ch: ' ', inverse: true }
     });
 
     // ── Row 8-10, Col 8-12: Orders (All) ──
-    this.orderTable = blessed.listtable({
+    this.orderTable = blessed.box({
       parent: this.grid.set(8, 8, 2, 4, blessed.box, { label: ' Orders ' }),
-      keys: true,
       tags: true,
-      data: [['T', 'PAIR', 'ST', 'LAT']],
-      style: {
-        header: { fg: 'magenta', bold: true },
-        cell: { fg: 'white' }
-      },
-      align: 'left',
-      pad: 1,
-      noCellBorders: true
+      scrollable: true,
+      alwaysScroll: true,
+      scrollbar: { ch: ' ', inverse: true }
     });
 
     // ── Row 10-12, Col 0-12: Log Panel ──
@@ -323,29 +311,29 @@ export class TuiApp {
   }
 
   updatePositions(rows: string[][]) {
-    // SYM(10) SIDE(6) QTY(10) ENT(10) LAST(10) MARK(10) SL(10) PNL(12)
+    // SYM(6) SIDE(5) QTY(10) ENT(10) LAST(10) MARK(10) SL(6) PNL(10)
     const headers = [
-      this.padLeft('SYM', 8),
-      this.padLeft('SIDE', 6),
-      this.padRight('QTY', 12),
-      this.padRight('ENT', 12),
-      this.padRight('LAST', 12),
-      this.padRight('MARK', 12),
-      this.padRight('SL', 12),
-      this.padRight('PNL', 14)
+      this.padLeft('SYM', 6),
+      this.padLeft('SIDE', 5),
+      this.padRight('QTY', 10),
+      this.padRight('ENT', 10),
+      this.padRight('LAST', 10),
+      this.padRight('MARK', 10),
+      this.padRight('SL', 6),
+      this.padRight('PNL', 10)
     ];
 
     const data = [headers];
     rows.forEach(r => {
       data.push([
-        this.padLeft(r[0] || '', 8),
-        this.padLeft(r[1] || '', 6),
-        this.padRight(r[2] || '', 12),
-        this.padRight(r[3] || '', 12),
-        this.padRight(r[4] || '', 12),
-        this.padRight(r[5] || '', 12),
-        this.padRight(r[6] || '', 12),
-        this.padRight(r[7] || '', 14)
+        this.padLeft(r[0] || '', 6),
+        this.padLeft(r[1] || '', 5),
+        this.padRight(r[2] || '', 10),
+        this.padRight(r[3] || '', 10),
+        this.padRight(r[4] || '', 10),
+        this.padRight(r[5] || '', 10),
+        this.padRight(r[6] || '', 6),
+        this.padRight(r[7] || '', 10)
       ]);
     });
 
@@ -354,55 +342,28 @@ export class TuiApp {
   }
 
   updateBalances(rows: string[][]) {
-    // ASSET(8) VALUE(12) WALLET(12) PNL(12) %(8) AVAIL(12) LOCK(12) UTIL(10)
-    const headers = [
-      this.padLeft('ASSET', 8),
-      this.padRight('VALUE', 12),
-      this.padRight('WALLET', 12),
-      this.padRight('PNL', 12),
-      this.padRight('%', 8),
-      this.padRight('AVAIL', 12),
-      this.padRight('LOCK', 12),
-      this.padRight('UTIL%', 10)
-    ];
+    // ASSET(6) VALUE(10) WALLET(10) PNL(10) %(6) AVAIL(10) LOCK(10) UTIL(8)
+    const header = ` {green-fg}${this.padLeft('ASSET', 6)} ${this.padRight('VALUE', 10)} ${this.padRight('WALLET', 10)} ${this.padRight('PNL', 10)} ${this.padRight('%', 6)} ${this.padRight('AVAIL', 10)} ${this.padRight('LOCK', 10)} ${this.padRight('UTIL%', 8)}{/green-fg}\n`;
+    
+    const content = rows.map(r => {
+      const pnlValue = parseFloat(r[3] || '0');
+      const pnlColor = pnlValue > 0 ? 'green' : pnlValue < 0 ? 'red' : 'white';
+      
+      return ` ${this.padLeft(r[0] || '', 6)} ${this.padRight(r[1] || '', 10)} ${this.padRight(r[2] || '', 10)} {${pnlColor}-fg}${this.padRight(r[3] || '', 10)}{/${pnlColor}-fg} ${this.padRight(r[4] || '', 6)} ${this.padRight(r[5] || '', 10)} ${this.padRight(r[6] || '', 10)} ${this.padRight(r[7] || '', 8)}`;
+    }).join('\n');
 
-    const data = [headers];
-    rows.forEach(r => {
-      data.push([
-        this.padLeft(r[0] || '', 8),
-        this.padRight(r[1] || '', 12),
-        this.padRight(r[2] || '', 12),
-        this.padRight(r[3] || '', 12),
-        this.padRight(r[4] || '', 8),
-        this.padRight(r[5] || '', 12),
-        this.padRight(r[6] || '', 12),
-        this.padRight(r[7] || '', 10)
-      ]);
-    });
-
-    this.balanceTable.setData(data);
+    this.balanceTable.setContent(header + content);
     this.render();
   }
 
   updateOrders(rows: string[][]) {
-    const headers = [
-      this.padLeft('T', 4),
-      this.padLeft('PAIR', 12),
-      this.padLeft('ST', 10),
-      this.padRight('LAT', 8)
-    ];
+    const header = ` {magenta-fg}${this.padLeft('T', 2)} ${this.padLeft('PAIR', 10)} ${this.padLeft('ST', 8)} ${this.padRight('LAT', 6)}{/magenta-fg}\n`;
+    
+    const content = rows.map(r => {
+      return ` ${this.padLeft(r[0] || '', 2)} ${this.padLeft(r[1] || '', 10)} ${this.padLeft(r[2] || '', 8)} ${this.padRight(r[3] || '', 6)}`;
+    }).join('\n');
 
-    const data = [headers];
-    rows.forEach(r => {
-      data.push([
-        this.padLeft(r[0] || '', 4),
-        this.padLeft(r[1] || '', 12),
-        this.padLeft(r[2] || '', 10),
-        this.padRight(r[3] || '', 8)
-      ]);
-    });
-
-    this.orderTable.setData(data);
+    this.orderTable.setContent(header + content);
     this.render();
   }
 }
