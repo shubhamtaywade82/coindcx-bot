@@ -247,15 +247,23 @@ async function runApp(ctx: Context) {
         const clean = cleanPair(p.pair || 'N/A');
         const sym = clean.replace('USDT', '');
         const ticker = state.tickers.get(clean);
+        const currentPrice = ticker ? parseFloat(ticker.price) : parseFloat(p.mark_price || p.avg_price);
+        const entryPrice = parseFloat(p.avg_price);
+        const qty = Math.abs(parseFloat(p.active_pos));
+        
+        // Dynamic PnL calculation
+        const isLong = parseFloat(p.active_pos) > 0;
+        const pnl = isLong ? (currentPrice - entryPrice) * qty : (entryPrice - currentPrice) * qty;
+
         return [
           sym,
-          p.active_pos > 0 ? '{green-fg}LONG{/green-fg}' : '{red-fg}SHORT{/red-fg}',
-          formatQty(Math.abs(p.active_pos)),
-          formatPrice(p.avg_price),
+          isLong ? '{green-fg}LONG{/green-fg}' : '{red-fg}SHORT{/red-fg}',
+          formatQty(qty),
+          formatPrice(entryPrice),
           ticker ? formatPrice(ticker.price) : '—',
           formatPrice(p.mark_price),
           '—',
-          formatPnl(p.unrealized_pnl || 0),
+          formatPnl(pnl),
         ];
       });
     tui.updatePositions(rows.length > 0 ? rows : [['—', '—', '—', '—', '—', '—', '—', '—']]);
@@ -282,17 +290,24 @@ async function runApp(ctx: Context) {
     let totalPnlInr = 0;
     let totalPnlUsdt = 0;
 
-    // 1. Sum up PnL from all positions
+    // 1. Sum up PnL from all positions dynamically
     Array.from(state.positions.values()).forEach((p: any) => {
-       const pnl = parseFloat(p.unrealized_pnl || '0');
-       const pair = (p.pair || '').toUpperCase();
+       const clean = cleanPair(p.pair || '');
+       const ticker = state.tickers.get(clean);
+       const currentPrice = ticker ? parseFloat(ticker.price) : parseFloat(p.mark_price || p.avg_price);
+       const entryPrice = parseFloat(p.avg_price);
+       const qty = Math.abs(parseFloat(p.active_pos));
        
+       const isLong = parseFloat(p.active_pos) > 0;
+       const pnl = isLong ? (currentPrice - entryPrice) * qty : (entryPrice - currentPrice) * qty;
+
+       const pair = (p.pair || '').toUpperCase();
        if (pair.endsWith('INR')) {
          totalPnlInr += pnl;
          totalPnlUsdt += pnl / (state.usdtInrRate || 88);
        } else {
          totalPnlUsdt += pnl;
-         totalPnlInr += pnl * state.usdtInrRate;
+         totalPnlInr += pnl * (state.usdtInrRate || 88);
        }
     });
 
