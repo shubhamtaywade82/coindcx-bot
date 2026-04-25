@@ -12,7 +12,7 @@ export interface Candle {
 export class MarketStateBuilder {
   constructor(private logger: AppLogger) {}
 
-  build(candles: Candle[], orderBook: any, positions: any[]): any {
+  build(candles: Candle[], _orderBook: any, _positions: any[]): any {
     if (candles.length < 10) return null;
 
     const structure = this.analyzeStructure(candles);
@@ -98,7 +98,7 @@ export class MarketStateBuilder {
     };
   }
 
-  private analyzeLiquidity(candles: Candle[]) {
+  private analyzeLiquidity(_candles: Candle[]) {
     // Simplified Liquidity detection
     return {
       pools: [],
