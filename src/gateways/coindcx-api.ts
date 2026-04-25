@@ -17,7 +17,7 @@ export class CoinDCXApi {
   }
 
   private static buildSignedRequest(body: Record<string, any>) {
-    const payload = JSON.stringify(body);
+    const payload = Buffer.from(JSON.stringify(body)).toString();
     const signature = this.sign(payload);
     return {
       body,

@@ -59,7 +59,7 @@ export class CoinDCXWs extends EventEmitter {
   private joinPrivateChannel() {
     const channelName = 'coindcx';
     const body = { channel: channelName };
-    const payload = JSON.stringify(body);
+    const payload = Buffer.from(JSON.stringify(body)).toString();
     const signature = crypto
       .createHmac('sha256', config.apiSecret)
       .update(payload)
