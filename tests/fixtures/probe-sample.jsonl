@@ -1,0 +1,4 @@
+{"ts":1,"channel":"depth-snapshot","raw":{"s":"B-X_USDT","asks":[["10","1"],["11","2"]],"bids":[["9","1"],["8","2"]]}}
+{"ts":2,"channel":"depth-update","raw":{"s":"B-X_USDT","asks":[["10","3"]],"bids":[]}}
+{"ts":3,"channel":"depth-update","raw":{"s":"B-X_USDT","asks":[["99","0"]],"bids":[]}}
+{"ts":4,"channel":"new-trade","raw":{"s":"B-X_USDT","p":"10","q":"1","T":4}}
