@@ -104,10 +104,20 @@ async function main() {
       const balances = await CoinDCXApi.getBalances();
       const balArr = Array.isArray(balances) ? balances : [];
       balArr.forEach((b: any) => {
-        const name = b.currency_short_name || b.currency || 'N/A';
-        state.balanceMap.set(name, {
-          balance: b.balance?.toString() || '0',
-          locked: (b.locked_balance ?? b.locked ?? '0').toString(),
+        const currency = b.currency || b.currency_short_name;
+        if (!currency) return;
+        const newBal = b.balance?.toString() || '0';
+        const newLocked = (b.locked_balance ?? b.locked ?? '0').toString();
+        
+        // Prevent Spot REST API (0) from overwriting Futures WS balances
+        const existing = state.balanceMap.get(currency);
+        if (existing && parseFloat(newBal) === 0 && parseFloat(existing.balance) > 0) {
+          return;
+        }
+
+        state.balanceMap.set(currency, {
+          balance: newBal,
+          locked: newLocked,
         });
       });
       tui.log(`✓ Loaded ${state.balanceMap.size} balances`);
@@ -249,10 +259,9 @@ async function main() {
     tui.log(`Position update: ${positions.length} received`);
 
     state.positions = positions
-      .filter((p: any) => p.active_pos !== undefined && p.active_pos !== 0)
       .map((p: any) => [
         cleanPair(p.pair || 'N/A'),
-        p.active_pos > 0 ? 'LONG' : 'SHORT',
+        p.active_pos > 0 ? 'LONG' : (p.active_pos < 0 ? 'SHORT' : 'FLAT'),
         `${p.leverage || 1}x`,
         formatPrice(p.avg_price),
         formatPrice(p.mark_price),
