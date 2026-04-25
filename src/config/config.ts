@@ -1,12 +1,23 @@
-import dotenv from 'dotenv';
-dotenv.config();
+import { loadConfig } from './index';
+
+// Unified configuration bridge
+// This ensures all parts of the app use the same validated settings
+const fullConfig = loadConfig();
 
 export const config = {
-  apiKey: process.env.COINDCX_API_KEY || '',
-  apiSecret: process.env.COINDCX_API_SECRET || '',
-  apiBaseUrl: 'https://api.coindcx.com',
-  publicBaseUrl: 'https://public.coindcx.com',
-  socketBaseUrl: 'wss://stream.coindcx.com',
-  isReadOnly: process.env.READ_ONLY !== 'false', // Default to true
-  pairs: (process.env.COINDCX_PAIRS || 'B-BTC_USDT,B-ETH_USDT').split(','),
+  // Legacy mappings for backward compatibility
+  apiKey: fullConfig.COINDCX_API_KEY,
+  apiSecret: fullConfig.COINDCX_API_SECRET,
+  apiBaseUrl: fullConfig.API_BASE_URL,
+  publicBaseUrl: fullConfig.PUBLIC_BASE_URL,
+  socketBaseUrl: fullConfig.SOCKET_BASE_URL,
+  isReadOnly: fullConfig.READ_ONLY,
+  pairs: fullConfig.COINDCX_PAIRS,
+  
+  // New AI settings
+  ollamaUrl: fullConfig.OLLAMA_URL,
+  ollamaModel: fullConfig.OLLAMA_MODEL,
+  
+  // Full config access
+  ...fullConfig
 };
