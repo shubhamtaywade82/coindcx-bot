@@ -20,22 +20,27 @@ interface TradeEntry {
   side: string;
 }
 
+// ── Global State ──
+export const state = {
+  isWsConnected: false,
+  wsLatency: 0,
+  lastPriceUpdate: 0,
+  tickers: new Map<string, TickerInfo>(),
+  allTrades: [] as TradeEntry[],
+  positions: new Map<string, any>(),
+  orders: new Map<string, any>(),
+  balanceMap: new Map<string, { balance: string; locked: string }>(),
+  hasValidAuth: true,
+  usdtInrRate: 88.5, // Fallback rate
+  selectedSymbol: 'SOLUSDT' // Initial focus
+};
+
 // ══════════════════════════════════════════════════════
 // ── Main ──
 // ══════════════════════════════════════════════════════
 async function main() {
   const tui = new TuiApp();
   const ws = new CoinDCXWs();
-
-  const state = {
-    tickers: new Map<string, TickerInfo>(),
-    allTrades: [] as TradeEntry[],
-    positions: new Map<string, any>(),
-    orders: new Map<string, any>(),
-    balanceMap: new Map<string, { balance: string; locked: string }>(),
-    hasValidAuth: true,
-    usdtInrRate: 88.5, // Fallback rate
-  };
 
   const MAX_TRADES = 50;
 
@@ -67,6 +72,7 @@ async function main() {
     tui.updateTrades(filtered.length > 0
       ? filtered
       : [['—', 'No data', '—']]);
+    tui.updateStatus({ lastUpdate: Date.now() });
   }
 
   function refreshHeader() {
@@ -262,9 +268,20 @@ async function main() {
   // ── WebSocket Events ──
   // ══════════════════════════════════════════════════════
 
-  ws.on('connected', () => tui.log('✓ WebSocket connected'));
-  ws.on('disconnected', (reason) => tui.log(`✗ Disconnected: ${reason}`));
-  ws.on('error', (error) => tui.log(`✗ WS error: ${error.message}`));
+  ws.on('connected', () => {
+    state.isWsConnected = true;
+    tui.log('✓ WebSocket connected');
+    tui.updateStatus({ connected: true });
+  });
+  ws.on('disconnected', (reason) => {
+    state.isWsConnected = false;
+    tui.log(`✗ Disconnected: ${reason}`);
+    tui.updateStatus({ connected: false });
+  });
+  ws.on('error', (error) => {
+    tui.log(`✗ WS error: ${error.message}`);
+    tui.updateStatus({ connected: false });
+  });
   ws.on('debug', (msg) => tui.log(msg));
 
   // ── new-trade: { T, RT, p, q, m, s:"B-SOL_USDT", pr:"f" } ──

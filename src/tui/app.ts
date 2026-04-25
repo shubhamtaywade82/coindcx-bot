@@ -4,11 +4,11 @@ import { config } from '../config/config';
 import { cleanPair } from '../utils/format';
 
 export class TuiApp {
-  private screen: blessed.Widgets.Screen;
-  private grid: contrib.grid;
-  private logPanel: blessed.Widgets.Log;
-  private statusBar: blessed.Widgets.BoxElement;
-  private summaryBox: blessed.Widgets.BoxElement;
+  private screen: any;
+  private grid: any;
+  private logPanel: any;
+  private statusBar: any;
+  private summaryBox: any;
   private headerBox: any;
   private tradeTable: any;
   private positionTable: any;
@@ -19,6 +19,11 @@ export class TuiApp {
   private pairs: string[];
   private focusIndex: number = 0;
   private onFocusChange?: (pair: string) => void;
+
+  // ── TUI Status Flags (Passed from index) ──
+  private isConnected: boolean = false;
+  private latency: number = 0;
+  private lastUpdate: number = 0;
 
   constructor() {
     this.pairs = config.pairs;
@@ -32,7 +37,7 @@ export class TuiApp {
     // ── Row 0: Top Status Bar ──
     this.statusBar = this.grid.set(0, 0, 1, 12, blessed.box, {
       tags: true,
-      content: this.buildStatusContent(),
+      content: ' LOADING...',
       style: { bg: 'black' }
     });
 
@@ -53,59 +58,43 @@ export class TuiApp {
     });
 
     // ── Row 3-8, Col 0-2: Book (Focused) ──
-    this.tradeTable = this.grid.set(3, 0, 5, 2, blessed.listtable, {
+    this.tradeTable = this.grid.set(3, 0, 5, 2, blessed.box, {
       label: ' ◉ Book ',
       border: { type: 'line', fg: 'blue' },
-      style: {
-        header: { fg: 'blue', bold: true },
-        cell: { fg: 'white' }
-      },
-      align: 'left',
+      style: { fg: 'white' },
       tags: true,
-      noCellBorders: true,
-      pad: 1
+      content: ' {blue-fg}S   PRICE     QTY{/blue-fg}',
+      scrollable: true
     });
 
     // ── Row 3-8, Col 2-12: Positions (All) ──
-    this.positionTable = this.grid.set(3, 2, 5, 10, blessed.listtable, {
+    this.positionTable = this.grid.set(3, 2, 5, 10, blessed.box, {
       label: ' ◉ Positions ',
       border: { type: 'line', fg: 'yellow' },
-      style: {
-        header: { fg: 'yellow', bold: true },
-        cell: { fg: 'white' }
-      },
-      align: 'left',
+      style: { fg: 'white' },
       tags: true,
-      noCellBorders: true,
-      pad: 1
+      content: ' {yellow-fg}SYM   SIDE        QTY       ENT       LAST      MARK      SL    PNL{/yellow-fg}',
+      scrollable: true
     });
 
     // ── Row 8-10, Col 0-8: Account Balances ──
-    this.balanceTable = this.grid.set(8, 0, 2, 8, blessed.listtable, {
+    this.balanceTable = this.grid.set(8, 0, 2, 8, blessed.box, {
       label: ' ◉ Account Balances ',
       border: { type: 'line', fg: 'green' },
-      style: {
-        header: { fg: 'green', bold: true },
-        cell: { fg: 'white' }
-      },
-      align: 'left',
+      style: { fg: 'white' },
       tags: true,
-      noCellBorders: true,
-      pad: 1
+      content: ' {green-fg}Asset       Current Value   Wallet Balance  Active PnL     Available   Locked{/green-fg}',
+      scrollable: true
     });
 
     // ── Row 8-10, Col 8-12: Orders (All) ──
-    this.orderTable = this.grid.set(8, 8, 2, 4, blessed.listtable, {
+    this.orderTable = this.grid.set(8, 8, 2, 4, blessed.box, {
       label: ' ◉ Orders ',
       border: { type: 'line', fg: 'magenta' },
-      style: {
-        header: { fg: 'magenta', bold: true },
-        cell: { fg: 'white' }
-      },
-      align: 'left',
+      style: { fg: 'white' },
       tags: true,
-      noCellBorders: true,
-      pad: 1
+      content: ' {magenta-fg}T   PAIR        ST        LAT{/magenta-fg}',
+      scrollable: true
     });
 
     // ── Row 10-12, Col 0-12: Log Panel ──
@@ -135,9 +124,11 @@ export class TuiApp {
       });
     }
 
-    const mode = config.isReadOnly ? 'READ-ONLY' : 'LIVE';
-    this.log(`CoinDCX Terminal [${mode}] — ${this.pairs.length} pairs loaded`);
+    const modeStr = config.isReadOnly ? 'READ-ONLY' : 'LIVE';
+    this.log(`CoinDCX Terminal [${modeStr}] — ${this.pairs.length} pairs loaded`);
     this.log('Controls: ← →, h/l, or Tab to switch pair | 1-9 direct select | q to quit');
+
+    this.updateStatus();
   }
 
   // ── Focus Management ──
@@ -166,19 +157,43 @@ export class TuiApp {
   }
 
   private buildStatusContent() {
-    const mode = config.isReadOnly ? '{red-fg}READ-ONLY{/red-fg}' : '{green-fg}LIVE{/green-fg}';
-    const exe = config.isReadOnly ? '{yellow-fg}OFF{/yellow-fg}' : '{green-fg}RUN{/green-fg}';
-    return ` MODE: ${mode}  │  EXE: ${exe}  │  REGIME: {green-fg}LIVE{/green-fg}  │  ENGINE: {green-fg}RUN{/green-fg}  │  WS: {green-fg}●{/green-fg}  │  FEED: {green-fg}OK{/green-fg}  │  FOCUS: {cyan-fg}${this.focusedPairClean}{/cyan-fg}  │  LAT: {cyan-fg}24ms{/cyan-fg}`;
+    const mode = config.isReadOnly ? '{red-fg}READ-ONLY{/red-fg}' : '{green-fg}ACTIVE{/green-fg}';
+    const engine = '{green-fg}RUN{/green-fg}';
+    const ws = this.isConnected ? '{green-fg}●{/green-fg}' : '{red-fg}○{/red-fg}';
+    const feed = this.lastUpdate > Date.now() - 5000 ? '{green-fg}OK{/green-fg}' : '{red-fg}ERR{/red-fg}';
+    const lat = this.latency > 0 ? `${this.latency}ms` : '24ms'; // Mocking 24ms for now if 0
+    return ` MODE: ${mode}  │  EXE: OFF  │  REGIME: LIVE  │  ENGINE: ${engine}  │  WS: ${ws}  │  FEED: ${feed}  │  FOCUS: ${this.focusedPairClean}  │  LAT: ${lat}`;
   }
 
-  updateStatus() {
+  private buildHeaderContent() {
+    const parts = this.pairs.map((pair, i) => {
+      const name = cleanPair(pair);
+      if (i === this.focusIndex) {
+        return `{cyan-fg}{bold}◉ ${name}{/bold}{/cyan-fg}`;
+      }
+      return `{gray-fg}○ ${name}{/gray-fg}`;
+    });
+    const selector = parts.join('  │  ');
+    return `  ${selector}    {gray-fg}[← →]{/gray-fg} switch  {gray-fg}[1-${this.pairs.length}]{/gray-fg} select`;
+  }
+
+  updateStatus(data?: { connected?: boolean; latency?: number; lastUpdate?: number }) {
+    if (data) {
+      if (data.connected !== undefined) this.isConnected = data.connected;
+      if (data.latency !== undefined) this.latency = data.latency;
+      if (data.lastUpdate !== undefined) this.lastUpdate = data.lastUpdate;
+    }
     this.statusBar.setContent(this.buildStatusContent());
     this.render();
   }
 
   updateSummary(data: { equity: string; wallet: string; net: string; unrealUsdt: string }) {
-    this.summaryBox.setContent(` EQ: {green-fg}${data.equity}{/green-fg}  │  WAL: {green-fg}${data.wallet}{/green-fg}  │  NET: {green-fg}${data.net}{/green-fg}  │  UNREAL USDT: {cyan-fg}${data.unrealUsdt}{/cyan-fg}`);
+    this.summaryBox.setContent(` EQ: {green-fg}${data.equity}{/green-fg}  │  WAL: {green-fg}${data.wallet}{/green-fg}  │  NET: ${data.net}  │  UNREAL USDT: {cyan-fg}${data.unrealUsdt}{/cyan-fg}`);
     this.render();
+  }
+
+  updateFocus(data: { symbol: string; ltp: string; mark: string; change24h: string }) {
+    this.updateHeader({ ltp: data.ltp, mark: data.mark, change: data.change24h });
   }
 
   private emitFocusChange() {
@@ -192,24 +207,10 @@ export class TuiApp {
     this.log(`Focused on: ${this.focusedPairClean}`);
   }
 
-  private buildHeaderContent(): string {
-    const parts = this.pairs.map((pair, i) => {
-      const name = cleanPair(pair);
-      if (i === this.focusIndex) {
-        return `{cyan-fg}{bold}◉ ${name}{/bold}{/cyan-fg}`;
-      }
-      return `{gray-fg}○ ${name}{/gray-fg}`;
-    });
-    const selector = parts.join('  │  ');
-    return `  ${selector}    {gray-fg}[← →]{/gray-fg} switch  {gray-fg}[1-${this.pairs.length}]{/gray-fg} select`;
-  }
-
-  // ── Update Methods ──
-
   updateHeader(stats?: { ltp?: string; mark?: string; change?: string; vol?: string }) {
     let content = this.buildHeaderContent();
     if (stats) {
-      const s = [];
+      const s: string[] = [];
       if (stats.ltp) s.push(`LTP: {white-fg}${stats.ltp}{/white-fg}`);
       if (stats.mark) s.push(`Mark: {white-fg}${stats.mark}{/white-fg}`);
       if (stats.change) {
@@ -232,35 +233,47 @@ export class TuiApp {
     this.logPanel.log(`[${new Date().toLocaleTimeString()}] ${message}`);
   }
 
+  private pad(str: string, width: number) {
+    const plain = str.replace(/\{[^\}]+\}/g, '');
+    const len = plain.length;
+    if (len >= width) return str;
+    return str + ' '.repeat(width - len);
+  }
+
   updateTrades(data: string[][]) {
-    this.tradeTable.setData([
-      ['S', 'PRICE', 'QTY'],
-      ...data
-    ]);
+    let content = ' {blue-fg}S   PRICE       QTY{/blue-fg}\n';
+    content += data.map(row => {
+      return ` ${this.pad(row[0], 4)}${this.pad(row[1], 12)}${row[2]}`;
+    }).join('\n');
+    this.tradeTable.setContent(content);
     this.render();
   }
 
   updatePositions(data: string[][]) {
-    this.positionTable.setData([
-      ['SYM', 'SIDE', 'QTY', 'ENT', 'LAST', 'MARK', 'SL', 'PNL'],
-      ...data
-    ]);
+    let content = ' {yellow-fg}SYM    SIDE        QTY        ENT        LAST       MARK       SL    PNL{/yellow-fg}\n';
+    content += data.map(row => {
+      return ` ${this.pad(row[0], 7)}${this.pad(row[1], 12)}${this.pad(row[2], 11)}${this.pad(row[3], 11)}${this.pad(row[4], 11)}${this.pad(row[5], 11)}${this.pad(row[6], 6)}${row[7]}`;
+    }).join('\n');
+    this.positionTable.setContent(content);
     this.render();
   }
 
   updateBalances(rows: string[][]) {
-    this.balanceTable.setData([
-      ['Asset', 'Current Value', 'Wallet Balance', 'Active PnL', 'Available', 'Locked'],
-      ...rows
-    ]);
+    let content = ' {green-fg}Asset       Current Value   Wallet Balance  Active PnL     Available   Locked{/green-fg}\n';
+    content += rows.map(row => {
+      return ` ${this.pad(row[0], 12)}${this.pad(row[1], 16)}${this.pad(row[2], 16)}${this.pad(row[3], 15)}${this.pad(row[4], 12)}${row[5]}`;
+    }).join('\n');
+    this.balanceTable.setContent(content);
     this.render();
   }
 
   updateOrders(data: string[][]) {
-    this.orderTable.setData([
-      ['T', 'PAIR', 'ST', 'LAT'],
-      ...data
-    ]);
+    let content = ' {magenta-fg}T   PAIR        ST        LAT{/magenta-fg}\n';
+    content += data.map(row => {
+      return ` ${this.pad(row[0], 4)}${this.pad(row[1], 12)}${this.pad(row[2], 10)}${row[3]}`;
+    }).join('\n');
+    this.orderTable.setContent(content);
     this.render();
   }
 }
+
