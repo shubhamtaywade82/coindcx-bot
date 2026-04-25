@@ -24,19 +24,47 @@ export const DENY_PATHS: readonly string[] = [
 export interface GuardOptions {
   onViolation?: (info: { method: string; path: string }) => void;
   extraDenyPaths?: string[];
+  /**
+   * POST paths that are read-only despite using POST (CoinDCX signed-read pattern).
+   * Match is exact prefix.
+   */
+  signedReadPostPaths?: string[];
 }
+
+/** CoinDCX uses POST for some authenticated read endpoints. Allowlist below. */
+export const SIGNED_READ_POST_PATHS: readonly string[] = [
+  '/exchange/v1/derivatives/futures/positions',
+  '/exchange/v1/derivatives/futures/orders',
+  '/exchange/v1/derivatives/futures/trade_history',
+  '/exchange/v1/derivatives/futures/orders/status',
+  '/exchange/v1/derivatives/futures/wallets',
+  '/exchange/v1/users/balances',
+  '/exchange/v1/orders/active_orders',
+  '/exchange/v1/orders/trade_history',
+  '/exchange/v1/orders/status',
+];
 
 const WRITE_VERBS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 export function applyReadOnlyGuard(client: AxiosInstance, opts: GuardOptions = {}): void {
   const deny = [...DENY_PATHS, ...(opts.extraDenyPaths ?? [])];
+  const allowPosts = [...SIGNED_READ_POST_PATHS, ...(opts.signedReadPostPaths ?? [])];
+
   client.interceptors.request.use((req: InternalAxiosRequestConfig) => {
     const method = (req.method ?? 'get').toUpperCase();
     const path = req.url ?? '';
-    const violated = WRITE_VERBS.has(method) || deny.some((p) => path.startsWith(p));
-    if (violated) {
+
+    if (deny.some((p) => path.startsWith(p))) {
       opts.onViolation?.({ method, path });
       throw new ReadOnlyViolation(method, path);
+    }
+
+    if (WRITE_VERBS.has(method)) {
+      const allowed = method === 'POST' && allowPosts.some((p) => path.startsWith(p));
+      if (!allowed) {
+        opts.onViolation?.({ method, path });
+        throw new ReadOnlyViolation(method, path);
+      }
     }
     return req;
   });

@@ -4,10 +4,20 @@ import nock from 'nock';
 import { applyReadOnlyGuard, ReadOnlyViolation, DENY_PATHS } from '../../src/safety/read-only-guard';
 
 describe('ReadOnlyGuard', () => {
-  it('blocks POST', async () => {
+  it('blocks POST to non-allowlisted path', async () => {
     const client = axios.create({ baseURL: 'https://api.coindcx.com' });
     applyReadOnlyGuard(client);
     await expect(client.post('/exchange/v1/markets', {})).rejects.toBeInstanceOf(ReadOnlyViolation);
+  });
+
+  it('allows POST to signed-read allowlisted path', async () => {
+    nock('https://api.coindcx.com')
+      .post('/exchange/v1/derivatives/futures/positions')
+      .reply(200, []);
+    const client = axios.create({ baseURL: 'https://api.coindcx.com' });
+    applyReadOnlyGuard(client);
+    const r = await client.post('/exchange/v1/derivatives/futures/positions', {});
+    expect(r.status).toBe(200);
   });
 
   it('blocks PUT, PATCH, DELETE', async () => {
