@@ -90,6 +90,13 @@ async function runApp(ctx: Context) {
   ws.on('currentPrices@futures#update', (raw: any) => integrity.ingest('currentPrices@futures#update', raw));
   ws.on('currentPrices@spot#update',    (raw: any) => integrity.ingest('currentPrices@spot#update',    raw));
 
+  setInterval(() => {
+    tui.updateStatus({ latency: Math.round(integrity.wsLatencyMs()) });
+    const focused = tui.focusedPair;
+    const book = integrity.books.get(focused);
+    tui.updateBookState(book ? book.state() : '—');
+  }, 1000);
+
   const MAX_TRADES = 50;
 
   function safeParse(data: any) {

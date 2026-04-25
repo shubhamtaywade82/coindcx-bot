@@ -25,6 +25,7 @@ export class TuiApp {
   private isConnected: boolean = false;
   private latency: number = 0;
   private lastUpdate: number = 0;
+  private bookStateText: string = '—';
 
   constructor() {
     this.pairs = config.pairs;
@@ -171,8 +172,8 @@ export class TuiApp {
     const engine = '{green-fg}RUN{/green-fg}';
     const ws = this.isConnected ? '{green-fg}●{/green-fg}' : '{red-fg}○{/red-fg}';
     const feed = this.lastUpdate > Date.now() - 5000 ? '{green-fg}OK{/green-fg}' : '{red-fg}ERR{/red-fg}';
-    const lat = this.latency > 0 ? `${this.latency}ms` : '24ms'; // Mocking 24ms for now if 0
-    return ` MODE: ${mode}  │  EXE: OFF  │  REGIME: LIVE  │  ENGINE: ${engine}  │  WS: ${ws}  │  FEED: ${feed}  │  FOCUS: ${this.focusedPairClean}  │  LAT: ${lat}`;
+    const lat = this.latency > 0 ? `${this.latency}ms` : '—';
+    return ` MODE: ${mode}  │  EXE: OFF  │  REGIME: LIVE  │  ENGINE: ${engine}  │  WS: ${ws}  │  FEED: ${feed}  │  BOOK: ${this.bookStateText}  │  FOCUS: ${this.focusedPairClean}  │  LAT: ${lat}`;
   }
 
   private buildHeaderContent() {
@@ -193,6 +194,12 @@ export class TuiApp {
       if (data.latency !== undefined) this.latency = data.latency;
       if (data.lastUpdate !== undefined) this.lastUpdate = data.lastUpdate;
     }
+    this.statusBar.setContent(this.buildStatusContent());
+    this.render();
+  }
+
+  updateBookState(s: string): void {
+    this.bookStateText = s;
     this.statusBar.setContent(this.buildStatusContent());
     this.render();
   }
