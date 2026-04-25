@@ -1,0 +1,42 @@
+import { EventEmitter } from 'node:events';
+import { OrderBook } from './orderbook';
+
+export interface DepthFrame {
+  asks: Array<[string, string]>;
+  bids: Array<[string, string]>;
+  ts: number;
+  seq?: number;
+  prevSeq?: number;
+}
+
+export class BookManager extends EventEmitter {
+  private books = new Map<string, OrderBook>();
+
+  get(pair: string): OrderBook | undefined { return this.books.get(pair); }
+  pairs(): string[] { return [...this.books.keys()]; }
+
+  private getOrCreate(pair: string): OrderBook {
+    let b = this.books.get(pair);
+    if (!b) {
+      b = new OrderBook(pair);
+      b.on('gap', (e) => this.emit('gap', { pair, ...e }));
+      this.books.set(pair, b);
+    }
+    return b;
+  }
+
+  onDepthSnapshot(pair: string, frame: DepthFrame): void {
+    const b = this.getOrCreate(pair);
+    b.applySnapshot(frame.asks, frame.bids, frame.ts, frame.seq);
+    this.emit('snapshotReceived', pair, frame);
+  }
+
+  onDepthDelta(pair: string, frame: DepthFrame): void {
+    const b = this.getOrCreate(pair);
+    if (b.state() === 'init') {
+      this.emit('gap', { pair, reason: 'delta_before_snapshot' });
+      return;
+    }
+    b.applyDelta(frame.asks, frame.bids, frame.ts, frame.seq, frame.prevSeq);
+  }
+}
