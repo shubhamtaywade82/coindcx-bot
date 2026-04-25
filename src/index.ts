@@ -3,6 +3,9 @@ import { CoinDCXWs } from './gateways/coindcx-ws';
 import { CoinDCXApi } from './gateways/coindcx-api';
 import { config } from './config/config';
 import { formatPrice, formatPnl, formatChange, cleanPair, formatQty, formatTime } from './utils/format';
+import { bootstrap } from './lifecycle/bootstrap';
+import { installSignalHandlers } from './lifecycle/shutdown';
+import type { Context } from './lifecycle/context';
 
 // ── Types ──
 interface TickerInfo {
@@ -38,9 +41,10 @@ export const state = {
 // ══════════════════════════════════════════════════════
 // ── Main ──
 // ══════════════════════════════════════════════════════
-async function main() {
+async function runApp(ctx: Context) {
   const tui = new TuiApp();
   const ws = new CoinDCXWs();
+  ctx.logger.info({ mod: 'app' }, 'app start');
 
   const MAX_TRADES = 50;
 
@@ -65,8 +69,8 @@ async function main() {
         const sideChar = t.side === 'TAKER' ? '{red-fg}A{/red-fg}' : '{green-fg}B{/green-fg}';
         return [
           sideChar,
-          formatPrice(t.price),
-          formatQty(t.qty)
+          `{cyan-fg}${t.price}{/cyan-fg}`,
+          `{gray-fg}${t.qty}{/gray-fg}`
         ];
       });
     tui.updateTrades(filtered.length > 0
@@ -154,23 +158,32 @@ async function main() {
           totalPnlInr += activePnl;
         }
 
+        const pnlPct = walletBalance > 0 ? (activePnl / walletBalance) * 100 : 0;
+        const utilPct = walletBalance > 0 ? (locked / walletBalance) * 100 : 0;
+
         rows.push([
           currency,
           formatQty(currentValue),
           formatQty(walletBalance),
           formatPnl(activePnl),
+          `{${pnlPct >= 0 ? 'green' : 'red'}-fg}${pnlPct.toFixed(2)}%{/${pnlPct >= 0 ? 'green' : 'red'}-fg}`,
           formatQty(available),
-          formatQty(locked)
+          formatQty(locked),
+          `{yellow-fg}${utilPct.toFixed(1)}%{/yellow-fg}`
         ]);
 
         if (currency === 'INR' && state.usdtInrRate > 0) {
+          const usdEq = currentValue / state.usdtInrRate;
+          const usdWal = walletBalance / state.usdtInrRate;
           rows.push([
             '{cyan-fg}USD{/cyan-fg}',
-            `{cyan-fg}$${formatQty(currentValue / state.usdtInrRate, 2)}{/cyan-fg}`,
-            `{cyan-fg}$${formatQty(walletBalance / state.usdtInrRate, 2)}{/cyan-fg}`,
+            `{cyan-fg}$${formatQty(usdEq, 2)}{/cyan-fg}`,
+            `{cyan-fg}$${formatQty(usdWal, 2)}{/cyan-fg}`,
             formatPnl(activePnl / state.usdtInrRate),
+            `{${pnlPct >= 0 ? 'green' : 'red'}-fg}${pnlPct.toFixed(2)}%{/${pnlPct >= 0 ? 'green' : 'red'}-fg}`,
             `{cyan-fg}$${formatQty(available / state.usdtInrRate, 2)}{/cyan-fg}`,
-            `{cyan-fg}$${formatQty(locked / state.usdtInrRate, 2)}{/cyan-fg}`
+            `{cyan-fg}$${formatQty(locked / state.usdtInrRate, 2)}{/cyan-fg}`,
+            `{yellow-fg}${utilPct.toFixed(1)}%{/yellow-fg}`
           ]);
         }
       });
@@ -272,6 +285,7 @@ async function main() {
     state.isWsConnected = true;
     tui.log('✓ WebSocket connected');
     tui.updateStatus({ connected: true });
+    ctx.audit.recordEvent({ kind: 'ws_reconnect', source: 'ws', payload: {} });
   });
   ws.on('disconnected', (reason) => {
     state.isWsConnected = false;
@@ -487,7 +501,14 @@ async function main() {
   }, 30_000);
 }
 
+async function main() {
+  const ctx = await bootstrap();
+  installSignalHandlers(ctx);
+  await runApp(ctx);
+}
+
 main().catch((err) => {
+  // eslint-disable-next-line no-console
   console.error('Fatal error:', err);
   process.exit(1);
 });
