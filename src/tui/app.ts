@@ -136,6 +136,14 @@ export class TuiApp {
 
     // ── Keyboard Shortcuts ──
     this.screen.key(['escape', 'q', 'C-c'], () => process.exit(0));
+    this.screen.key(['C-l'], () => {
+      this.screen.realloc();
+      this.render();
+    });
+    this.screen.key(['c'], () => {
+      this.logPanel.setContent('');
+      this.render();
+    });
 
     this.screen.key(['left', 'h', 'S-tab'], () => this.switchFocus(-1));
     this.screen.key(['right', 'l', 'tab'], () => this.switchFocus(1));
