@@ -5,6 +5,7 @@ import { EventEmitter } from 'events';
 
 export class CoinDCXWs extends EventEmitter {
   private socket: any;
+  public skipPrivate: boolean = false;
 
   constructor() {
     super();
@@ -13,12 +14,15 @@ export class CoinDCXWs extends EventEmitter {
   connect() {
     this.socket = io(config.socketBaseUrl, {
       transports: ['websocket'],
+      query: { EIO: '3', transport: 'websocket' },
     });
+
+    this.setupSocketListeners();
 
     this.socket.on('connect', () => {
       this.emit('connected');
       this.joinPublicChannels();
-      if (config.apiKey && config.apiSecret) {
+      if (config.apiKey && config.apiSecret && !this.skipPrivate) {
         this.joinPrivateChannel();
       }
     });
@@ -30,35 +34,38 @@ export class CoinDCXWs extends EventEmitter {
     this.socket.on('connect_error', (error: any) => {
       this.emit('error', error);
     });
-
-    this.setupEvents();
   }
 
   private joinPublicChannels() {
     config.pairs.forEach((pair) => {
-      // Candlestick 1m
+      this.emit('debug', `Joining channels for ${pair}`);
+      // Spot Channels
       this.socket.emit('join', { channelName: `${pair}_1m` });
-      // Orderbook depth 20
       this.socket.emit('join', { channelName: `${pair}@orderbook@20` });
-      // Trades
       this.socket.emit('join', { channelName: `${pair}@trades` });
-      // Price change
       this.socket.emit('join', { channelName: `${pair}@prices` });
+
+      // Futures Channels
+      this.socket.emit('join', { channelName: `${pair}_1m-futures` });
+      this.socket.emit('join', { channelName: `${pair}@orderbook@20-futures` });
+      this.socket.emit('join', { channelName: `${pair}@trades-futures` });
+      this.socket.emit('join', { channelName: `${pair}@prices-futures` });
     });
 
-    // Global prices
     this.socket.emit('join', { channelName: 'currentPrices@spot@10s' });
+    this.socket.emit('join', { channelName: 'currentPrices@futures@rt' });
   }
 
   private joinPrivateChannel() {
     const channelName = 'coindcx';
     const body = { channel: channelName };
-    const payload = Buffer.from(JSON.stringify(body)).toString();
+    const payload = JSON.stringify(body);
     const signature = crypto
       .createHmac('sha256', config.apiSecret)
       .update(payload)
       .digest('hex');
 
+    this.emit('debug', `Joining private channel: ${channelName}`);
     this.socket.emit('join', {
       channelName,
       authSignature: signature,
@@ -66,7 +73,7 @@ export class CoinDCXWs extends EventEmitter {
     });
   }
 
-  private setupEvents() {
+  private setupSocketListeners() {
     const publicEvents = [
       'candlestick',
       'depth-snapshot',
@@ -74,11 +81,14 @@ export class CoinDCXWs extends EventEmitter {
       'new-trade',
       'price-change',
       'currentPrices@spot#update',
+      'currentPrices@futures#update',
     ];
 
     publicEvents.forEach((event) => {
       this.socket.on(event, (response: any) => {
-        this.emit(event, response.data || response);
+        const data = response.data || response;
+        this.emit('debug', `Event: ${event} Data: ${JSON.stringify(data).substring(0, 50)}`);
+        this.emit(event, data);
       });
     });
 
@@ -86,8 +96,15 @@ export class CoinDCXWs extends EventEmitter {
     const privateEvents = ['balance-update', 'order-update', 'trade-update'];
     privateEvents.forEach((event) => {
       this.socket.on(event, (response: any) => {
-        this.emit(event, response.data || response);
+        const data = response.data || response;
+        this.emit('debug', `Private Event: ${event} Data: ${JSON.stringify(data).substring(0, 50)}`);
+        this.emit(event, data);
       });
+    });
+
+    // Catch all for debugging
+    this.socket.on('*', (event: string, data: any) => {
+      this.emit('debug', `UNKNOWN EVENT: ${event}`);
     });
   }
 }

@@ -3,13 +3,21 @@
     "target": "ESNext",
     "module": "CommonJS",
     "moduleResolution": "node",
+    "ignoreDeprecations": "6.0",
     "strict": true,
     "noImplicitAny": false,
     "esModuleInterop": true,
     "skipLibCheck": true,
+    "types": ["node"],
     "forceConsistentCasingInFileNames": true,
     "outDir": "./dist",
     "rootDir": "./src"
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  "ts-node": {
+    "transpileOnly": true,
+    "compilerOptions": {
+      "module": "CommonJS"
+    }
+  }
 }

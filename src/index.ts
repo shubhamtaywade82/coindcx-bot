@@ -11,36 +11,66 @@ async function main() {
     tickers: new Map<string, { price: string; change: string }>(),
     positions: [] as any[],
     balances: [] as any[],
+    hasValidAuth: true
   };
 
   tui.log('Initializing...');
+
+  function safeParse(data: any) {
+    if (typeof data === 'string') {
+      try {
+        return JSON.parse(data);
+      } catch (e) {
+        return null;
+      }
+    }
+    return data;
+  }
+
+  // Set initial placeholders
+  tui.updateTickers([['Waiting for data...', '...', '...']]);
+  tui.updatePositions([['Waiting for data...', '...', '...', '...', '...']]);
+  tui.updateBalances([['Waiting...', '...', '...']]);
 
   // Initial data fetch
   try {
     if (config.apiKey && config.apiSecret) {
       tui.log('Fetching initial balances and positions...');
       const balances = await CoinDCXApi.getBalances();
+      tui.log(`Fetched ${balances.length} balances`);
       state.balances = balances.map((b: any) => [b.currency, b.balance, b.locked_balance]);
-      tui.updateBalances(state.balances);
+      if (state.balances.length > 0) tui.updateBalances(state.balances);
 
       const positions = await CoinDCXApi.getFuturesPositions();
-      // Handle different response formats if necessary
-      state.positions = Array.isArray(positions) ? positions.map((p: any) => [
-        p.pair,
-        p.side,
-        p.leverage,
-        p.entry_price,
-        p.unrealized_pnl
+      tui.log(`Fetched positions: ${JSON.stringify(positions).substring(0, 100)}...`);
+      
+      const posArray = Array.isArray(positions) ? positions : (positions.data || []);
+      state.positions = Array.isArray(posArray) ? posArray.map((p: any) => [
+        p.pair || p.symbol || 'N/A',
+        p.side || 'N/A',
+        p.leverage || '1x',
+        p.entry_price || p.entryPrice || '0',
+        p.unrealized_pnl || p.unrealizedProfit || '0'
       ]) : [];
-      tui.updatePositions(state.positions);
+      if (state.positions.length > 0) tui.updatePositions(state.positions);
+      tui.log(`Mapped ${state.positions.length} positions`);
+    } else {
+      tui.log('API Key/Secret missing - skipping private data fetch');
+      state.hasValidAuth = false;
     }
-  } catch (error) {
-    tui.log(`Initial fetch error: ${error}`);
+  } catch (error: any) {
+    tui.log(`AUTH ERROR: ${error.message}`);
+    tui.log('Falling back to PUBLIC ONLY mode');
+    state.hasValidAuth = false;
+    ws.skipPrivate = true;
   }
 
   // WS Events
   ws.on('connected', () => {
     tui.log('WebSocket connected');
+    if (!state.hasValidAuth) {
+      tui.log('Auth invalid - skipping private channel join');
+    }
   });
 
   ws.on('disconnected', (reason) => {
@@ -51,32 +81,67 @@ async function main() {
     tui.log(`WebSocket error: ${error.message}`);
   });
 
-  ws.on('price-change', (data) => {
-    // data format depends on the channel, usually { p: price, c: change, s: symbol }
-    if (data && data.s) {
-      state.tickers.set(data.s, {
-        price: data.p || '0',
-        change: data.c || '0',
+  ws.on('debug', (msg) => {
+    tui.log(`WS DEBUG: ${msg}`);
+  });
+
+  ws.on('price-change', (raw) => {
+    const data = safeParse(raw);
+    if (!data) return;
+    const items = Array.isArray(data) ? data : [data];
+    items.forEach(item => {
+      if (item && item.s) {
+        state.tickers.set(item.s, {
+          price: item.p || '0',
+          change: item.c || '0',
+        });
+      }
+    });
+    tui.updateTickers(Array.from(state.tickers.entries()).map(([pair, info]) => [
+      pair,
+      info.price,
+      info.change
+    ]));
+  });
+
+  ws.on('currentPrices@spot#update', (raw) => {
+    const data = safeParse(raw);
+    if (!data) return;
+    const prices = data.prices || data;
+    if (prices && typeof prices === 'object' && !Array.isArray(prices)) {
+      Object.entries(prices).forEach(([pair, price]: [string, any]) => {
+        if (typeof price === 'number' || typeof price === 'string') {
+          const existing = state.tickers.get(pair) || { price: '0', change: '0' };
+          state.tickers.set(pair, { ...existing, price: price.toString() });
+        }
       });
-      tui.updateTickers(Array.from(state.tickers.entries()).map(([pair, info]) => [
+      const tickerData = Array.from(state.tickers.entries()).map(([pair, info]) => [
         pair,
         info.price,
         info.change
-      ]));
+      ]);
+      tui.updateTickers(tickerData);
     }
   });
 
-  ws.on('currentPrices@spot#update', (data) => {
-    if (data && data.prices) {
-      Object.entries(data.prices).forEach(([pair, price]: [string, any]) => {
-        const existing = state.tickers.get(pair) || { price: '0', change: '0' };
-        state.tickers.set(pair, { ...existing, price: price.toString() });
+  ws.on('currentPrices@futures#update', (raw) => {
+    const data = safeParse(raw);
+    if (!data) return;
+    const prices = data.prices || data;
+    if (prices && typeof prices === 'object' && !Array.isArray(prices)) {
+      Object.entries(prices).forEach(([pair, price]: [string, any]) => {
+        if (typeof price === 'number' || typeof price === 'string') {
+          const futuresPair = `${pair} (F)`;
+          const existing = state.tickers.get(futuresPair) || { price: '0', change: '0' };
+          state.tickers.set(futuresPair, { ...existing, price: price.toString() });
+        }
       });
-      tui.updateTickers(Array.from(state.tickers.entries()).map(([pair, info]) => [
+      const tickerData = Array.from(state.tickers.entries()).map(([pair, info]) => [
         pair,
         info.price,
         info.change
-      ]));
+      ]);
+      tui.updateTickers(tickerData);
     }
   });
 

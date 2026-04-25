@@ -25,23 +25,21 @@ export class TuiApp {
       selectedBg: 'blue',
       interactive: true,
       label: 'Tickers',
-      width: '50%',
-      height: '50%',
       border: { type: 'line', fg: 'cyan' },
-      columnSpacing: 10,
-      columnWidth: [15, 10, 10],
+      columnSpacing: 4,
+      columnWidth: [20, 12, 12],
     });
 
     this.positionTable = this.grid.set(0, 6, 6, 6, contrib.table, {
       label: 'Futures Positions',
-      columnSpacing: 5,
-      columnWidth: [15, 8, 8, 10, 10],
+      columnSpacing: 3,
+      columnWidth: [18, 6, 6, 10, 10],
     });
 
     this.balanceTable = this.grid.set(6, 6, 3, 6, contrib.table, {
       label: 'Balances',
-      columnSpacing: 5,
-      columnWidth: [10, 15, 15],
+      columnSpacing: 3,
+      columnWidth: [12, 18, 18],
     });
 
     this.logPanel = this.grid.set(6, 0, 6, 6, blessed.log, {
