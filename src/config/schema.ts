@@ -21,6 +21,8 @@ export const ConfigSchema = z.object({
   SHUTDOWN_GRACE_MS: z.coerce.number().int().positive().default(5000),
   AUDIT_BUFFER_MAX: z.coerce.number().int().positive().default(10000),
   TELEGRAM_RATE_PER_MIN: z.coerce.number().int().positive().default(20),
+  OLLAMA_URL: z.string().url().default('http://localhost:11434'),
+  OLLAMA_MODEL: z.string().default('llama3'),
 }).superRefine((data, _ctx) => {
   // If telegram is requested but credentials are missing, silently filter it out
   // to prevent startup crashes.

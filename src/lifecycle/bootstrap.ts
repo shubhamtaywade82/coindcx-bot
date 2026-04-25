@@ -80,7 +80,11 @@ export async function bootstrap(): Promise<Context> {
   });
 
   audit.recordEvent({ kind: 'boot', source: 'lifecycle', payload: { sinks: config.SIGNAL_SINKS } });
+  
+  const { AiAnalyzer } = await import('../ai/analyzer');
+  const analyzer = new AiAnalyzer(config, logger);
+
   logger.info({ mod: 'boot', sinks: config.SIGNAL_SINKS }, 'boot complete');
 
-  return { config, logger, pool, audit, bus, cursors };
+  return { config, logger, pool, audit, bus, cursors, analyzer };
 }

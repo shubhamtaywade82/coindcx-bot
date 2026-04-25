@@ -49,7 +49,6 @@ async function runApp(ctx: Context) {
 
   const MAX_TRADES = 50;
 
-  // ── Helpers ──
   function safeParse(data: any) {
     if (typeof data === 'string') {
       try { return JSON.parse(data); } catch { return null; }
@@ -60,6 +59,37 @@ async function runApp(ctx: Context) {
   function getFocusedCleanPair(): string {
     return tui.focusedPairClean;
   }
+
+  function getMarketPulse(): any {
+    const symbol = getFocusedCleanPair();
+    const info = state.tickers.get(symbol);
+    const book = state.orderBooks.get(symbol);
+    const asks = Array.from(book?.asks.entries() || []).sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]));
+    const bids = Array.from(book?.bids.entries() || []).sort((a, b) => parseFloat(b[0]) - parseFloat(a[0]));
+    
+    return {
+      symbol,
+      price: info?.price || '0',
+      change24h: info?.change || '0',
+      orderBook: {
+        bestAsk: asks[0]?.[0] || '0',
+        bestBid: bids[0]?.[0] || '0',
+        spread: asks[0] && bids[0] ? (parseFloat(asks[0][0]) - parseFloat(bids[0][0])).toString() : '0'
+      },
+      positions: Array.from(state.positions.values()).filter(p => cleanPair(p.pair) === symbol)
+    };
+  }
+
+  // ── AI Analysis Loop ──
+  setInterval(async () => {
+    try {
+      const pulse = getMarketPulse();
+      const analysis = await ctx.analyzer.analyze(pulse);
+      tui.updateAi(analysis);
+    } catch (err) {
+      ctx.logger.error({ mod: 'ai', err }, 'AI loop failed');
+    }
+  }, 60000);
 
   function refreshBookDisplay() {
     const focused = getFocusedCleanPair();
@@ -372,7 +402,7 @@ async function runApp(ctx: Context) {
       refreshBookDisplay();
     }
   });
-  // ── depth-snapshot: { bids: [[p, q], ...], asks: [[p, q], ...], s: "B-SOL_USDT" } ──
+  // ── depth-snapshot ──
   ws.on('depth-snapshot', (raw) => {
     const data = safeParse(raw);
     if (!data || !data.s) return;
@@ -381,14 +411,17 @@ async function runApp(ctx: Context) {
     const asks = new Map<string, string>();
     const bids = new Map<string, string>();
     
-    (data.asks || []).forEach(([p, q]: [any, any]) => asks.set(p.toString(), q.toString()));
-    (data.bids || []).forEach(([p, q]: [any, any]) => bids.set(p.toString(), q.toString()));
+    const rawAsks = Array.isArray(data.asks) ? data.asks : (data.asks ? Object.entries(data.asks) : []);
+    const rawBids = Array.isArray(data.bids) ? data.bids : (data.bids ? Object.entries(data.bids) : []);
+
+    rawAsks.forEach(([p, q]: [any, any]) => asks.set(p.toString(), q.toString()));
+    rawBids.forEach(([p, q]: [any, any]) => bids.set(p.toString(), q.toString()));
     
     state.orderBooks.set(pair, { asks, bids });
     if (pair === getFocusedCleanPair()) refreshBookDisplay();
   });
 
-  // ── depth-update: { bids: [[p, q], ...], asks: [[p, q], ...], s: "B-SOL_USDT" } ──
+  // ── depth-update ──
   ws.on('depth-update', (raw) => {
     const data = safeParse(raw);
     if (!data || !data.s) return;
@@ -400,12 +433,15 @@ async function runApp(ctx: Context) {
        state.orderBooks.set(pair, book);
     }
     
-    (data.asks || []).forEach(([p, q]: [any, any]) => {
+    const rawAsks = Array.isArray(data.asks) ? data.asks : (data.asks ? Object.entries(data.asks) : []);
+    const rawBids = Array.isArray(data.bids) ? data.bids : (data.bids ? Object.entries(data.bids) : []);
+
+    rawAsks.forEach(([p, q]: [any, any]) => {
       if (parseFloat(q) === 0) book!.asks.delete(p.toString());
       else book!.asks.set(p.toString(), q.toString());
     });
     
-    (data.bids || []).forEach(([p, q]: [any, any]) => {
+    rawBids.forEach(([p, q]: [any, any]) => {
       if (parseFloat(q) === 0) book!.bids.delete(p.toString());
       else book!.bids.set(p.toString(), q.toString());
     });

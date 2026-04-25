@@ -29,6 +29,7 @@
     "crypto-js": "^4.2.0",
     "dotenv": "^17.4.2",
     "node-pg-migrate": "^8.0.4",
+    "ollama": "^0.6.3",
     "pg": "^8.20.0",
     "pino": "^10.3.1",
     "pino-roll": "^4.0.0",

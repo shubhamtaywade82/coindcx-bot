@@ -14,6 +14,7 @@ export class TuiApp {
   private positionTable: any;
   private orderTable: any;
   private balanceTable: any;
+  private aiBox: any;
 
   // ── Asset Focus State ──
   private pairs: string[];
@@ -57,23 +58,32 @@ export class TuiApp {
       content: this.buildHeaderContent(),
     });
 
-    // ── Row 3-8, Col 0-2: Book (Focused) ──
-    this.tradeTable = this.grid.set(3, 0, 5, 2, blessed.box, {
+    // ── Row 3-8, Col 0-3: Book (Focused) ──
+    this.tradeTable = this.grid.set(3, 0, 5, 3, blessed.box, {
       label: ' ◉ Book ',
       border: { type: 'line', fg: 'blue' },
       style: { fg: 'white' },
       tags: true,
-      content: ' {gray-fg}S PRICE              QTY{/gray-fg}',
+      content: ' {gray-fg}PRICE      AMOUNT      SUM{/gray-fg}',
       scrollable: true
     });
 
-    // ── Row 3-8, Col 2-12: Positions (All) ──
-    this.positionTable = this.grid.set(3, 2, 5, 10, blessed.box, {
+    // ── Row 3-8, Col 3-6: AI Analysis ──
+    this.aiBox = this.grid.set(3, 3, 5, 3, blessed.box, {
+      label: ' ◈ AI Strategy Pulse ',
+      border: { type: 'line', fg: 'cyan' },
+      tags: true,
+      content: ' {gray-fg}Analyzing market pulse...{/gray-fg}',
+      style: { fg: 'white' }
+    });
+
+    // ── Row 3-8, Col 6-12: Positions (All) ──
+    this.positionTable = this.grid.set(3, 6, 5, 6, blessed.box, {
       label: ' ◉ Positions ',
       border: { type: 'line', fg: 'yellow' },
       style: { fg: 'white' },
       tags: true,
-      content: ' {yellow-fg}SYM   SIDE        QTY       ENT       LAST      MARK      SL    PNL{/yellow-fg}',
+      content: ' {yellow-fg}SYM     SIDE      QTY         ENT         PNL{/yellow-fg}',
       scrollable: true
     });
 
@@ -270,11 +280,24 @@ export class TuiApp {
     this.render();
   }
 
+  updateAi(data: { verdict: string; signal: string; confidence: number }) {
+    const color = data.signal === 'BUY' ? 'green' : data.signal === 'SELL' ? 'red' : 'yellow';
+    const content = `\n {bold}${data.verdict}{/bold}\n\n {${color}-fg}SIGNAL: ${data.signal}{/${color}-fg}\n {gray-fg}CONF: ${(data.confidence * 100).toFixed(0)}%{/gray-fg}`;
+    this.aiBox.setContent(content);
+    this.render();
+  }
+
   updatePositions(data: string[][]) {
-    let content = ' {yellow-fg}SYM    SIDE        QTY        ENT        LAST       MARK       SL    PNL{/yellow-fg}\n';
+    let content = ' {yellow-fg}SYM     SIDE      QTY         ENT         PNL{/yellow-fg}\n';
     content += data.map(row => {
       // row: [sym, side, qty, ent, last, mark, sl, pnl]
-      return ` ${this.pad(row[0] || '', 7)}${this.pad(row[1] || '', 12)}${this.pad(row[2] || '', 11)}${this.pad(row[3] || '', 11)}${this.pad(row[4] || '', 11)}${this.pad(row[5] || '', 11)}${this.pad(row[6] || '', 6)}${row[7] || ''}`;
+      // Widening columns for better spacing
+      const sym = this.pad(row[0] || '', 8);
+      const side = this.pad(row[1] || '', 10);
+      const qty = this.pad(row[2] || '', 12);
+      const ent = this.pad(row[3] || '', 12);
+      const pnl = row[7] || '';
+      return ` ${sym}${side}${qty}${ent}${pnl}`;
     }).join('\n');
     this.positionTable.setContent(content);
     this.render();
