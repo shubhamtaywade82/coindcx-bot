@@ -28,17 +28,19 @@ export class AiAnalyzer {
   async analyze(state: any) {
     const prompt = `
       You are a professional SMC-based crypto futures trading system.
-      Input: Structured market state for ${state.symbol || 'asset'}.
+      Input: Multi-Timeframe (MTF) market state for ${state.symbol || 'asset'}.
 
       [MARKET STATE DATA]
       ${JSON.stringify(state, null, 2)}
 
       TASKS:
-      1. Identify valid setups ONLY if:
-         - Liquidity sweep + displacement present
-         - Structure confirms (BOS/CHOCH)
-         - Price in OB/FVG mitigation
-         - LTF confirmation exists (or is implied by displacement)
+      1. Establish HTF Narrative: Analyze the 1H trend and swing levels.
+      2. Identify LTF Setups: Look for 15m entries (BOS/CHOCH/FVG) ONLY if aligned with HTF Narrative.
+      3. CONFLUENCE CHECK: 
+         - A setup is valid ONLY if LTF aligns with HTF or if a major liquidity sweep occurred.
+         - No trade without displacement.
+         - No OB without BOS.
+         - Reject weak setups or those fighting HTF momentum without clear CHOCH.
 
       2. Provide your response as a JSON object with:
          {

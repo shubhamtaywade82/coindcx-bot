@@ -134,11 +134,14 @@ async function runApp(ctx: Context) {
   setInterval(async () => {
     try {
       const symbol = getFocusedCleanPair();
-      // Fetch 15m candles to build structural context
-      const rawCandles = await CoinDCXApi.getCandles(symbol, '15m', 50);
       
-      // Map to standard Candle interface
-      const candles = (Array.isArray(rawCandles) ? rawCandles : []).map((c: any) => ({
+      // Parallel fetch for MTF analysis (1H and 15m)
+      const [rawHtf, rawLtf] = await Promise.all([
+        CoinDCXApi.getCandles(symbol, '1h', 50),
+        CoinDCXApi.getCandles(symbol, '15m', 50)
+      ]);
+      
+      const mapCandles = (raw: any) => (Array.isArray(raw) ? raw : []).map((c: any) => ({
         timestamp: c[0],
         open: parseFloat(c[1]),
         high: parseFloat(c[2]),
@@ -147,9 +150,12 @@ async function runApp(ctx: Context) {
         volume: parseFloat(c[5])
       }));
 
+      const htfCandles = mapCandles(rawHtf);
+      const ltfCandles = mapCandles(rawLtf);
       const pulse = getMarketPulse();
-      // Build institutional market state
-      const marketState = ctx.stateBuilder.build(candles, pulse.orderBook, pulse.positions);
+
+      // Build institutional MTF market state
+      const marketState = ctx.stateBuilder.build(htfCandles, ltfCandles, pulse.orderBook, pulse.positions);
       
       if (marketState) {
         marketState.symbol = symbol;
@@ -157,14 +163,14 @@ async function runApp(ctx: Context) {
         tui.updateAi(analysis);
       } else {
         tui.updateAi({ 
-          verdict: 'Collecting structural data...', 
+          verdict: 'Syncing MTF data...', 
           signal: 'WAIT', 
           confidence: 0,
-          no_trade_condition: 'Insufficient candles'
+          no_trade_condition: 'Missing HTF/LTF candles'
         });
       }
     } catch (err: any) {
-      ctx.logger.error({ mod: 'ai', err: err.message }, 'AI loop failed');
+      ctx.logger.error({ mod: 'ai', err: err.message }, 'AI MTF loop failed');
     }
   }, 60000);
 
