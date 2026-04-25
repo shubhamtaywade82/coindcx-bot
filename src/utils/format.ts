@@ -18,7 +18,7 @@ export function formatPnl(value: string | number | undefined): string {
   if (value === undefined || value === null || value === '') return '—';
   const num = typeof value === 'string' ? parseFloat(value) : value;
   if (isNaN(num)) return '—';
-  const sign = num >= 0 ? '+' : '';
+  const sign = num > 0 ? '+' : '';
   return `${sign}${num.toFixed(2)}`;
 }
 
@@ -26,7 +26,7 @@ export function formatChange(value: string | number | undefined): string {
   if (value === undefined || value === null || value === '') return '—';
   const num = typeof value === 'string' ? parseFloat(value) : value;
   if (isNaN(num)) return '—';
-  const sign = num >= 0 ? '+' : '';
+  const sign = num > 0 ? '+' : '';
   return `${sign}${num.toFixed(2)}%`;
 }
 
