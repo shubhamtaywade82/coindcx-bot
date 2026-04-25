@@ -1,6 +1,25 @@
-import axios from 'axios';
+import axios, { AxiosInstance } from 'axios';
 import crypto from 'crypto';
 import { config } from '../config/config';
+import { applyReadOnlyGuard } from '../safety/read-only-guard';
+
+const http: AxiosInstance = axios.create({ baseURL: config.apiBaseUrl, timeout: 10_000 });
+const publicHttp: AxiosInstance = axios.create({ baseURL: config.publicBaseUrl, timeout: 10_000 });
+
+applyReadOnlyGuard(http, {
+  onViolation: ({ method, path }) => {
+    // eslint-disable-next-line no-console
+    console.error(`[ReadOnlyGuard] blocked ${method} ${path}`);
+  },
+});
+applyReadOnlyGuard(publicHttp, {
+  onViolation: ({ method, path }) => {
+    // eslint-disable-next-line no-console
+    console.error(`[ReadOnlyGuard] blocked ${method} ${path}`);
+  },
+});
+
+export const __httpForTests = http;
 
 export class CoinDCXApi {
   private static sign(payload: string): string {
@@ -32,10 +51,9 @@ export class CoinDCXApi {
   static async getBalances() {
     const { body, headers } = this.buildSignedRequest({ timestamp: Date.now() });
     try {
-      const response = await axios.get(`${config.apiBaseUrl}/exchange/v1/derivatives/futures/wallets`, {
+      const response = await http.get('/exchange/v1/derivatives/futures/wallets', {
         data: body,
         headers,
-        timeout: 10000,
       });
       return response.data;
     } catch (error: any) {
@@ -48,15 +66,15 @@ export class CoinDCXApi {
   static async getFuturesPositions() {
     const { body, headers } = this.buildSignedRequest({
       timestamp: Date.now(),
-      page: "1",
-      size: "100",
-      margin_currency_short_name: ["USDT", "INR"]
+      page: '1',
+      size: '100',
+      margin_currency_short_name: ['USDT', 'INR'],
     });
     try {
-      const response = await axios.post(
-        `${config.apiBaseUrl}/exchange/v1/derivatives/futures/positions`,
+      const response = await http.post(
+        '/exchange/v1/derivatives/futures/positions',
         body,
-        { headers, timeout: 10000 },
+        { headers },
       );
       return response.data;
     } catch (error: any) {
@@ -68,9 +86,10 @@ export class CoinDCXApi {
 
   static async getTickers() {
     try {
-      const response = await axios.get(`${config.publicBaseUrl}/exchange/ticker`);
+      const response = await publicHttp.get('/exchange/ticker');
       return response.data;
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.error('Error fetching tickers:', error);
       return [];
     }
@@ -78,9 +97,10 @@ export class CoinDCXApi {
 
   static async getMarketDetails() {
     try {
-      const response = await axios.get(`${config.publicBaseUrl}/exchange/v1/markets_details`);
+      const response = await publicHttp.get('/exchange/v1/markets_details');
       return response.data;
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.error('Error fetching market details:', error);
       return [];
     }

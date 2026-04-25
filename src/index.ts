@@ -3,6 +3,9 @@ import { CoinDCXWs } from './gateways/coindcx-ws';
 import { CoinDCXApi } from './gateways/coindcx-api';
 import { config } from './config/config';
 import { formatPrice, formatPnl, formatChange, cleanPair, formatQty, formatTime } from './utils/format';
+import { bootstrap } from './lifecycle/bootstrap';
+import { installSignalHandlers } from './lifecycle/shutdown';
+import type { Context } from './lifecycle/context';
 
 // ── Types ──
 interface TickerInfo {
@@ -30,6 +33,7 @@ export const state = {
   positions: new Map<string, any>(),
   orders: new Map<string, any>(),
   balanceMap: new Map<string, { balance: string; locked: string }>(),
+  orderBooks: new Map<string, { asks: Map<string, string>, bids: Map<string, string> }>(),
   hasValidAuth: true,
   usdtInrRate: 88.5, // Fallback rate
   selectedSymbol: 'SOLUSDT' // Initial focus
@@ -38,9 +42,10 @@ export const state = {
 // ══════════════════════════════════════════════════════
 // ── Main ──
 // ══════════════════════════════════════════════════════
-async function main() {
+async function runApp(ctx: Context) {
   const tui = new TuiApp();
   const ws = new CoinDCXWs();
+  ctx.logger.info({ mod: 'app' }, 'app start');
 
   const MAX_TRADES = 50;
 
@@ -56,22 +61,41 @@ async function main() {
     return tui.focusedPairClean;
   }
 
-  function refreshTradeDisplay() {
+  function refreshBookDisplay() {
     const focused = getFocusedCleanPair();
-    const filtered = state.allTrades
-      .filter(t => t.cleanPair === focused)
-      .slice(0, 15)
-      .map(t => {
-        const sideChar = t.side === 'TAKER' ? '{red-fg}A{/red-fg}' : '{green-fg}B{/green-fg}';
-        return [
-          sideChar,
-          formatPrice(t.price),
-          formatQty(t.qty)
-        ];
+    const book = state.orderBooks.get(focused);
+    const ticker = state.tickers.get(focused);
+    
+    if (!book) {
+       tui.updateOrderBook([], [], ticker?.price || '—');
+       return;
+    }
+
+    const formatBookRow = (price: string, qty: string, cumulative: number) => [
+      formatPrice(price),
+      formatQty(parseFloat(price) * parseFloat(qty)), // Amount in INR
+      formatQty(cumulative) // Cumulative in INR
+    ];
+
+    let askCumulative = 0;
+    const asks = Array.from(book.asks.entries())
+      .sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]))
+      .slice(0, 10)
+      .map(([p, q]) => {
+         askCumulative += parseFloat(p) * parseFloat(q);
+         return formatBookRow(p, q, askCumulative);
       });
-    tui.updateTrades(filtered.length > 0
-      ? filtered
-      : [['—', 'No data', '—']]);
+
+    let bidCumulative = 0;
+    const bids = Array.from(book.bids.entries())
+      .sort((a, b) => parseFloat(b[0]) - parseFloat(a[0]))
+      .slice(0, 10)
+      .map(([p, q]) => {
+         bidCumulative += parseFloat(p) * parseFloat(q);
+         return formatBookRow(p, q, bidCumulative);
+      });
+
+    tui.updateOrderBook(asks, bids, ticker?.price || '—');
     tui.updateStatus({ lastUpdate: Date.now() });
   }
 
@@ -133,8 +157,15 @@ async function main() {
 
     Array.from(state.positions.values()).forEach((p: any) => {
        const pnl = parseFloat(p.unrealized_pnl || '0');
-       const currency = p.margin_currency_short_name || p.settlement_currency_short_name || 'USDT';
+       const currency = (p.margin_currency_short_name || p.settlement_currency_short_name || 'USDT').toUpperCase();
        activePnlMap.set(currency, (activePnlMap.get(currency) || 0) + pnl);
+       
+       // Add to total global PnL (converted to INR)
+       if (currency === 'INR') {
+         totalPnlInr += pnl;
+       } else if (currency === 'USDT' || currency === 'USD') {
+         totalPnlInr += pnl * state.usdtInrRate;
+       }
     });
 
     const rows: string[][] = [];
@@ -145,32 +176,49 @@ async function main() {
         const available = parseFloat(info.balance || '0');
         const locked = parseFloat(info.locked || '0');
         const walletBalance = available + locked;
-        const activePnl = activePnlMap.get(currency) || 0;
-        const currentValue = walletBalance + activePnl;
-
+        let activePnl = activePnlMap.get(currency) || 0;
+        
+        // For the main INR row, show the total aggregated PnL across all currencies
         if (currency === 'INR') {
-          totalEqInr += currentValue;
-          totalWalInr += walletBalance;
-          totalPnlInr += activePnl;
+          activePnl = totalPnlInr;
         }
+        
+        const currentValue = walletBalance + activePnl;
+        const pnlPct = walletBalance > 0 ? (activePnl / walletBalance) * 100 : 0;
+        const utilPct = walletBalance > 0 ? (locked / walletBalance) * 100 : 0;
+
+        // Add to global totals (converted to INR)
+        const inrValue = currency === 'INR' ? currentValue : currentValue * state.usdtInrRate;
+        const inrWallet = currency === 'INR' ? walletBalance : walletBalance * state.usdtInrRate;
+        totalEqInr += inrValue;
+        totalWalInr += inrWallet;
+
+        const isInr = currency === 'INR' || currency === 'USDTINR'; // Special case for INR-settled
+        const prefix = isInr ? '₹' : '';
 
         rows.push([
-          currency,
-          formatQty(currentValue),
-          formatQty(walletBalance),
-          formatPnl(activePnl),
-          formatQty(available),
-          formatQty(locked)
+          isInr ? '₹ INR' : currency,
+          `${prefix}${formatQty(currentValue)}`,
+          `${prefix}${formatQty(walletBalance)}`,
+          formatPnl(activePnl, prefix),
+          `{${pnlPct >= 0 ? 'green' : 'red'}-fg}${pnlPct.toFixed(2)}%{/${pnlPct >= 0 ? 'green' : 'red'}-fg}`,
+          `${prefix}${formatQty(available)}`,
+          `${prefix}${formatQty(locked)}`,
+          `{yellow-fg}${utilPct.toFixed(1)}%{/yellow-fg}`
         ]);
 
-        if (currency === 'INR' && state.usdtInrRate > 0) {
+        if (isInr && state.usdtInrRate > 0) {
+          const usdEq = currentValue / state.usdtInrRate;
+          const usdWal = walletBalance / state.usdtInrRate;
           rows.push([
-            '{cyan-fg}USD{/cyan-fg}',
-            `{cyan-fg}$${formatQty(currentValue / state.usdtInrRate, 2)}{/cyan-fg}`,
-            `{cyan-fg}$${formatQty(walletBalance / state.usdtInrRate, 2)}{/cyan-fg}`,
-            formatPnl(activePnl / state.usdtInrRate),
+            '{cyan-fg}$ USD{/cyan-fg}',
+            `{cyan-fg}$${formatQty(usdEq, 2)}{/cyan-fg}`,
+            `{cyan-fg}$${formatQty(usdWal, 2)}{/cyan-fg}`,
+            formatPnl(activePnl / state.usdtInrRate, '$'),
+            `{${pnlPct >= 0 ? 'green' : 'red'}-fg}${pnlPct.toFixed(2)}%{/${pnlPct >= 0 ? 'green' : 'red'}-fg}`,
             `{cyan-fg}$${formatQty(available / state.usdtInrRate, 2)}{/cyan-fg}`,
-            `{cyan-fg}$${formatQty(locked / state.usdtInrRate, 2)}{/cyan-fg}`
+            `{cyan-fg}$${formatQty(locked / state.usdtInrRate, 2)}{/cyan-fg}`,
+            `{yellow-fg}${utilPct.toFixed(1)}%{/yellow-fg}`
           ]);
         }
       });
@@ -181,19 +229,19 @@ async function main() {
     tui.updateSummary({
       equity: `₹${formatQty(totalEqInr)} (${formatQty(totalEqInr / state.usdtInrRate, 2)} USDT)`,
       wallet: `₹${formatQty(totalWalInr)} (${formatQty(totalWalInr / state.usdtInrRate, 2)} USDT)`,
-      net: formatPnl(totalPnlInr),
+      net: formatPnl(totalPnlInr, '₹'),
       unrealUsdt: `${formatQty(totalPnlInr / state.usdtInrRate, 2)} USDT`
     });
   }
 
   // ── On Focus Change: re-filter trades + update header ──
   tui.setOnFocusChange(() => {
-    refreshTradeDisplay();
+    refreshBookDisplay();
     refreshHeader();
   });
 
   // ── Set initial placeholders ──
-  tui.updateTrades([['—', 'Connecting...', '—']]);
+  tui.updateOrderBook([], [], 'Connecting...');
   tui.updatePositions([['—', 'Connecting...', '—', '—', '—', '—', '—', '—']]);
   tui.updateBalances([['—', 'Connecting...', '—', '—', '—', '—']]);
   tui.updateOrders([['—', 'Connecting...', '—', '—']]);
@@ -205,7 +253,7 @@ async function main() {
       if (usdtInrTicker && usdtInrTicker.last_price) {
         state.usdtInrRate = parseFloat(usdtInrTicker.last_price);
       }
-    } catch (err) {
+    } catch (_err) {
       // Ignore ticker fetch errors
     }
 
@@ -257,7 +305,7 @@ async function main() {
   // ── Initial REST API Fetch ──
   // ══════════════════════════════════════════════════════
   if (config.apiKey && config.apiSecret) {
-    fetchPrivateData();
+    void fetchPrivateData();
     setInterval(fetchPrivateData, 30000); // refresh every 30s as a fallback
   } else {
     tui.log('⚠ API Key/Secret missing — PUBLIC ONLY mode');
@@ -272,6 +320,7 @@ async function main() {
     state.isWsConnected = true;
     tui.log('✓ WebSocket connected');
     tui.updateStatus({ connected: true });
+    ctx.audit.recordEvent({ kind: 'ws_reconnect', source: 'ws', payload: {} });
   });
   ws.on('disconnected', (reason) => {
     state.isWsConnected = false;
@@ -282,7 +331,7 @@ async function main() {
     tui.log(`✗ WS error: ${error.message}`);
     tui.updateStatus({ connected: false });
   });
-  ws.on('debug', (msg) => tui.log(msg));
+  ws.on('debug', (msg) => ctx.logger.debug({ mod: 'ws' }, msg));
 
   // ── new-trade: { T, RT, p, q, m, s:"B-SOL_USDT", pr:"f" } ──
   ws.on('new-trade', (raw) => {
@@ -292,7 +341,7 @@ async function main() {
     const pair = data.s;
     const clean = cleanPair(pair);
     const price = data.p;
-    const isFutures = data.pr === 'f';
+    const _isFutures = data.pr === 'f';
 
     // Update ticker
     if (clean && price) {
@@ -320,8 +369,48 @@ async function main() {
 
     // Refresh trade table only if this trade matches focused pair
     if (clean === getFocusedCleanPair()) {
-      refreshTradeDisplay();
+      refreshBookDisplay();
     }
+  });
+  // ── depth-snapshot: { bids: [[p, q], ...], asks: [[p, q], ...], s: "B-SOL_USDT" } ──
+  ws.on('depth-snapshot', (raw) => {
+    const data = safeParse(raw);
+    if (!data || !data.s) return;
+    const pair = cleanPair(data.s);
+    
+    const asks = new Map<string, string>();
+    const bids = new Map<string, string>();
+    
+    (data.asks || []).forEach(([p, q]: [any, any]) => asks.set(p.toString(), q.toString()));
+    (data.bids || []).forEach(([p, q]: [any, any]) => bids.set(p.toString(), q.toString()));
+    
+    state.orderBooks.set(pair, { asks, bids });
+    if (pair === getFocusedCleanPair()) refreshBookDisplay();
+  });
+
+  // ── depth-update: { bids: [[p, q], ...], asks: [[p, q], ...], s: "B-SOL_USDT" } ──
+  ws.on('depth-update', (raw) => {
+    const data = safeParse(raw);
+    if (!data || !data.s) return;
+    const pair = cleanPair(data.s);
+    let book = state.orderBooks.get(pair);
+    
+    if (!book) {
+       book = { asks: new Map(), bids: new Map() };
+       state.orderBooks.set(pair, book);
+    }
+    
+    (data.asks || []).forEach(([p, q]: [any, any]) => {
+      if (parseFloat(q) === 0) book!.asks.delete(p.toString());
+      else book!.asks.set(p.toString(), q.toString());
+    });
+    
+    (data.bids || []).forEach(([p, q]: [any, any]) => {
+      if (parseFloat(q) === 0) book!.bids.delete(p.toString());
+      else book!.bids.set(p.toString(), q.toString());
+    });
+    
+    if (pair === getFocusedCleanPair()) refreshBookDisplay();
   });
 
   // ── currentPrices@spot#update: { prices: { "ATOMUSDT": "2.01", ... } } ──
@@ -332,17 +421,18 @@ async function main() {
     if (!prices || typeof prices !== 'object' || Array.isArray(prices)) return;
 
     Object.entries(prices).forEach(([pair, val]: [string, any]) => {
-      const price = typeof val === 'object' ? (val.ls || val.mp || val.p) : val;
+      const price = (val && typeof val === 'object') ? (val.ls || val.mp || val.p) : val;
       if (price !== undefined && price !== null) {
         const existing = state.tickers.get(pair) || { price: '0', markPrice: '0', change: '0' };
-        const changeVal = typeof val === 'object' ? (val.pc || existing.change) : existing.change;
+        const changeVal = (val && typeof val === 'object') ? (val.pc || existing.change) : existing.change;
         state.tickers.set(pair, {
           ...existing,
           price: price.toString(),
           change: changeVal?.toString() || '0',
         });
 
-        if (pair === 'USDTINR') {
+        const clean = cleanPair(pair);
+        if (clean === 'USDTINR') {
           state.usdtInrRate = parseFloat(price.toString());
         }
       }
@@ -372,6 +462,10 @@ async function main() {
         markPrice: markPrice?.toString() || existing.markPrice,
         change: changePct?.toString() || existing.change,
       });
+
+      if (pair === 'USDTINR') {
+        state.usdtInrRate = parseFloat(lastPrice?.toString() || state.usdtInrRate.toString());
+      }
 
       // Update active positions PnL in real-time
       if (markPrice) {
@@ -487,7 +581,15 @@ async function main() {
   }, 30_000);
 }
 
+async function main() {
+  const ctx = await bootstrap();
+  installSignalHandlers(ctx);
+  await runApp(ctx);
+}
+
 main().catch((err) => {
-  console.error('Fatal error:', err);
+  // Use a fallback logger if ctx is not yet initialized
+  const msg = err instanceof Error ? err.stack : String(err);
+  process.stderr.write(`\n\nFATAL ERROR: ${msg}\n`);
   process.exit(1);
 });
