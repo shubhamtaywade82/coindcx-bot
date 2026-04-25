@@ -91,7 +91,7 @@ async function runApp(ctx: Context) {
   ws.on('currentPrices@spot#update',    (raw: any) => integrity.ingest('currentPrices@spot#update',    raw));
 
   setInterval(() => {
-    tui.updateStatus({ latency: Math.round(integrity.wsLatencyMs()) });
+    tui.updateStatus({ lastUpdate: Date.now() });
     const focused = tui.focusedPair;
     const book = integrity.books.get(focused);
     tui.updateBookState(book ? book.state() : '—');
@@ -152,45 +152,41 @@ async function runApp(ctx: Context) {
   setInterval(async () => {
     try {
       const symbol = getFocusedCleanPair();
-      
-      // Parallel fetch for MTF analysis (1H and 15m)
       const [rawHtf, rawLtf] = await Promise.all([
         CoinDCXApi.getCandles(symbol, '1h', 50),
         CoinDCXApi.getCandles(symbol, '15m', 50)
       ]);
-      
       const mapCandles = (raw: any) => (Array.isArray(raw) ? raw : []).map((c: any) => ({
-        timestamp: c[0],
-        open: parseFloat(c[1]),
-        high: parseFloat(c[2]),
-        low: parseFloat(c[3]),
-        close: parseFloat(c[4]),
-        volume: parseFloat(c[5])
+        timestamp: c[0], open: parseFloat(c[1]), high: parseFloat(c[2]),
+        low: parseFloat(c[3]), close: parseFloat(c[4]), volume: parseFloat(c[5])
       }));
-
       const htfCandles = mapCandles(rawHtf);
       const ltfCandles = mapCandles(rawLtf);
       const pulse = getMarketPulse();
-
-      // Build institutional MTF market state
       const marketState = ctx.stateBuilder.build(htfCandles, ltfCandles, pulse.orderBook, pulse.positions);
-      
       if (marketState) {
         marketState.symbol = symbol;
         const analysis = await ctx.analyzer.analyze(marketState);
         tui.updateAi(analysis);
-      } else {
-        tui.updateAi({ 
-          verdict: 'Syncing MTF data...', 
-          signal: 'WAIT', 
-          confidence: 0,
-          no_trade_condition: 'Missing HTF/LTF candles'
-        });
       }
     } catch (err: any) {
       ctx.logger.error({ mod: 'ai', err: err.message }, 'AI MTF loop failed');
     }
   }, 60000);
+
+  // ── Institutional Signal Sink ──
+  class TuiSink {
+    readonly name = 'tui';
+    async emit(signal: any) {
+      log(JSON.stringify(signal));
+    }
+  }
+
+  // Inject TUI sink into the global bus
+  const sinks = (ctx.bus as any).opts.sinks;
+  if (Array.isArray(sinks)) {
+    sinks.push(new TuiSink());
+  }
 
   function refreshBookDisplay() {
     const focused = getFocusedCleanPair();
@@ -440,14 +436,14 @@ async function runApp(ctx: Context) {
   // ══════════════════════════════════════════════════════
   if (config.apiKey && config.apiSecret) {
     void fetchPrivateData();
-    setInterval(fetchPrivateData, 30000); // refresh every 30s as a fallback
+    setInterval(fetchPrivateData, 5000); // 6x faster polling (5s instead of 30s)
   } else {
     log('⚠ API Key/Secret missing — PUBLIC ONLY mode');
     state.hasValidAuth = false;
     tui.updateBalances([['No API key', '—', '—', '—', '—', '—']]);
     tui.updatePositions([['No API key', '—', '—', '—', '—', '—']]);
   }
-  // ── WebSocket Events ──
+  // ── WebSocket Logic ──
   // ══════════════════════════════════════════════════════
 
   ws.on('connected', () => {
@@ -578,6 +574,8 @@ async function runApp(ctx: Context) {
       }
     });
     refreshHeader();
+    refreshPositionsDisplay(); // Reactive PnL update
+    refreshBalanceDisplay();   // Reactive Equity update
   });
 
   // ── currentPrices@futures#update: { prices: { "B-SOL_USDT": { mp, ls, pc, ... } } } ──

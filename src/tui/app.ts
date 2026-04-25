@@ -219,8 +219,8 @@ export class TuiApp {
   }
 
   private emitFocusChange() {
-    this.updateHeader();
-    this.updateStatus();
+    this.updateHeader({});
+    this.updateStatus({});
     this.tradeTable.setLabel(` ◉ Book — ${this.focusedPairClean} `);
     this.render();
     if (this.onFocusChange) {
