@@ -74,6 +74,7 @@ export class CoinDCXWs extends EventEmitter {
   }
 
   private setupSocketListeners() {
+    // ── Public Events ──
     const publicEvents = [
       'candlestick',
       'depth-snapshot',
@@ -87,24 +88,27 @@ export class CoinDCXWs extends EventEmitter {
     publicEvents.forEach((event) => {
       this.socket.on(event, (response: any) => {
         const data = response.data || response;
-        this.emit('debug', `Event: ${event} Data: ${JSON.stringify(data).substring(0, 50)}`);
         this.emit(event, data);
+        // Throttled debug — only log non-noisy events in detail
+        if (!['depth-update', 'depth-snapshot'].includes(event)) {
+          this.emit('debug', `${event}: ${JSON.stringify(data).substring(0, 100)}`);
+        }
       });
     });
 
-    // Private events
-    const privateEvents = ['balance-update', 'order-update', 'trade-update'];
+    // ── Private Events (CoinDCX derivatives use df- prefix) ──
+    const privateEvents = [
+      'balance-update',
+      'df-position-update',
+      'df-order-update',
+    ];
+
     privateEvents.forEach((event) => {
       this.socket.on(event, (response: any) => {
         const data = response.data || response;
-        this.emit('debug', `Private Event: ${event} Data: ${JSON.stringify(data).substring(0, 50)}`);
+        this.emit('debug', `PRIVATE ${event}: ${JSON.stringify(data).substring(0, 100)}`);
         this.emit(event, data);
       });
-    });
-
-    // Catch all for debugging
-    this.socket.on('*', (event: string, data: any) => {
-      this.emit('debug', `UNKNOWN EVENT: ${event}`);
     });
   }
 }
