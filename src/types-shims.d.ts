@@ -3,6 +3,14 @@ declare module 'pino-roll' {
   export default pinoRoll;
 }
 
+declare module 'ntp-client' {
+  export function getNetworkTime(
+    host: string,
+    port: number,
+    cb: (err: Error | null, date: Date | null) => void,
+  ): void;
+}
+
 declare module 'node-pg-migrate' {
   export interface RunnerOptions {
     databaseUrl: string;
