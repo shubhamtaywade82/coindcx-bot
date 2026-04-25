@@ -5,6 +5,7 @@ import type { Audit } from '../audit/audit';
 import type { SignalBus } from '../signals/bus';
 import type { Cursors } from '../resume/cursors';
 import type { AiAnalyzer } from '../ai/analyzer';
+import type { MarketStateBuilder } from '../ai/state-builder';
 
 export interface Context {
   config: Config;
@@ -14,4 +15,5 @@ export interface Context {
   bus: SignalBus;
   cursors: Cursors;
   analyzer: AiAnalyzer;
+  stateBuilder: MarketStateBuilder;
 }

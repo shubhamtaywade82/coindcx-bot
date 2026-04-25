@@ -83,11 +83,38 @@ async function runApp(ctx: Context) {
   // ── AI Analysis Loop ──
   setInterval(async () => {
     try {
+      const symbol = getFocusedCleanPair();
+      // Fetch 15m candles to build structural context
+      const rawCandles = await CoinDCXApi.getCandles(symbol, '15m', 50);
+      
+      // Map to standard Candle interface
+      const candles = (Array.isArray(rawCandles) ? rawCandles : []).map((c: any) => ({
+        timestamp: c[0],
+        open: parseFloat(c[1]),
+        high: parseFloat(c[2]),
+        low: parseFloat(c[3]),
+        close: parseFloat(c[4]),
+        volume: parseFloat(c[5])
+      }));
+
       const pulse = getMarketPulse();
-      const analysis = await ctx.analyzer.analyze(pulse);
-      tui.updateAi(analysis);
-    } catch (err) {
-      ctx.logger.error({ mod: 'ai', err }, 'AI loop failed');
+      // Build institutional market state
+      const marketState = ctx.stateBuilder.build(candles, pulse.orderBook, pulse.positions);
+      
+      if (marketState) {
+        marketState.symbol = symbol;
+        const analysis = await ctx.analyzer.analyze(marketState);
+        tui.updateAi(analysis);
+      } else {
+        tui.updateAi({ 
+          verdict: 'Collecting structural data...', 
+          signal: 'WAIT', 
+          confidence: 0,
+          no_trade_condition: 'Insufficient candles'
+        });
+      }
+    } catch (err: any) {
+      ctx.logger.error({ mod: 'ai', err: err.message }, 'AI loop failed');
     }
   }, 60000);
 

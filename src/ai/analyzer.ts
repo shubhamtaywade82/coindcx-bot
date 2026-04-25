@@ -25,29 +25,47 @@ export class AiAnalyzer {
     this.model = config.OLLAMA_MODEL;
   }
 
-  async analyze(pulse: MarketPulse) {
+  async analyze(state: any) {
     const prompt = `
-      You are an expert crypto day trader and quantitative analyst.
-      Analyze the current market pulse for ${pulse.symbol}:
-      - Current Price: ${pulse.price}
-      - 24h Change: ${pulse.change24h}
-      - Best Ask: ${pulse.orderBook.bestAsk}
-      - Best Bid: ${pulse.orderBook.bestBid}
-      - Spread: ${pulse.orderBook.spread}
-      - Active Positions: ${pulse.positions.length}
+      You are a professional SMC-based crypto futures trading system.
+      Input: Structured market state for ${state.symbol || 'asset'}.
 
-      Based on this data, provide a professional trading verdict.
-      Format your response as a JSON object with:
-      {
-        "verdict": "A brief 1-sentence market summary",
-        "signal": "BUY", "SELL", or "NEUTRAL",
-        "confidence": A number between 0 and 1
-      }
+      [MARKET STATE DATA]
+      ${JSON.stringify(state, null, 2)}
+
+      TASKS:
+      1. Identify valid setups ONLY if:
+         - Liquidity sweep + displacement present
+         - Structure confirms (BOS/CHOCH)
+         - Price in OB/FVG mitigation
+         - LTF confirmation exists (or is implied by displacement)
+
+      2. Provide your response as a JSON object with:
+         {
+           "verdict": "Detailed summary of structural confluence",
+           "signal": "LONG", "SHORT", or "WAIT",
+           "confidence": A number 0-1,
+           "setup": {
+             "entry": "price",
+             "sl": "price",
+             "tp": "price",
+             "rr": number
+           },
+           "alternate_scenario": "What happens if this fails?",
+           "no_trade_condition": "Explicit reason to stay out"
+         }
+
+      STRICT RULES:
+      - No trade without displacement.
+      - No OB without BOS.
+      - Reject weak setups or those with no liquidity context.
+      - Give final decision: LONG / SHORT / WAIT.
+
       Only return the JSON object, no other text.
     `;
 
     try {
-      this.logger.info({ mod: 'ai', symbol: pulse.symbol }, 'AI analysis start');
+      this.logger.info({ mod: 'ai', symbol: state.symbol }, 'Institutional AI analysis start');
       const response = await this.ollama.chat({
         model: this.model,
         messages: [{ role: 'user', content: prompt }],
@@ -62,8 +80,9 @@ export class AiAnalyzer {
       this.logger.error({ mod: 'ai', err: err.message }, 'AI analysis failed');
       return {
         verdict: 'AI analysis temporarily unavailable',
-        signal: 'NEUTRAL',
-        confidence: 0
+        signal: 'WAIT',
+        confidence: 0,
+        no_trade_condition: 'Connectivity issue'
       };
     }
   }

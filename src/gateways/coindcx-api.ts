@@ -105,4 +105,21 @@ export class CoinDCXApi {
       return [];
     }
   }
+
+  static async getCandles(pair: string, interval: string, limit = 100) {
+    try {
+      // CoinDCX Futures Candle endpoint
+      const response = await publicHttp.get('/exchange/v1/derivatives/futures/candles', {
+        params: {
+          pair,
+          interval, // e.g., '5m', '15m', '1h'
+          limit
+        }
+      });
+      return response.data; // Array of [timestamp, open, high, low, close, volume]
+    } catch (error: any) {
+      console.error(`Error fetching candles for ${pair}:`, error.message);
+      return [];
+    }
+  }
 }

@@ -37,7 +37,7 @@ export async function bootstrap(): Promise<Context> {
   const { interceptConsole } = await import('../logging/interceptor');
   interceptConsole(logger);
 
-  logger.info({ mod: 'boot' }, 'boot start');
+  logger.info({ mod: 'boot', ollama: config.OLLAMA_URL, model: config.OLLAMA_MODEL }, 'boot start');
 
   const pool = await connectWithRetry(async () => {
     const p = getPool();
@@ -82,9 +82,11 @@ export async function bootstrap(): Promise<Context> {
   audit.recordEvent({ kind: 'boot', source: 'lifecycle', payload: { sinks: config.SIGNAL_SINKS } });
   
   const { AiAnalyzer } = await import('../ai/analyzer');
+  const { MarketStateBuilder } = await import('../ai/state-builder');
   const analyzer = new AiAnalyzer(config, logger);
+  const stateBuilder = new MarketStateBuilder(logger);
 
   logger.info({ mod: 'boot', sinks: config.SIGNAL_SINKS }, 'boot complete');
 
-  return { config, logger, pool, audit, bus, cursors, analyzer };
+  return { config, logger, pool, audit, bus, cursors, analyzer, stateBuilder };
 }

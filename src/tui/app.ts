@@ -280,9 +280,12 @@ export class TuiApp {
     this.render();
   }
 
-  updateAi(data: { verdict: string; signal: string; confidence: number }) {
-    const color = data.signal === 'BUY' ? 'green' : data.signal === 'SELL' ? 'red' : 'yellow';
-    const content = `\n {bold}${data.verdict}{/bold}\n\n {${color}-fg}SIGNAL: ${data.signal}{/${color}-fg}\n {gray-fg}CONF: ${(data.confidence * 100).toFixed(0)}%{/gray-fg}`;
+  updateAi(data: { verdict: string; signal: string; confidence: number; no_trade_condition?: string }) {
+    const signal = data.signal || 'WAIT';
+    const color = signal === 'LONG' ? 'green' : signal === 'SHORT' ? 'red' : 'yellow';
+    const reason = data.no_trade_condition ? `\n {gray-fg}REASON: ${data.no_trade_condition}{/gray-fg}` : '';
+    
+    const content = `\n {bold}${data.verdict}{/bold}\n\n {${color}-fg}SIGNAL: ${signal}{/${color}-fg}\n {gray-fg}CONF: ${(data.confidence * 100).toFixed(0)}%{/gray-fg}${reason}`;
     this.aiBox.setContent(content);
     this.render();
   }

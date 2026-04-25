@@ -26,7 +26,7 @@ export const ConfigSchema = z.object({
   API_BASE_URL: z.string().url().default('https://api.coindcx.com'),
   PUBLIC_BASE_URL: z.string().url().default('https://public.coindcx.com'),
   SOCKET_BASE_URL: z.string().url().default('wss://stream.coindcx.com'),
-  OLLAMA_URL: z.string().url().default('http://localhost:11434'),
+  OLLAMA_URL: z.string().url().default('http://127.0.0.1:11434'),
   OLLAMA_MODEL: z.string().default('llama3'),
 }).superRefine((data, _ctx) => {
   // If telegram is requested but credentials are missing, silently filter it out
