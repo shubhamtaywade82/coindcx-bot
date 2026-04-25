@@ -56,10 +56,17 @@ async function main() {
     const filtered = state.allTrades
       .filter(t => t.cleanPair === focused)
       .slice(0, 15)
-      .map(t => [t.time, t.cleanPair, t.price, t.qty, t.side]);
+      .map(t => {
+        const sideChar = t.side === 'TAKER' ? '{red-fg}A{/red-fg}' : '{green-fg}B{/green-fg}';
+        return [
+          sideChar,
+          formatPrice(t.price),
+          formatQty(t.qty)
+        ];
+      });
     tui.updateTrades(filtered.length > 0
       ? filtered
-      : [['—', `No trades for ${focused}`, '—', '—', '—']]);
+      : [['—', 'No data', '—']]);
   }
 
   function refreshHeader() {
@@ -78,32 +85,45 @@ async function main() {
 
   function refreshPositionsDisplay() {
     const rows = Array.from(state.positions.values())
-      .filter((p: any) => p.active_pos !== 0) // Only show active positio
-      .map((p: any) => [
-        cleanPair(p.pair || 'N/A'),
-        p.active_pos > 0 ? 'LONG' : 'SHORT',
-        `${p.leverage || 1}x`,
-        formatPrice(p.avg_price),
-        formatPrice(p.mark_price),
-        formatPnl(p.unrealized_pnl || 0),
-      ]);
-    tui.updatePositions(rows.length > 0 ? rows : [['No active positions', '—', '—', '—', '—', '—']]);
+      .filter((p: any) => p.active_pos !== 0) // Only show active positions
+      .map((p: any) => {
+        const clean = cleanPair(p.pair || 'N/A');
+        const sym = clean.replace('USDT', '');
+        const ticker = state.tickers.get(clean);
+        return [
+          sym,
+          p.active_pos > 0 ? '{green-fg}LONG{/green-fg}' : '{red-fg}SHORT{/red-fg}',
+          formatQty(Math.abs(p.active_pos)),
+          formatPrice(p.avg_price),
+          ticker ? formatPrice(ticker.price) : '—',
+          formatPrice(p.mark_price),
+          '—',
+          formatPnl(p.unrealized_pnl || 0),
+        ];
+      });
+    tui.updatePositions(rows.length > 0 ? rows : [['—', '—', '—', '—', '—', '—', '—', '—']]);
   }
 
   function refreshOrdersDisplay() {
     const rows = Array.from(state.orders.values())
-      .map((o: any) => [
-        cleanPair(o.pair || 'N/A'),
-        (o.side || 'N/A').toUpperCase(),
-        formatPrice(o.price),
-        formatQty(o.total_quantity),
-        (o.status || 'N/A').toUpperCase(),
-      ]);
-    tui.updateOrders(rows.length > 0 ? rows : [['No open orders', '—', '—', '—', '—']]);
+      .map((o: any) => {
+        const side = (o.side || 'N/A').toUpperCase();
+        const sideChar = side === 'BUY' ? '{green-fg}B{/green-fg}' : '{red-fg}S{/red-fg}';
+        return [
+          sideChar,
+          cleanPair(o.pair || 'N/A'),
+          (o.status || 'N/A').substring(0, 4).toUpperCase(),
+          '—'
+        ];
+      });
+    tui.updateOrders(rows.length > 0 ? rows : [['—', '—', '—', '—']]);
   }
 
   function refreshBalanceDisplay() {
     const activePnlMap = new Map<string, number>();
+    let totalEqInr = 0;
+    let totalWalInr = 0;
+    let totalPnlInr = 0;
 
     Array.from(state.positions.values()).forEach((p: any) => {
        const pnl = parseFloat(p.unrealized_pnl || '0');
@@ -122,6 +142,12 @@ async function main() {
         const activePnl = activePnlMap.get(currency) || 0;
         const currentValue = walletBalance + activePnl;
 
+        if (currency === 'INR') {
+          totalEqInr += currentValue;
+          totalWalInr += walletBalance;
+          totalPnlInr += activePnl;
+        }
+
         rows.push([
           currency,
           formatQty(currentValue),
@@ -133,17 +159,25 @@ async function main() {
 
         if (currency === 'INR' && state.usdtInrRate > 0) {
           rows.push([
-            'USD',
-            `$${formatQty(currentValue / state.usdtInrRate, 2)}`,
-            `$${formatQty(walletBalance / state.usdtInrRate, 2)}`,
+            '{cyan-fg}USD{/cyan-fg}',
+            `{cyan-fg}$${formatQty(currentValue / state.usdtInrRate, 2)}{/cyan-fg}`,
+            `{cyan-fg}$${formatQty(walletBalance / state.usdtInrRate, 2)}{/cyan-fg}`,
             formatPnl(activePnl / state.usdtInrRate),
-            `$${formatQty(available / state.usdtInrRate, 2)}`,
-            `$${formatQty(locked / state.usdtInrRate, 2)}`
+            `{cyan-fg}$${formatQty(available / state.usdtInrRate, 2)}{/cyan-fg}`,
+            `{cyan-fg}$${formatQty(locked / state.usdtInrRate, 2)}{/cyan-fg}`
           ]);
         }
       });
       
     tui.updateBalances(rows.length > 0 ? rows : [['No balances', '—', '—', '—', '—', '—']]);
+    
+    // Update top summary bar
+    tui.updateSummary({
+      equity: `₹${formatQty(totalEqInr)} (${formatQty(totalEqInr / state.usdtInrRate, 2)} USDT)`,
+      wallet: `₹${formatQty(totalWalInr)} (${formatQty(totalWalInr / state.usdtInrRate, 2)} USDT)`,
+      net: formatPnl(totalPnlInr),
+      unrealUsdt: `${formatQty(totalPnlInr / state.usdtInrRate, 2)} USDT`
+    });
   }
 
   // ── On Focus Change: re-filter trades + update header ──
@@ -153,10 +187,10 @@ async function main() {
   });
 
   // ── Set initial placeholders ──
-  tui.updateTrades([['Connecting...', '—', '—', '—', '—']]);
-  tui.updatePositions([['Connecting...', '—', '—', '—', '—', '—']]);
-  tui.updateBalances([['Connecting...', '—', '—', '—', '—', '—']]);
-  tui.updateOrders([['No open orders', '—', '—', '—', '—']]);
+  tui.updateTrades([['—', 'Connecting...', '—']]);
+  tui.updatePositions([['—', 'Connecting...', '—', '—', '—', '—', '—', '—']]);
+  tui.updateBalances([['—', 'Connecting...', '—', '—', '—', '—']]);
+  tui.updateOrders([['—', 'Connecting...', '—', '—']]);
 
   async function fetchPrivateData() {
     try {

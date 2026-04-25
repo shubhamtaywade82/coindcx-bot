@@ -7,6 +7,8 @@ export class TuiApp {
   private screen: blessed.Widgets.Screen;
   private grid: contrib.grid;
   private logPanel: blessed.Widgets.Log;
+  private statusBar: blessed.Widgets.BoxElement;
+  private summaryBox: blessed.Widgets.BoxElement;
   private headerBox: any;
   private tradeTable: any;
   private positionTable: any;
@@ -22,13 +24,27 @@ export class TuiApp {
     this.pairs = config.pairs;
     this.screen = blessed.screen({
       smartCSR: true,
-      title: 'CoinDCX Terminal',
+      title: 'SMC Alpha Terminal',
     });
 
     this.grid = new contrib.grid({ rows: 12, cols: 12, screen: this.screen });
 
-    // ── Row 0-1: Asset Header Bar ──
-    this.headerBox = this.grid.set(0, 0, 1, 12, blessed.box, {
+    // ── Row 0: Top Status Bar ──
+    this.statusBar = this.grid.set(0, 0, 1, 12, blessed.box, {
+      tags: true,
+      content: this.buildStatusContent(),
+      style: { bg: 'black' }
+    });
+
+    // ── Row 1: Account Summary Bar ──
+    this.summaryBox = this.grid.set(1, 0, 1, 12, blessed.box, {
+      tags: true,
+      content: ' {yellow-fg}Loading account stats...{/yellow-fg}',
+      style: { bg: 'black' }
+    });
+
+    // ── Row 2: Asset Header Bar ──
+    this.headerBox = this.grid.set(2, 0, 1, 12, blessed.box, {
       label: ' ◈ Asset Focus ',
       border: { type: 'line', fg: 'cyan' },
       style: { fg: 'white', bold: true },
@@ -36,47 +52,48 @@ export class TuiApp {
       content: this.buildHeaderContent(),
     });
 
-    // ── Row 1-6, Col 0-6: Live Trades (focused pair) ──
-    this.tradeTable = this.grid.set(1, 0, 5, 6, contrib.table, {
-      label: ' ◉ Live Trades ',
+    // ── Row 3-7, Col 0-3: Live Trades (Focused) ──
+    this.tradeTable = this.grid.set(3, 0, 5, 3, contrib.table, {
+      label: ' ◉ Book ',
       border: { type: 'line', fg: 'blue' },
       fg: 'white',
-      columnSpacing: 2,
-      columnWidth: [10, 14, 12, 10, 6],
+      columnSpacing: 1,
+      columnWidth: [3, 10, 10],
+      tags: true,
     });
 
-    // ── Row 1-4, Col 6-12: Futures Positions (global) ──
-    this.positionTable = this.grid.set(1, 6, 3, 6, contrib.table, {
-      label: ' ◉ Futures Positions (All) ',
+    // ── Row 3-7, Col 3-9: Positions (All) ──
+    this.positionTable = this.grid.set(3, 3, 5, 6, contrib.table, {
+      label: ' ◉ Positions ',
       border: { type: 'line', fg: 'yellow' },
       fg: 'white',
-      columnSpacing: 2,
-      columnWidth: [14, 6, 5, 12, 12, 10],
+      columnSpacing: 1,
+      columnWidth: [8, 8, 8, 10, 10, 10, 6, 12],
+      tags: true,
     });
 
-    // ── Row 4-6, Col 6-12: Open Orders (global) ──
-    this.orderTable = this.grid.set(4, 6, 2, 6, contrib.table, {
-      label: ' ◉ Open Orders (All) ',
+    // ── Row 3-7, Col 9-12: Orders (All) ──
+    this.orderTable = this.grid.set(3, 9, 5, 3, contrib.table, {
+      label: ' ◉ Orders ',
       border: { type: 'line', fg: 'magenta' },
       fg: 'white',
-      columnSpacing: 2,
-      columnWidth: [14, 6, 10, 10, 10],
+      columnSpacing: 1,
+      columnWidth: [4, 10, 8, 8],
+      tags: true,
     });
 
-    // ── Row 6-9, Col 0-12: Account Balances (global) ──
-    this.balanceTable = this.grid.set(6, 0, 3, 12, contrib.table, {
-      label: ' ◉ Account Balances (All) ',
+    // ── Row 8-11, Col 0-7: Account Balances ──
+    this.balanceTable = this.grid.set(8, 0, 4, 7, contrib.table, {
+      label: ' ◉ Account Balances ',
       border: { type: 'line', fg: 'green' },
       fg: 'white',
-      columnSpacing: 2,
-      columnWidth: [10, 16, 16, 16, 16, 16],
+      columnSpacing: 1,
+      columnWidth: [6, 12, 12, 12, 10, 10],
+      tags: true,
     });
 
-    // ── Row 6-9, Col 6-12: Reserved / extra (logs overflow) ──
-    // Using full-width logs below
-
-    // ── Row 9-12: System Logs (full width) ──
-    this.logPanel = this.grid.set(9, 0, 3, 12, blessed.log, {
+    // ── Row 8-11, Col 7-12: Log Panel ──
+    this.logPanel = this.grid.set(8, 7, 4, 5, blessed.log, {
       label: ' ◉ System Logs ',
       border: { type: 'line', fg: 'gray' },
       scrollable: true,
@@ -131,9 +148,26 @@ export class TuiApp {
     }
   }
 
+  private buildStatusContent() {
+    const mode = config.isReadOnly ? '{red-fg}READ-ONLY{/red-fg}' : '{green-fg}LIVE{/green-fg}';
+    const exe = config.isReadOnly ? '{yellow-fg}OFF{/yellow-fg}' : '{green-fg}RUN{/green-fg}';
+    return ` MODE: ${mode}  │  EXE: ${exe}  │  REGIME: {green-fg}LIVE{/green-fg}  │  ENGINE: {green-fg}RUN{/green-fg}  │  WS: {green-fg}●{/green-fg}  │  FEED: {green-fg}OK{/green-fg}  │  FOCUS: {cyan-fg}${this.focusedPairClean}{/cyan-fg}  │  LAT: {cyan-fg}24ms{/cyan-fg}`;
+  }
+
+  updateStatus() {
+    this.statusBar.setContent(this.buildStatusContent());
+    this.render();
+  }
+
+  updateSummary(data: { equity: string; wallet: string; net: string; unrealUsdt: string }) {
+    this.summaryBox.setContent(` EQ: {green-fg}${data.equity}{/green-fg}  │  WAL: {green-fg}${data.wallet}{/green-fg}  │  NET: {green-fg}${data.net}{/green-fg}  │  UNREAL USDT: {cyan-fg}${data.unrealUsdt}{/cyan-fg}`);
+    this.render();
+  }
+
   private emitFocusChange() {
     this.updateHeader();
-    this.tradeTable.setLabel(` ◉ Live Trades — ${this.focusedPairClean} `);
+    this.updateStatus();
+    this.tradeTable.setLabel(` ◉ Book — ${this.focusedPairClean} `);
     this.render();
     if (this.onFocusChange) {
       this.onFocusChange(this.focusedPair);
@@ -183,7 +217,7 @@ export class TuiApp {
 
   updateTrades(data: string[][]) {
     this.tradeTable.setData({
-      headers: ['Time', 'Pair', 'Price', 'Qty', 'Side'],
+      headers: ['S', 'PRICE', 'QTY'],
       data,
     });
     this.render();
@@ -191,7 +225,7 @@ export class TuiApp {
 
   updatePositions(data: string[][]) {
     this.positionTable.setData({
-      headers: ['Pair', 'Side', 'Lev', 'Entry', 'Mark', 'PnL'],
+      headers: ['SYM', 'SIDE', 'QTY', 'ENT', 'LAST', 'MARK', 'SL', 'PNL'],
       data,
     });
     this.render();
@@ -207,7 +241,7 @@ export class TuiApp {
 
   updateOrders(data: string[][]) {
     this.orderTable.setData({
-      headers: ['Pair', 'Side', 'Price', 'Qty', 'Status'],
+      headers: ['T', 'PAIR', 'ST', 'LAT'],
       data,
     });
     this.render();

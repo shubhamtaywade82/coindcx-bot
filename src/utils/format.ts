@@ -19,7 +19,8 @@ export function formatPnl(value: string | number | undefined): string {
   const num = typeof value === 'string' ? parseFloat(value) : value;
   if (isNaN(num)) return '—';
   const sign = num > 0 ? '+' : '';
-  return `${sign}${num.toFixed(2)}`;
+  const val = `${sign}${num.toFixed(2)}`;
+  return num > 0 ? `{green-fg}${val}{/green-fg}` : num < 0 ? `{red-fg}${val}{/red-fg}` : val;
 }
 
 export function formatChange(value: string | number | undefined): string {
@@ -27,7 +28,8 @@ export function formatChange(value: string | number | undefined): string {
   const num = typeof value === 'string' ? parseFloat(value) : value;
   if (isNaN(num)) return '—';
   const sign = num > 0 ? '+' : '';
-  return `${sign}${num.toFixed(2)}%`;
+  const val = `${sign}${num.toFixed(2)}%`;
+  return num > 0 ? `{green-fg}${val}{/green-fg}` : num < 0 ? `{red-fg}${val}{/red-fg}` : val;
 }
 
 export function cleanPair(pair: string): string {
