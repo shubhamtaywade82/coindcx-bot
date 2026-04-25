@@ -33,6 +33,7 @@ export const state = {
   positions: new Map<string, any>(),
   orders: new Map<string, any>(),
   balanceMap: new Map<string, { balance: string; locked: string }>(),
+  orderBooks: new Map<string, { asks: Map<string, string>, bids: Map<string, string> }>(),
   hasValidAuth: true,
   usdtInrRate: 88.5, // Fallback rate
   selectedSymbol: 'SOLUSDT' // Initial focus
@@ -60,22 +61,41 @@ async function runApp(ctx: Context) {
     return tui.focusedPairClean;
   }
 
-  function refreshTradeDisplay() {
+  function refreshBookDisplay() {
     const focused = getFocusedCleanPair();
-    const filtered = state.allTrades
-      .filter(t => t.cleanPair === focused)
-      .slice(0, 15)
-      .map(t => {
-        const sideChar = t.side === 'TAKER' ? '{red-fg}A{/red-fg}' : '{green-fg}B{/green-fg}';
-        return [
-          sideChar,
-          `{cyan-fg}${t.price}{/cyan-fg}`,
-          `{gray-fg}${t.qty}{/gray-fg}`
-        ];
+    const book = state.orderBooks.get(focused);
+    const ticker = state.tickers.get(focused);
+    
+    if (!book) {
+       tui.updateOrderBook([], [], ticker?.price || '—');
+       return;
+    }
+
+    const formatBookRow = (price: string, qty: string, cumulative: number) => [
+      formatPrice(price),
+      formatQty(parseFloat(price) * parseFloat(qty)), // Amount in INR
+      formatQty(cumulative) // Cumulative in INR
+    ];
+
+    let askCumulative = 0;
+    const asks = Array.from(book.asks.entries())
+      .sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]))
+      .slice(0, 10)
+      .map(([p, q]) => {
+         askCumulative += parseFloat(p) * parseFloat(q);
+         return formatBookRow(p, q, askCumulative);
       });
-    tui.updateTrades(filtered.length > 0
-      ? filtered
-      : [['—', 'No data', '—']]);
+
+    let bidCumulative = 0;
+    const bids = Array.from(book.bids.entries())
+      .sort((a, b) => parseFloat(b[0]) - parseFloat(a[0]))
+      .slice(0, 10)
+      .map(([p, q]) => {
+         bidCumulative += parseFloat(p) * parseFloat(q);
+         return formatBookRow(p, q, bidCumulative);
+      });
+
+    tui.updateOrderBook(asks, bids, ticker?.price || '—');
     tui.updateStatus({ lastUpdate: Date.now() });
   }
 
@@ -216,12 +236,12 @@ async function runApp(ctx: Context) {
 
   // ── On Focus Change: re-filter trades + update header ──
   tui.setOnFocusChange(() => {
-    refreshTradeDisplay();
+    refreshBookDisplay();
     refreshHeader();
   });
 
   // ── Set initial placeholders ──
-  tui.updateTrades([['—', 'Connecting...', '—']]);
+  tui.updateOrderBook([], [], 'Connecting...');
   tui.updatePositions([['—', 'Connecting...', '—', '—', '—', '—', '—', '—']]);
   tui.updateBalances([['—', 'Connecting...', '—', '—', '—', '—']]);
   tui.updateOrders([['—', 'Connecting...', '—', '—']]);
@@ -349,8 +369,48 @@ async function runApp(ctx: Context) {
 
     // Refresh trade table only if this trade matches focused pair
     if (clean === getFocusedCleanPair()) {
-      refreshTradeDisplay();
+      refreshBookDisplay();
     }
+  });
+  // ── depth-snapshot: { bids: [[p, q], ...], asks: [[p, q], ...], s: "B-SOL_USDT" } ──
+  ws.on('depth-snapshot', (raw) => {
+    const data = safeParse(raw);
+    if (!data || !data.s) return;
+    const pair = cleanPair(data.s);
+    
+    const asks = new Map<string, string>();
+    const bids = new Map<string, string>();
+    
+    (data.asks || []).forEach(([p, q]: [any, any]) => asks.set(p.toString(), q.toString()));
+    (data.bids || []).forEach(([p, q]: [any, any]) => bids.set(p.toString(), q.toString()));
+    
+    state.orderBooks.set(pair, { asks, bids });
+    if (pair === getFocusedCleanPair()) refreshBookDisplay();
+  });
+
+  // ── depth-update: { bids: [[p, q], ...], asks: [[p, q], ...], s: "B-SOL_USDT" } ──
+  ws.on('depth-update', (raw) => {
+    const data = safeParse(raw);
+    if (!data || !data.s) return;
+    const pair = cleanPair(data.s);
+    let book = state.orderBooks.get(pair);
+    
+    if (!book) {
+       book = { asks: new Map(), bids: new Map() };
+       state.orderBooks.set(pair, book);
+    }
+    
+    (data.asks || []).forEach(([p, q]: [any, any]) => {
+      if (parseFloat(q) === 0) book!.asks.delete(p.toString());
+      else book!.asks.set(p.toString(), q.toString());
+    });
+    
+    (data.bids || []).forEach(([p, q]: [any, any]) => {
+      if (parseFloat(q) === 0) book!.bids.delete(p.toString());
+      else book!.bids.set(p.toString(), q.toString());
+    });
+    
+    if (pair === getFocusedCleanPair()) refreshBookDisplay();
   });
 
   // ── currentPrices@spot#update: { prices: { "ATOMUSDT": "2.01", ... } } ──

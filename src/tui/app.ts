@@ -240,26 +240,33 @@ export class TuiApp {
     return str + ' '.repeat(width - len);
   }
 
-  updateTrades(data: string[][]) {
+  updateOrderBook(asks: string[][], bids: string[][], lastPrice: string) {
     const totalWidth = 26;
-    const headerLeft = ' S PRICE';
-    const headerRight = 'QTY  ';
-    const headerPadding = Math.max(1, totalWidth - (headerLeft.length + headerRight.trim().length));
-    let content = ` {gray-fg}${headerLeft}${' '.repeat(headerPadding)}${headerRight.trim()}{/gray-fg}\n`;
+    const header = ' {gray-fg}PRICE      AMOUNT      SUM{/gray-fg}\n';
+    
+    // Asks (Red) - Should be descending from top to spread
+    const askRows = asks.slice(0, 10).map(row => {
+      const price = `{red-fg}${this.pad(row[0], 10)}{/red-fg}`;
+      const amount = this.pad(row[1], 10);
+      const sum = row[2];
+      return ` ${price}${amount}${sum}`;
+    }).reverse();
 
-    content += data.map(row => {
-      if (row.length < 3) return '';
-      const side = row[0] || '';
-      const price = row[1] || '';
-      const qty = row[2] || '';
-      
-      const leftPart = ` ${this.pad(side, 2)}${this.pad(price, 10)}`;
-      const qtyPlain = qty.replace(/\{[^\}]+\}/g, '');
-      const padding = Math.max(1, totalWidth - (leftPart.replace(/\{[^\}]+\}/g, '').length + qtyPlain.length));
-      
-      return `${leftPart}${' '.repeat(padding)}${qty}`;
-    }).filter(l => l !== '').join('\n');
-    this.tradeTable.setContent(content);
+    // Last Price Row
+    const ltpRow = `\n {bold}${this.pad(lastPrice, 10)}{/bold}\n`;
+
+    // Bids (Green) - Should be descending
+    const bidRows = bids.slice(0, 10).map(row => {
+      const price = `{green-fg}${this.pad(row[0], 10)}{/green-fg}`;
+      const amount = this.pad(row[1], 10);
+      const sum = row[2];
+      return ` ${price}${amount}${sum}`;
+    });
+
+    const asksHeader = ' {red-fg}---- ASKS ----{/red-fg}\n';
+    const bidsHeader = '\n {green-fg}---- BIDS ----{/green-fg}\n';
+
+    this.tradeTable.setContent(header + asksHeader + askRows.join('\n') + ltpRow + bidsHeader + bidRows.join('\n'));
     this.render();
   }
 
