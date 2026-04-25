@@ -6,6 +6,9 @@ import { formatPrice, formatPnl, formatChange, cleanPair, formatQty, formatTime 
 import { bootstrap } from './lifecycle/bootstrap';
 import { installSignalHandlers } from './lifecycle/shutdown';
 import type { Context } from './lifecycle/context';
+import { IntegrityController } from './marketdata/integrity-controller';
+import ntp from 'ntp-client';
+import axios from 'axios';
 
 // ── Types ──
 interface TickerInfo {
@@ -46,6 +49,46 @@ async function runApp(ctx: Context) {
   const tui = new TuiApp();
   const ws = new CoinDCXWs();
   ctx.logger.info({ mod: 'app' }, 'app start');
+
+  const integrity = new IntegrityController({
+    config: ctx.config,
+    logger: ctx.logger.child({ mod: 'integrity' }),
+    pool: ctx.pool,
+    audit: ctx.audit,
+    bus: ctx.bus,
+    ws: ws as any,
+    restFetchOrderBook: async (pair: string) => {
+      const r = await axios.get('https://api.coindcx.com/exchange/v1/derivatives/data/orderbook', {
+        params: { pair }, timeout: 10_000,
+      });
+      const data = r.data as { asks?: any; bids?: any };
+      const toArr = (v: any): Array<[string, string]> => {
+        if (Array.isArray(v)) return v;
+        if (v && typeof v === 'object') return Object.entries(v).map(([p, q]) => [p, String(q)] as [string, string]);
+        return [];
+      };
+      return { asks: toArr(data.asks), bids: toArr(data.bids), ts: Date.now() };
+    },
+    fetchExchangeMs: async () => {
+      const r = await axios.get('https://api.coindcx.com/exchange/v1/markets', { timeout: 5000 });
+      const dh = r.headers['date'];
+      if (typeof dh === 'string') return Date.parse(dh);
+      throw new Error('no date header');
+    },
+    fetchNtpMs: () => new Promise((resolve, reject) => {
+      ntp.getNetworkTime('pool.ntp.org', 123, (err, date) => {
+        if (err || !date) return reject(err ?? new Error('ntp failed'));
+        resolve(date.getTime());
+      });
+    }),
+  });
+  integrity.start();
+
+  ws.on('depth-snapshot', (raw: any) => integrity.ingest('depth-snapshot', raw));
+  ws.on('depth-update',   (raw: any) => integrity.ingest('depth-update',   raw));
+  ws.on('new-trade',      (raw: any) => integrity.ingest('new-trade',      raw));
+  ws.on('currentPrices@futures#update', (raw: any) => integrity.ingest('currentPrices@futures#update', raw));
+  ws.on('currentPrices@spot#update',    (raw: any) => integrity.ingest('currentPrices@spot#update',    raw));
 
   const MAX_TRADES = 50;
 
