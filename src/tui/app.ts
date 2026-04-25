@@ -63,7 +63,7 @@ export class TuiApp {
       border: { type: 'line', fg: 'blue' },
       style: { fg: 'white' },
       tags: true,
-      content: ' {blue-fg}S   PRICE     QTY{/blue-fg}',
+      content: ' {gray-fg}S PRICE{/gray-fg}{right}{gray-fg}QTY{/gray-fg}  {/right}',
       scrollable: true
     });
 
@@ -241,10 +241,22 @@ export class TuiApp {
   }
 
   updateTrades(data: string[][]) {
-    let content = ' {blue-fg}S   PRICE       QTY{/blue-fg}\n';
+    // Header with gray color and right-aligned QTY
+    let content = ' {gray-fg}S PRICE{/gray-fg}{right}{gray-fg}QTY{/gray-fg}  {/right}\n';
     content += data.map(row => {
-      return ` ${this.pad(row[0], 4)}${this.pad(row[1], 12)}${row[2]}`;
-    }).join('\n');
+      if (row.length < 3) return '';
+      const side = row[0] || '';
+      const price = row[1] || '';
+      const qty = row[2] || '';
+      
+      // Manual padding to push QTY to the right
+      const leftPart = ` ${this.pad(side, 2)}${this.pad(price, 10)}`;
+      const qtyPlain = qty.replace(/\{[^\}]+\}/g, '');
+      const totalWidth = 26; // Adjust based on grid size
+      const padding = Math.max(1, totalWidth - (leftPart.replace(/\{[^\}]+\}/g, '').length + qtyPlain.length));
+      
+      return `${leftPart}${' '.repeat(padding)}${qty}`;
+    }).filter(l => l !== '').join('\n');
     this.tradeTable.setContent(content);
     this.render();
   }
@@ -252,16 +264,18 @@ export class TuiApp {
   updatePositions(data: string[][]) {
     let content = ' {yellow-fg}SYM    SIDE        QTY        ENT        LAST       MARK       SL    PNL{/yellow-fg}\n';
     content += data.map(row => {
-      return ` ${this.pad(row[0], 7)}${this.pad(row[1], 12)}${this.pad(row[2], 11)}${this.pad(row[3], 11)}${this.pad(row[4], 11)}${this.pad(row[5], 11)}${this.pad(row[6], 6)}${row[7]}`;
+      // row: [sym, side, qty, ent, last, mark, sl, pnl]
+      return ` ${this.pad(row[0] || '', 7)}${this.pad(row[1] || '', 12)}${this.pad(row[2] || '', 11)}${this.pad(row[3] || '', 11)}${this.pad(row[4] || '', 11)}${this.pad(row[5] || '', 11)}${this.pad(row[6] || '', 6)}${row[7] || ''}`;
     }).join('\n');
     this.positionTable.setContent(content);
     this.render();
   }
 
   updateBalances(rows: string[][]) {
-    let content = ' {green-fg}Asset       Current Value   Wallet Balance  Active PnL     Available   Locked{/green-fg}\n';
+    let content = ' {green-fg}Asset       Value       Wallet      PnL        %           Available   Locked      Util%{/green-fg}\n';
     content += rows.map(row => {
-      return ` ${this.pad(row[0], 12)}${this.pad(row[1], 16)}${this.pad(row[2], 16)}${this.pad(row[3], 15)}${this.pad(row[4], 12)}${row[5]}`;
+      // row: [asset, val, wal, pnl, pnl%, avail, locked, util%]
+      return ` ${this.pad(row[0] || '', 12)}${this.pad(row[1] || '', 12)}${this.pad(row[2] || '', 12)}${this.pad(row[3] || '', 11)}${this.pad(row[4] || '', 12)}${this.pad(row[5] || '', 12)}${this.pad(row[6] || '', 12)}${row[7] || ''}`;
     }).join('\n');
     this.balanceTable.setContent(content);
     this.render();

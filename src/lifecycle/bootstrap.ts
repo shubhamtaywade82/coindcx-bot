@@ -55,7 +55,7 @@ export async function bootstrap(): Promise<Context> {
   const sinks: Sink[] = [];
   if (config.SIGNAL_SINKS.includes('stdout')) sinks.push(new StdoutSink());
   if (config.SIGNAL_SINKS.includes('file')) sinks.push(new FileSink({ dir: config.LOG_DIR }));
-  if (config.SIGNAL_SINKS.includes('telegram')) {
+  if (config.SIGNAL_SINKS.includes('telegram') && config.TELEGRAM_BOT_TOKEN && config.TELEGRAM_CHAT_ID) {
     sinks.push(new TelegramSink({
       token: config.TELEGRAM_BOT_TOKEN,
       chatId: config.TELEGRAM_CHAT_ID,

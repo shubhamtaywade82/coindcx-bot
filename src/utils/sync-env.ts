@@ -55,6 +55,7 @@ export function syncEnv() {
   if (linesToAdd.length > 0) {
     const appendContent = (currentEnvContent.endsWith('\n') ? '' : '\n') + linesToAdd.join('\n') + '\n';
     fs.appendFileSync(ENV_PATH, appendContent);
+    // eslint-disable-next-line no-console
     console.log(`Updated .env with new variables from .env.example: ${linesToAdd.filter(l => !l.startsWith('#')).map(l => l.split('=')[0]).join(', ')}`);
   }
 }

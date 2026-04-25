@@ -218,7 +218,7 @@ async function runApp(ctx: Context) {
       if (usdtInrTicker && usdtInrTicker.last_price) {
         state.usdtInrRate = parseFloat(usdtInrTicker.last_price);
       }
-    } catch (err) {
+    } catch (_err) {
       // Ignore ticker fetch errors
     }
 
@@ -270,7 +270,7 @@ async function runApp(ctx: Context) {
   // ── Initial REST API Fetch ──
   // ══════════════════════════════════════════════════════
   if (config.apiKey && config.apiSecret) {
-    fetchPrivateData();
+    void fetchPrivateData();
     setInterval(fetchPrivateData, 30000); // refresh every 30s as a fallback
   } else {
     tui.log('⚠ API Key/Secret missing — PUBLIC ONLY mode');
@@ -306,7 +306,7 @@ async function runApp(ctx: Context) {
     const pair = data.s;
     const clean = cleanPair(pair);
     const price = data.p;
-    const isFutures = data.pr === 'f';
+    const _isFutures = data.pr === 'f';
 
     // Update ticker
     if (clean && price) {

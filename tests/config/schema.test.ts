@@ -15,7 +15,7 @@ describe('ConfigSchema', () => {
     const cfg = ConfigSchema.parse(validEnv);
     expect(cfg.LOG_LEVEL).toBe('info');
     expect(cfg.LOG_FILE_ROTATE_MB).toBe(50);
-    expect(cfg.SIGNAL_SINKS).toEqual(['stdout', 'file', 'telegram']);
+    expect(cfg.SIGNAL_SINKS).toEqual(['stdout', 'file']);
     expect(cfg.SHUTDOWN_GRACE_MS).toBe(5000);
     expect(cfg.AUDIT_BUFFER_MAX).toBe(10000);
   });
