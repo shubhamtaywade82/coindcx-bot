@@ -164,15 +164,19 @@ async function runApp(ctx: Context) {
       const ltfCandles = mapCandles(rawLtf);
       const pulse = getMarketPulse();
       const marketState = ctx.stateBuilder.build(htfCandles, ltfCandles, pulse.orderBook, pulse.positions);
+      
       if (marketState) {
         marketState.symbol = symbol;
+        tui.log(`{gray-fg}[AI] Sending ${symbol} snapshot to local brain...{/gray-fg}`);
         const analysis = await ctx.analyzer.analyze(marketState);
         tui.updateAi(analysis);
+        tui.log(`{green-fg}✓ [AI] Pulse updated for ${symbol}{/green-fg}`);
       }
     } catch (err: any) {
       ctx.logger.error({ mod: 'ai', err: err.message }, 'AI MTF loop failed');
+      tui.log(`{red-fg}⚠ [AI] Analysis failed: ${err.message}{/red-fg}`);
     }
-  }, 60000);
+  }, 15000); // 4x faster (15s instead of 60s)
 
   // ── Institutional Signal Sink ──
   class TuiSink {
