@@ -84,6 +84,49 @@ export class CoinDCXApi {
     }
   }
 
+  static async getOpenOrders() {
+    const { body, headers } = this.buildSignedRequest({
+      timestamp: Date.now(),
+      status: 'open',
+      page: '1',
+      size: '100',
+      margin_currency_short_name: ['USDT', 'INR'],
+    });
+    try {
+      const response = await http.post(
+        '/exchange/v1/derivatives/futures/orders',
+        body,
+        { headers },
+      );
+      return response.data;
+    } catch (error: any) {
+      const status = error.response?.status;
+      const msg = error.response?.data?.message || error.message;
+      throw new Error(`OpenOrders API [${status || 'timeout'}]: ${msg}`);
+    }
+  }
+
+  static async getFuturesTradeHistory(opts: { fromTimestamp?: number; size?: number } = {}) {
+    const { body, headers } = this.buildSignedRequest({
+      timestamp: Date.now(),
+      from_timestamp: opts.fromTimestamp ?? 0,
+      size: String(opts.size ?? 100),
+      margin_currency_short_name: ['USDT', 'INR'],
+    });
+    try {
+      const response = await http.post(
+        '/exchange/v1/derivatives/futures/trade_history',
+        body,
+        { headers },
+      );
+      return response.data;
+    } catch (error: any) {
+      const status = error.response?.status;
+      const msg = error.response?.data?.message || error.message;
+      throw new Error(`TradeHistory API [${status || 'timeout'}]: ${msg}`);
+    }
+  }
+
   static async getTickers() {
     try {
       const response = await publicHttp.get('/exchange/ticker');
