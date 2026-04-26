@@ -22,7 +22,7 @@ export class HeartbeatWatcher {
     this.clock = opts.clock ?? Date.now;
     const now = this.clock();
     this.last = { position: now, balance: now, order: now, fill: now };
-    this.staleNotified = { position: false, balance: false, order: false, fill: false };
+    this.staleNotified = { position: true, balance: true, order: true, fill: true };
   }
 
   touch(channel: Entity): void {
