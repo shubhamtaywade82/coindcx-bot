@@ -47,6 +47,21 @@ export const ConfigSchema = z.object({
   LATENCY_RESERVOIR: z.coerce.number().int().positive().default(4096),
   STALE_RESERVOIR: z.coerce.number().int().positive().default(1024),
   BOOK_INTEGRITY_MODE: z.enum(['heuristic', 'strict']).default('heuristic'),
+
+  // F3 Account Reconciler
+  ACCOUNT_DRIFT_SWEEP_MS: z.coerce.number().int().positive().default(300_000),
+  ACCOUNT_HEARTBEAT_FLOOR_POSITION_MS: z.coerce.number().int().positive().default(60_000),
+  ACCOUNT_HEARTBEAT_FLOOR_BALANCE_MS: z.coerce.number().int().positive().default(60_000),
+  ACCOUNT_HEARTBEAT_FLOOR_ORDER_MS: z.coerce.number().int().positive().default(30_000),
+  ACCOUNT_HEARTBEAT_FLOOR_FILL_MS: z.coerce.number().int().positive().default(30_000),
+  ACCOUNT_PNL_ALARM_PCT: z.coerce.number().default(-0.10),
+  ACCOUNT_UTIL_ALARM_PCT: z.coerce.number().default(0.90),
+  ACCOUNT_DIVERGENCE_PNL_ABS_INR: z.coerce.number().default(100),
+  ACCOUNT_DIVERGENCE_PNL_PCT: z.coerce.number().default(0.01),
+  ACCOUNT_BACKFILL_HOURS: z.coerce.number().int().positive().default(24),
+  ACCOUNT_SIGNAL_COOLDOWN_MS: z.coerce.number().int().positive().default(300_000),
+  ACCOUNT_STORM_THRESHOLD: z.coerce.number().int().positive().default(20),
+  ACCOUNT_STORM_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
 }).superRefine((data, _ctx) => {
   // If telegram is requested but credentials are missing, silently filter it out
   // to prevent startup crashes.
