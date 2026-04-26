@@ -95,3 +95,38 @@ describe('AccountReconcileController WS ingest', () => {
     expect(calls.length).toBe(1);
   });
 });
+
+describe('AccountReconcileController seed + reconnect', () => {
+  it('seed populates stores from REST', async () => {
+    const sig = mockSignalBus();
+    const persist = mockPersistence();
+    const rest = mockRest();
+    rest.getFuturesPositions.mockResolvedValue({ data: [{ id: 'p1', pair: 'X', active_pos: 0.5, avg_price: 50,
+      margin_currency_short_name: 'USDT', unrealized_pnl: 0, updated_at: 'now' }] });
+    rest.getBalances.mockResolvedValue([{ currency_short_name: 'USDT', balance: 100, locked_balance: 0 }]);
+    rest.getOpenOrders.mockResolvedValue({ data: [] });
+    rest.getFuturesTradeHistory.mockResolvedValue({ data: [] });
+    const c = new AccountReconcileController({
+      restApi: rest as any, persistence: persist as any, signalBus: sig.bus,
+      tryAcquireBudget: async () => true, config: baseConfig,
+    });
+    await c.seed();
+    expect(c.snapshot().positions).toHaveLength(1);
+    expect(c.snapshot().balances).toHaveLength(1);
+  });
+
+  it('onWsReconnect triggers full sweep', async () => {
+    const sig = mockSignalBus();
+    const persist = mockPersistence();
+    const rest = mockRest();
+    const c = new AccountReconcileController({
+      restApi: rest as any, persistence: persist as any, signalBus: sig.bus,
+      tryAcquireBudget: async () => true, config: baseConfig,
+    });
+    await c.onWsReconnect();
+    expect(rest.getFuturesPositions).toHaveBeenCalled();
+    expect(rest.getBalances).toHaveBeenCalled();
+    expect(rest.getOpenOrders).toHaveBeenCalled();
+    expect(rest.getFuturesTradeHistory).toHaveBeenCalled();
+  });
+});

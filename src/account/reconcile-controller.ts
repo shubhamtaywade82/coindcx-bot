@@ -87,6 +87,14 @@ export class AccountReconcileController {
     }
   }
 
+  async seed(): Promise<void> {
+    await Promise.all([this.sweepPositions(), this.sweepBalances(), this.sweepOrders(), this.sweepFills()]);
+  }
+
+  async onWsReconnect(): Promise<void> {
+    await this.driftSweep();
+  }
+
   async ingest(entity: Entity, raw: any, source: Source = 'ws'): Promise<void> {
     const now = new Date(this.clock()).toISOString();
     this.heartbeat.touch(entity);
