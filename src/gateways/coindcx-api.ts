@@ -150,19 +150,36 @@ export class CoinDCXApi {
   }
 
   static async getCandles(pair: string, interval: string, limit = 100) {
+    // CoinDCX futures candlesticks: public.coindcx.com/market_data/candlesticks
+    // resolution units: minutes (e.g. 1, 5, 15, 60, 240, "1D")
+    const intervalToResolution: Record<string, string> = {
+      '1m': '1', '5m': '5', '15m': '15', '30m': '30',
+      '1h': '60', '4h': '240', '1d': '1D'
+    };
+    const resolution = intervalToResolution[interval] ?? interval;
+    const stepSeconds = resolution === '1D' ? 86_400 : Number(resolution) * 60;
+    const to = Math.floor(Date.now() / 1000);
+    const from = to - stepSeconds * limit;
     try {
-      // CoinDCX Futures Candle endpoint
-      const response = await publicHttp.get('/exchange/v1/derivatives/futures/candles', {
-        params: {
-          pair,
-          interval, // e.g., '5m', '15m', '1h'
-          limit
+      const response = await publicHttp.get('/market_data/candlesticks', {
+        params: { pair, from, to, resolution, pcode: 'f' },
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+          'Accept': 'application/json'
         }
       });
-      return response.data; // Array of [timestamp, open, high, low, close, volume]
+      const raw = response.data?.data ?? response.data;
+      if (!Array.isArray(raw)) return [];
+      // Normalise to [timestamp, open, high, low, close, volume]
+      return raw.map((c: any) => Array.isArray(c)
+        ? c
+        : [c.time ?? c.t ?? c.timestamp, c.open ?? c.o, c.high ?? c.h, c.low ?? c.l, c.close ?? c.c, c.volume ?? c.v]
+      );
     } catch (error: any) {
-      console.error(`Error fetching candles for ${pair}:`, error.message);
-      return [];
+      const status = error?.response?.status;
+      const body = error?.response?.data;
+      console.error(`Error fetching candles for ${pair} [${interval}] status=${status}:`, error.message, body);
+      throw error;
     }
   }
 }

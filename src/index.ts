@@ -7,6 +7,9 @@ import { bootstrap } from './lifecycle/bootstrap';
 import { installSignalHandlers } from './lifecycle/shutdown';
 import type { Context } from './lifecycle/context';
 import { IntegrityController } from './marketdata/integrity-controller';
+import { AccountReconcileController } from './account/reconcile-controller';
+import { AccountPersistence } from './account/persistence';
+import { RestBudget } from './marketdata/rate-limit/rest-budget';
 import ntp from 'ntp-client';
 import axios from 'axios';
 
@@ -84,6 +87,40 @@ async function runApp(ctx: Context) {
   });
   integrity.start();
 
+  // ── F3 Account Reconciler ──
+  const accountPersistence = new AccountPersistence({ pool: ctx.pool, retryMax: 1000 });
+  const accountBudget = new RestBudget({ globalPerMin: 60, pairPerMin: 60, timeoutMs: 1000 });
+  const account = new AccountReconcileController({
+    restApi: {
+      getFuturesPositions: () => CoinDCXApi.getFuturesPositions(),
+      getBalances: () => CoinDCXApi.getBalances(),
+      getOpenOrders: () => CoinDCXApi.getOpenOrders(),
+      getFuturesTradeHistory: opts => CoinDCXApi.getFuturesTradeHistory(opts),
+    },
+    persistence: accountPersistence,
+    signalBus: ctx.bus,
+    tryAcquireBudget: async () => {
+      try { await accountBudget.acquire('account'); return true; } catch { return false; }
+    },
+    config: {
+      driftSweepMs: ctx.config.ACCOUNT_DRIFT_SWEEP_MS,
+      heartbeatFloors: {
+        position: ctx.config.ACCOUNT_HEARTBEAT_FLOOR_POSITION_MS,
+        balance: ctx.config.ACCOUNT_HEARTBEAT_FLOOR_BALANCE_MS,
+        order: ctx.config.ACCOUNT_HEARTBEAT_FLOOR_ORDER_MS,
+        fill: ctx.config.ACCOUNT_HEARTBEAT_FLOOR_FILL_MS,
+      },
+      pnlAlarmPct: ctx.config.ACCOUNT_PNL_ALARM_PCT,
+      utilAlarmPct: ctx.config.ACCOUNT_UTIL_ALARM_PCT,
+      divergencePnlAbsAlarm: ctx.config.ACCOUNT_DIVERGENCE_PNL_ABS_INR,
+      divergencePnlPctAlarm: ctx.config.ACCOUNT_DIVERGENCE_PNL_PCT,
+      backfillHours: ctx.config.ACCOUNT_BACKFILL_HOURS,
+      signalCooldownMs: ctx.config.ACCOUNT_SIGNAL_COOLDOWN_MS,
+      stormThreshold: ctx.config.ACCOUNT_STORM_THRESHOLD,
+      stormWindowMs: ctx.config.ACCOUNT_STORM_WINDOW_MS,
+    },
+  });
+
   ws.on('depth-snapshot', (raw: any) => integrity.ingest('depth-snapshot', raw));
   ws.on('depth-update',   (raw: any) => integrity.ingest('depth-update',   raw));
   ws.on('new-trade',      (raw: any) => integrity.ingest('new-trade',      raw));
@@ -152,9 +189,10 @@ async function runApp(ctx: Context) {
   setInterval(async () => {
     try {
       const symbol = getFocusedCleanPair();
+      const rawPair = tui.focusedPair;
       const [rawHtf, rawLtf] = await Promise.all([
-        CoinDCXApi.getCandles(symbol, '1h', 50),
-        CoinDCXApi.getCandles(symbol, '15m', 50)
+        CoinDCXApi.getCandles(rawPair, '1h', 50),
+        CoinDCXApi.getCandles(rawPair, '15m', 50)
       ]);
       const mapCandles = (raw: any) => (Array.isArray(raw) ? raw : []).map((c: any) => ({
         timestamp: c[0], open: parseFloat(c[1]), high: parseFloat(c[2]),
@@ -171,6 +209,8 @@ async function runApp(ctx: Context) {
         const analysis = await ctx.analyzer.analyze(marketState);
         tui.updateAi(analysis);
         tui.log(`{green-fg}✓ [AI] Pulse updated for ${symbol}{/green-fg}`);
+      } else {
+        tui.log(`{yellow-fg}⚠ [AI] No candles for ${rawPair} (htf=${htfCandles.length} ltf=${ltfCandles.length}){/yellow-fg}`);
       }
     } catch (err: any) {
       ctx.logger.error({ mod: 'ai', err: err.message }, 'AI MTF loop failed');
@@ -657,6 +697,7 @@ async function runApp(ctx: Context) {
       if (p.id) {
         state.positions.set(p.id, p);
       }
+      void account.ingest('position', p);
     });
 
     refreshPositionsDisplay();
