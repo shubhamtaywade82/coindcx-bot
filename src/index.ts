@@ -285,18 +285,15 @@ async function runApp(ctx: Context) {
   }
 
   function refreshPositionsDisplay() {
-    const rows = Array.from(state.positions.values())
-      .filter((p: any) => p.active_pos !== 0) // Only show active positions
-      .map((p: any) => {
+    const rows = account.snapshot().positions
+      .map(p => {
         const clean = cleanPair(p.pair || 'N/A');
         const sym = clean.replace('USDT', '');
         const ticker = state.tickers.get(clean);
-        const currentPrice = ticker ? parseFloat(ticker.price) : parseFloat(p.mark_price || p.avg_price);
-        const entryPrice = parseFloat(p.avg_price);
-        const qty = Math.abs(parseFloat(p.active_pos));
-        
-        // Dynamic PnL calculation
-        const isLong = parseFloat(p.active_pos) > 0;
+        const currentPrice = ticker ? parseFloat(ticker.price) : parseFloat(p.markPrice ?? p.avgPrice);
+        const entryPrice = parseFloat(p.avgPrice);
+        const qty = Math.abs(parseFloat(p.activePos));
+        const isLong = parseFloat(p.activePos) > 0;
         const pnl = isLong ? (currentPrice - entryPrice) * qty : (entryPrice - currentPrice) * qty;
 
         return [
@@ -305,7 +302,7 @@ async function runApp(ctx: Context) {
           formatQty(qty),
           formatPrice(entryPrice),
           ticker ? formatPrice(ticker.price) : '—',
-          formatPrice(p.mark_price),
+          formatPrice(p.markPrice ?? '0'),
           '—',
           formatPnl(pnl),
         ];
@@ -314,15 +311,15 @@ async function runApp(ctx: Context) {
   }
 
   function refreshOrdersDisplay() {
-    const rows = Array.from(state.orders.values())
-      .map((o: any) => {
-        const side = (o.side || 'N/A').toUpperCase();
-        const sideChar = side === 'BUY' ? '{green-fg}B{/green-fg}' : '{red-fg}S{/red-fg}';
+    const rows = account.snapshot().orders
+      .filter(o => o.status === 'open' || o.status === 'partially_filled')
+      .map(o => {
+        const sideChar = o.side === 'buy' ? '{green-fg}B{/green-fg}' : '{red-fg}S{/red-fg}';
         return [
           sideChar,
           cleanPair(o.pair || 'N/A'),
           (o.status || 'N/A').substring(0, 4).toUpperCase(),
-          '—'
+          '—',
         ];
       });
     tui.updateOrders(rows.length > 0 ? rows : [['—', '—', '—', '—']]);
@@ -334,15 +331,15 @@ async function runApp(ctx: Context) {
     let totalPnlInr = 0;
     let totalPnlUsdt = 0;
 
-    // 1. Sum up PnL from all positions dynamically
-    Array.from(state.positions.values()).forEach((p: any) => {
+    // 1. Sum up PnL from all positions dynamically (controller snapshot)
+    account.snapshot().positions.forEach(p => {
        const clean = cleanPair(p.pair || '');
        const ticker = state.tickers.get(clean);
-       const currentPrice = ticker ? parseFloat(ticker.price) : parseFloat(p.mark_price || p.avg_price);
-       const entryPrice = parseFloat(p.avg_price);
-       const qty = Math.abs(parseFloat(p.active_pos));
-       
-       const isLong = parseFloat(p.active_pos) > 0;
+       const currentPrice = ticker ? parseFloat(ticker.price) : parseFloat(p.markPrice ?? p.avgPrice);
+       const entryPrice = parseFloat(p.avgPrice);
+       const qty = Math.abs(parseFloat(p.activePos));
+
+       const isLong = parseFloat(p.activePos) > 0;
        const pnl = isLong ? (currentPrice - entryPrice) * qty : (entryPrice - currentPrice) * qty;
 
        const pair = (p.pair || '').toUpperCase();
@@ -357,12 +354,13 @@ async function runApp(ctx: Context) {
 
     const rows: string[][] = [];
 
-    // 2. Build rows from balanceMap
-    Array.from(state.balanceMap.entries())
-      .filter(([_, info]) => parseFloat(info.balance) > 0 || parseFloat(info.locked) > 0)
-      .forEach(([currency, info]) => {
-        const available = parseFloat(info.balance || '0');
-        const locked = parseFloat(info.locked || '0');
+    // 2. Build rows from controller snapshot balances
+    account.snapshot().balances
+      .filter(b => parseFloat(b.available) > 0 || parseFloat(b.locked) > 0)
+      .forEach(b => {
+        const currency = b.currency;
+        const available = parseFloat(b.available || '0');
+        const locked = parseFloat(b.locked || '0');
         const walletBalance = available + locked;
         
         const isInrRow = currency === 'INR' || currency === 'USDTINR';
