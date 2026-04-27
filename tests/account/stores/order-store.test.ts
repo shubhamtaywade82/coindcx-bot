@@ -37,7 +37,8 @@ describe('OrderStore', () => {
   });
 
   it('evicts oldest closed when over closedMax', () => {
-    const s = new OrderStore({ closedTtlMs: 86_400_000, closedMax: 2 });
+    const fixedNow = new Date('2026-04-26T00:00:10Z').getTime();
+    const s = new OrderStore({ closedTtlMs: 86_400_000, closedMax: 2, clock: () => fixedNow });
     for (let i = 0; i < 5; i++) {
       s.applyWs({ ...base, id: `o${i}`, status: 'filled', updatedAt: `2026-04-26T00:00:0${i}Z` });
     }

@@ -719,9 +719,18 @@ async function runApp(ctx: Context) {
           state.orders.delete(o.id);
         }
       }
+      void account.ingest('order', o);
     });
 
     refreshOrdersDisplay();
+  });
+
+  // ── df-trade-update: [{ id, order_id, pair, side, price, quantity, executed_at }] ──
+  ws.on('df-trade-update', (raw) => {
+    const data = safeParse(raw);
+    if (!data) return;
+    const fills = Array.isArray(data) ? data : [data];
+    fills.forEach((f: any) => { void account.ingest('fill', f); });
   });
 
   // ── balance-update: [{ balance, locked_balance, currency_short_name }] ──
@@ -737,8 +746,25 @@ async function runApp(ctx: Context) {
         balance: b.balance?.toString() || '0',
         locked: (b.locked_balance ?? '0').toString(),
       });
+      void account.ingest('balance', b);
     });
     refreshBalanceDisplay();
+  });
+
+  // ── F3 boot: seed + start; reconnect triggers forced sweep ──
+  let accountStarted = false;
+  if (config.apiKey && config.apiSecret) {
+    try {
+      await account.seed();
+      account.start();
+      accountStarted = true;
+      log(`✓ Account reconciler started (positions=${account.snapshot().positions.length}, balances=${account.snapshot().balances.length})`);
+    } catch (err: any) {
+      log(`⚠ Account reconciler seed failed: ${err.message}`);
+    }
+  }
+  ws.on('connected', () => {
+    if (accountStarted) void account.onWsReconnect();
   });
 
   // ── Connect ──

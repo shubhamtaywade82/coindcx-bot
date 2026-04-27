@@ -1,5 +1,6 @@
 import type { SignalBus } from '../signals/bus';
-import type { Signal, Severity } from '../signals/types';
+import type { Signal } from '../signals/types';
+type ChangelogSeverity = 'info' | 'warn' | 'alarm' | null;
 import { PositionStore } from './stores/position-store';
 import { BalanceStore } from './stores/balance-store';
 import { OrderStore } from './stores/order-store';
@@ -279,7 +280,7 @@ export class AccountReconcileController {
     return false;
   }
 
-  private async recordDiff(entity: Entity, entityId: string, prev: any, next: any, fields: string[], cause: 'ws_apply' | 'rest_sweep', severity: Severity | null): Promise<void> {
+  private async recordDiff(entity: Entity, entityId: string, prev: any, next: any, fields: string[], cause: 'ws_apply' | 'rest_sweep', severity: ChangelogSeverity): Promise<void> {
     if (fields.length === 0) return;
     if (fields.includes('*')) {
       await this.opts.persistence.recordChangelog({ entity, entityId, field: '*', oldValue: null, newValue: JSON.stringify(next), cause, severity });
