@@ -10,6 +10,12 @@ import { IntegrityController } from './marketdata/integrity-controller';
 import { AccountReconcileController } from './account/reconcile-controller';
 import { AccountPersistence } from './account/persistence';
 import { RestBudget } from './marketdata/rate-limit/rest-budget';
+import { StrategyController } from './strategy/controller';
+import { SmcRule } from './strategy/strategies/smc-rule';
+import { MaCross } from './strategy/strategies/ma-cross';
+import { LlmPulse } from './strategy/strategies/llm-pulse';
+import { PassthroughRiskFilter } from './strategy/risk/risk-filter';
+import type { Candle } from './ai/state-builder';
 import ntp from 'ntp-client';
 import axios from 'axios';
 
@@ -126,6 +132,43 @@ async function runApp(ctx: Context) {
   ws.on('new-trade',      (raw: any) => integrity.ingest('new-trade',      raw));
   ws.on('currentPrices@futures#update', (raw: any) => integrity.ingest('currentPrices@futures#update', raw));
   ws.on('currentPrices@spot#update',    (raw: any) => integrity.ingest('currentPrices@spot#update',    raw));
+
+  // ── F4 Strategy Framework ──
+  const candleStore = new Map<string, { ltf: Candle[]; htf: Candle[] }>();
+  const ensureCandles = (pair: string) => {
+    if (!candleStore.has(pair)) candleStore.set(pair, { ltf: [], htf: [] });
+    return candleStore.get(pair)!;
+  };
+  const enabledIds = new Set(ctx.config.STRATEGY_ENABLED_IDS);
+  const configuredPairs: string[] = ctx.config.COINDCX_PAIRS as unknown as string[];
+
+  const strategyController = new StrategyController({
+    ws,
+    signalBus: ctx.bus,
+    riskFilter: new PassthroughRiskFilter(),
+    buildMarketState: (htf, ltf) => ctx.stateBuilder.build(htf, ltf, null, []),
+    candleProvider: {
+      ltf: pair => ensureCandles(pair).ltf,
+      htf: pair => ensureCandles(pair).htf,
+    },
+    accountSnapshot: () => account.snapshot(),
+    recentFills: (n = 20) => account.fills.recent(n),
+    extractPair: (raw: any) => raw?.pair ?? raw?.s,
+    config: {
+      timeoutMs: ctx.config.STRATEGY_TIMEOUT_MS,
+      errorThreshold: ctx.config.STRATEGY_ERROR_THRESHOLD,
+      emitWait: ctx.config.STRATEGY_EMIT_WAIT,
+      backpressureDropRatioAlarm: ctx.config.STRATEGY_BACKPRESSURE_DROP_RATIO_ALARM,
+    },
+  });
+
+  // Override star expansion to use configured pairs.
+  (strategyController as any).expandStarPairs = () => configuredPairs;
+
+  if (enabledIds.has('smc.rule.v1')) strategyController.register(new SmcRule());
+  if (enabledIds.has('ma.cross.v1')) strategyController.register(new MaCross());
+  if (enabledIds.has('llm.pulse.v1')) strategyController.register(new LlmPulse(ctx.analyzer));
+  strategyController.start();
 
   setInterval(() => {
     tui.updateStatus({ lastUpdate: Date.now() });
@@ -529,6 +572,10 @@ async function runApp(ctx: Context) {
     const clean = cleanPair(pair);
     const price = data.p;
     const _isFutures = data.pr === 'f';
+
+    // F4: notify bar driver of trade timestamp
+    const tradeTs = Number(data.T ?? Date.now());
+    if (Number.isFinite(tradeTs)) strategyController.notifyTrade(pair, tradeTs);
 
     // Update ticker
     if (clean && price) {
