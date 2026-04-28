@@ -67,6 +67,13 @@ async function runApp(ctx: Context) {
   const ws = new CoinDCXWs();
   ctx.logger.info({ mod: 'app' }, 'app start');
 
+  // F6: Tap SignalBus emissions into TUI signals + risk panels
+  const _origBusEmit = ctx.bus.emit.bind(ctx.bus);
+  (ctx.bus as any).emit = async (s: any) => {
+    try { tui.observeSignal(s); } catch { /* ignore tui errors */ }
+    return _origBusEmit(s);
+  };
+
   const integrity = new IntegrityController({
     config: ctx.config,
     logger: ctx.logger.child({ mod: 'integrity' }),

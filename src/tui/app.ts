@@ -15,6 +15,14 @@ export class TuiApp {
   private orderTable: any;
   private balanceTable: any;
   private aiBox: any;
+  private signalsBox: any;
+  private riskBox: any;
+  private helpOverlay: any;
+  private recentSignals: Array<{ ts: number; type: string; pair: string; side?: string; conf?: number; reason?: string }> = [];
+  private recentRisk: Array<{ ts: number; pair: string; side?: string; rules: string[] }> = [];
+  private riskStats = { drawdownPeak: 0, drawdownPct: 0, liveCount: 0 };
+  private readonly SIGNAL_RING = 30;
+  private readonly RISK_RING = 20;
 
   // ── Asset Focus State ──
   private pairs: string[];
@@ -89,9 +97,9 @@ export class TuiApp {
       style: { fg: 'white' }
     });
 
-    // ── Row 3-8, Col 6-12: Positions (All) ──
+    // ── Row 3-8, Col 6-9: Positions ──
     this.positionsTable = blessed.listtable({
-      parent: this.grid.set(3, 6, 5, 6, blessed.box, { label: ' Active Positions ' }),
+      parent: this.grid.set(3, 6, 5, 3, blessed.box, { label: ' Active Positions ' }),
       keys: true,
       tags: true,
       data: [['SYM', 'SIDE', 'QTY', 'ENT', 'LAST', 'MARK', 'SL', 'PNL']],
@@ -106,22 +114,42 @@ export class TuiApp {
       height: '100%'
     });
 
-    // ── Row 8-10, Col 0-8: Account Balances ──
+    // ── Row 3-8, Col 9-12: Strategy Signals (NEW) ──
+    this.signalsBox = blessed.box({
+      parent: this.grid.set(3, 9, 5, 3, blessed.box, { label: ' ⚡ Signals ' }),
+      tags: true,
+      scrollable: true,
+      alwaysScroll: true,
+      scrollbar: { ch: ' ', inverse: true },
+      content: ' {gray-fg}Awaiting strategy signals...{/gray-fg}',
+    });
+
+    // ── Row 8-10, Col 0-6: Account Balances ──
     this.balanceTable = blessed.box({
-      parent: this.grid.set(8, 0, 2, 8, blessed.box, { label: ' Account Balances ' }),
+      parent: this.grid.set(8, 0, 2, 6, blessed.box, { label: ' Account Balances ' }),
       tags: true,
       scrollable: true,
       alwaysScroll: true,
       scrollbar: { ch: ' ', inverse: true }
     });
 
-    // ── Row 8-10, Col 8-12: Orders (All) ──
+    // ── Row 8-10, Col 6-9: Orders ──
     this.orderTable = blessed.box({
-      parent: this.grid.set(8, 8, 2, 4, blessed.box, { label: ' Orders ' }),
+      parent: this.grid.set(8, 6, 2, 3, blessed.box, { label: ' Orders ' }),
       tags: true,
       scrollable: true,
       alwaysScroll: true,
       scrollbar: { ch: ' ', inverse: true }
+    });
+
+    // ── Row 8-10, Col 9-12: Risk (NEW) ──
+    this.riskBox = blessed.box({
+      parent: this.grid.set(8, 9, 2, 3, blessed.box, { label: ' 🛡 Risk ' }),
+      tags: true,
+      scrollable: true,
+      alwaysScroll: true,
+      scrollbar: { ch: ' ', inverse: true },
+      content: ' {gray-fg}No risk events yet{/gray-fg}',
     });
 
     // ── Row 10-12, Col 0-12: Log Panel ──
@@ -157,9 +185,27 @@ export class TuiApp {
       });
     }
 
+    // ── Help overlay ──
+    this.helpOverlay = blessed.box({
+      parent: this.screen,
+      top: 'center', left: 'center',
+      width: '60%', height: '60%',
+      border: { type: 'line', fg: 'cyan' },
+      label: ' ? Keybindings ',
+      tags: true,
+      hidden: true,
+      style: { fg: 'white', bg: 'black' },
+      content: this.buildHelpContent(),
+    });
+    this.screen.key(['?'], () => this.toggleHelp());
+    this.screen.key(['s'], () => this.signalsBox.focus());
+    this.screen.key(['r'], () => this.riskBox.focus());
+    this.screen.key(['p'], () => this.positionsTable.focus());
+    this.screen.key(['b'], () => this.balanceTable.focus());
+
     const modeStr = config.isReadOnly ? 'READ-ONLY' : 'LIVE';
     this.log(`CoinDCX Terminal [${modeStr}] — ${this.pairs.length} pairs loaded`);
-    this.log('Controls: ← →, h/l, or Tab to switch pair | 1-9 direct select | q to quit');
+    this.log('Controls: ← → / h l / Tab pair, 1-9 direct, ? help, s/r/p/b focus, c clear log, q quit');
 
     this.updateStatus({});
   }
@@ -366,12 +412,126 @@ export class TuiApp {
 
   updateOrders(rows: string[][]) {
     const header = ` {magenta-fg}${this.padLeft('T', 2)} ${this.padLeft('PAIR', 10)} ${this.padLeft('ST', 8)} ${this.padRight('LAT', 6)}{/magenta-fg}\n`;
-    
+
     const content = rows.map(r => {
       return ` ${this.padLeft(r[0] || '', 2)} ${this.padLeft(r[1] || '', 10)} ${this.padLeft(r[2] || '', 8)} ${this.padRight(r[3] || '', 6)}`;
     }).join('\n');
 
     this.orderTable.setContent(header + content);
     this.render();
+  }
+
+  // ══════════════════════════════════════════════════════
+  // ── F6: Signals + Risk panels + bus observer ──
+  // ══════════════════════════════════════════════════════
+
+  observeSignal(signal: { type: string; pair?: string; payload?: any; ts?: string }): void {
+    const ts = signal.ts ? new Date(signal.ts).getTime() : Date.now();
+    const type = signal.type ?? 'unknown';
+    const pair = signal.pair ?? '—';
+
+    if (type.startsWith('strategy.') && type !== 'strategy.error' && type !== 'strategy.disabled') {
+      const side = type.split('.')[1]?.toUpperCase();
+      const conf = Number(signal.payload?.confidence ?? 0);
+      const reason = String(signal.payload?.reason ?? '').slice(0, 30);
+      this.recentSignals.unshift({ ts, type, pair, side, conf, reason });
+      this.recentSignals = this.recentSignals.slice(0, this.SIGNAL_RING);
+      this.renderSignals();
+      return;
+    }
+
+    if (type === 'strategy.error' || type === 'strategy.disabled') {
+      this.recentSignals.unshift({ ts, type, pair, reason: String(signal.payload?.error ?? signal.payload?.reason ?? '').slice(0, 30) });
+      this.recentSignals = this.recentSignals.slice(0, this.SIGNAL_RING);
+      this.renderSignals();
+      return;
+    }
+
+    if (type === 'risk.blocked') {
+      const rules = Array.isArray(signal.payload?.rules) ? signal.payload.rules.map((r: any) => r.id) : [];
+      const side = String(signal.payload?.side ?? '');
+      this.recentRisk.unshift({ ts, pair, side, rules });
+      this.recentRisk = this.recentRisk.slice(0, this.RISK_RING);
+      this.renderRisk();
+    }
+  }
+
+  updateRiskStats(stats: Partial<{ drawdownPeak: number; drawdownPct: number; liveCount: number }>): void {
+    if (stats.drawdownPeak !== undefined) this.riskStats.drawdownPeak = stats.drawdownPeak;
+    if (stats.drawdownPct !== undefined) this.riskStats.drawdownPct = stats.drawdownPct;
+    if (stats.liveCount !== undefined) this.riskStats.liveCount = stats.liveCount;
+    this.renderRisk();
+  }
+
+  private renderSignals(): void {
+    if (this.recentSignals.length === 0) {
+      this.signalsBox.setContent(' {gray-fg}Awaiting strategy signals...{/gray-fg}');
+      this.render();
+      return;
+    }
+    const lines = this.recentSignals.map(s => {
+      const t = new Date(s.ts).toLocaleTimeString();
+      const sym = s.pair?.replace('USDT', '').replace('B-', '').slice(0, 8) ?? '—';
+      if (s.type === 'strategy.error') {
+        return ` {red-fg}${t}{/red-fg} {red-fg}ERR{/red-fg} ${sym} ${s.reason ?? ''}`;
+      }
+      if (s.type === 'strategy.disabled') {
+        return ` {red-fg}${t}{/red-fg} {red-fg}DIS{/red-fg} ${sym}`;
+      }
+      const color = s.side === 'LONG' ? 'green' : s.side === 'SHORT' ? 'red' : 'yellow';
+      const tag = (s.side ?? '?').slice(0, 4).padEnd(4);
+      const conf = `${((s.conf ?? 0) * 100).toFixed(0)}%`.padStart(4);
+      return ` {gray-fg}${t}{/gray-fg} {${color}-fg}${tag}{/${color}-fg} ${sym.padEnd(8)} ${conf}`;
+    });
+    this.signalsBox.setContent(lines.join('\n'));
+    this.render();
+  }
+
+  private renderRisk(): void {
+    const stats = this.riskStats;
+    const ddPct = (stats.drawdownPct * 100).toFixed(2);
+    const ddColor = stats.drawdownPct > 0.05 ? 'red' : stats.drawdownPct > 0.02 ? 'yellow' : 'green';
+    const header = ` {bold}Live: ${stats.liveCount}{/bold}  DD: {${ddColor}-fg}${ddPct}%{/${ddColor}-fg}  Peak: ${stats.drawdownPeak.toFixed(0)}\n {gray-fg}─────────────────────────{/gray-fg}\n`;
+    if (this.recentRisk.length === 0) {
+      this.riskBox.setContent(header + ' {gray-fg}No risk events{/gray-fg}');
+      this.render();
+      return;
+    }
+    const lines = this.recentRisk.map(r => {
+      const t = new Date(r.ts).toLocaleTimeString();
+      const sym = r.pair?.replace('USDT', '').replace('B-', '').slice(0, 8) ?? '—';
+      const sideTag = r.side === 'LONG' ? '{green-fg}L{/green-fg}' : r.side === 'SHORT' ? '{red-fg}S{/red-fg}' : '?';
+      const ruleTag = (r.rules[0] ?? 'risk').slice(0, 16);
+      return ` {gray-fg}${t}{/gray-fg} ${sideTag} ${sym.padEnd(8)} {yellow-fg}${ruleTag}{/yellow-fg}`;
+    });
+    this.riskBox.setContent(header + lines.join('\n'));
+    this.render();
+  }
+
+  private toggleHelp(): void {
+    if (this.helpOverlay.hidden) {
+      this.helpOverlay.show();
+      this.helpOverlay.setFront();
+    } else {
+      this.helpOverlay.hide();
+    }
+    this.render();
+  }
+
+  private buildHelpContent(): string {
+    return `\n {bold}Pair navigation{/bold}\n` +
+      `   ←/h, →/l, Tab    switch pair\n` +
+      `   1-9              direct select pair by index\n\n` +
+      ` {bold}Panel focus{/bold}\n` +
+      `   p                positions table\n` +
+      `   b                balances\n` +
+      `   s                signals\n` +
+      `   r                risk\n\n` +
+      ` {bold}Misc{/bold}\n` +
+      `   c                clear log panel\n` +
+      `   ?                toggle this help\n` +
+      `   Ctrl-L           re-allocate screen\n` +
+      `   q / Esc / Ctrl-C quit\n\n` +
+      ` {gray-fg}Press ? again to close{/gray-fg}`;
   }
 }

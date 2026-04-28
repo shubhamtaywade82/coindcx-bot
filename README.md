@@ -49,15 +49,23 @@ Probe live feeds: `npm run probe -- --pair B-SOL_USDT --duration 60`
 
 `npm run check` — typecheck + lint + tests. Some integration tests require Docker (skip with `SKIP_DOCKER_TESTS=1`).
 
-### Phase 5: Risk-alert engine (current)
+### Phase 5: Risk-alert engine (shipped)
 - `CompositeRiskFilter` chains pluggable rules
 - Built-in rules: MinConfidence, MaxConcurrentSignals, PerStrategyMaxPositions, DrawdownGate, OpposingPairCorrelation, PerPairCooldown
 - Live-signal tracking with TTL expiry
 - Blocks emit `risk.blocked` signals with rule reasons (`RISK_ALERT_EMIT=true`)
 - Mode switch: `RISK_FILTER_MODE=composite|passthrough`
 
+### Phase 6: TUI v2 (current)
+- New panels: `Signals` (recent strategy.long/short/wait/error/disabled), `Risk` (live count, drawdown peak, recent risk.blocked rules)
+- Bus observer auto-feeds new panels (taps `SignalBus.emit`)
+- Help overlay (`?`) lists all keybindings
+- Focus shortcuts: `s` signals, `r` risk, `p` positions, `b` balances
+- Multi-pair tabs with per-pair AI/book caching and signal-count badges
+- Layout reorg: 4-col main row (book | AI | positions | signals); 3-col bottom row (balances | orders | risk)
+
 ## Roadmap
 
-- F6: TUI v2 + Prometheus metrics
+- All planned phases (F1–F6) shipped.
 
 See `docs/superpowers/specs/` for design specs and `docs/superpowers/plans/` for implementation plans.
