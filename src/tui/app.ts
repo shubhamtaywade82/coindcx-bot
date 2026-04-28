@@ -1,5 +1,5 @@
-import blessed from 'blessed';
-import contrib from 'blessed-contrib';
+import * as blessed from 'blessed';
+import * as contrib from 'blessed-contrib';
 import { config } from '../config/config';
 import { cleanPair } from '../utils/format';
 
@@ -39,15 +39,29 @@ export class TuiApp {
   private bookStateText: string = '—';
 
   constructor() {
-    this.pairs = config.pairs;
     this.screen = blessed.screen({
       smartCSR: true,
-      title: 'SMC Alpha Terminal',
+      title: 'SMC Alpha Terminal | CoinDCX',
       input: process.stdin,
       output: process.stdout,
-      terminal: 'xterm-256color',
-      fullUnicode: true
+      fullUnicode: true,
+      keys: true
     });
+
+    this.pairs = config.pairs;
+    this.grid = new contrib.grid({ rows: 12, cols: 12, screen: this.screen });
+
+    // Initialize logPanel early so this.log() works
+    this.logPanel = this.grid.set(11, 0, 1, 12, blessed.log, {
+      label: ' ◉ System Logs ',
+      border: { type: 'line', fg: 'gray' },
+      scrollable: true,
+      tags: true,
+      style: { fg: 'gray' },
+      scrollbar: { ch: ' ' },
+    });
+
+    this.log(`TUI initialized with ${this.pairs.length} pairs: ${this.pairs.join(', ')}`);
 
     // Debug: Log all keypresses to help diagnose terminal issues
     this.screen.on('keypress', (ch: any, key: any) => {
@@ -55,8 +69,6 @@ export class TuiApp {
         this.log(`Key detected: ${key.name} (ch: ${ch || 'none'})`);
       }
     });
-
-    this.grid = new contrib.grid({ rows: 12, cols: 12, screen: this.screen });
 
     // ── Row 0: Top Status Bar ──
     this.statusBar = this.grid.set(0, 0, 1, 12, blessed.box, {
@@ -81,9 +93,9 @@ export class TuiApp {
       content: this.buildHeaderContent(),
     });
 
-    // ── Row 3-8, Col 0-3: Book (Focused) ──
-    this.tradeTable = this.grid.set(3, 0, 5, 3, blessed.box, {
-      label: ' ◉ Book ',
+    // ── Row 3-7: Top Row Panels ──
+    this.tradeTable = this.grid.set(3, 0, 4, 3, blessed.box, {
+      label: ` ◉ Book — ${this.focusedPairClean} `,
       border: { type: 'line', fg: 'blue' },
       style: { fg: 'white' },
       tags: true,
@@ -91,79 +103,56 @@ export class TuiApp {
       scrollable: true
     });
 
-    // ── Row 3-8, Col 3-6: AI Analysis ──
-    this.aiBox = this.grid.set(3, 3, 5, 3, blessed.box, {
-      label: ' ◈ AI Strategy Pulse ',
+    this.aiBox = this.grid.set(3, 3, 4, 3, blessed.box, {
+      label: ` ◈ AI Strategy Pulse — ${this.focusedPairClean} `,
       border: { type: 'line', fg: 'cyan' },
       tags: true,
       content: ' {gray-fg}Analyzing market pulse...{/gray-fg}',
       style: { fg: 'white' }
     });
 
-    // ── Row 3-8, Col 6-9: Positions ──
-    this.positionsTable = blessed.listtable({
-      parent: this.grid.set(3, 6, 5, 3, blessed.box, { label: ' Active Positions ' }),
-      keys: false,
-      mouse: false,
-      tags: true,
-      data: [['SYM', 'SIDE', 'QTY', 'ENT', 'LAST', 'MARK', 'SL', 'PNL']],
-      style: {
-        header: { fg: 'yellow', bold: true },
-        cell: { fg: 'white', selected: { bg: 'blue' } }
-      },
-      align: 'left',
-      pad: 1,
-      noCellBorders: true,
-      width: '100%',
-      height: '100%'
-    });
-
-    // ── Row 3-8, Col 9-12: Strategy Signals (NEW) ──
     this.signalsBox = blessed.box({
-      parent: this.grid.set(3, 9, 5, 3, blessed.box, { label: ' ⚡ Signals ' }),
+      parent: this.grid.set(3, 6, 4, 6, blessed.box, { label: ' ⚡ Signals ' }),
       tags: true,
       scrollable: true,
       alwaysScroll: true,
-      scrollbar: { ch: ' ', inverse: true },
+      scrollbar: { ch: ' ' },
       content: ' {gray-fg}Awaiting strategy signals...{/gray-fg}',
     });
 
-    // ── Row 8-10, Col 0-6: Account Balances ──
+    // ── Row 7-9: Active Positions (Full Width) ──
+    this.positionsTable = blessed.box({
+      parent: this.grid.set(7, 0, 2, 12, blessed.box, { label: ' Active Positions ' }),
+      tags: true,
+      scrollable: true,
+      alwaysScroll: true,
+      scrollbar: { ch: ' ' }
+    });
+
+    // ── Row 9-11: Account & Risk ──
     this.balanceTable = blessed.box({
-      parent: this.grid.set(8, 0, 2, 6, blessed.box, { label: ' Account Balances ' }),
+      parent: this.grid.set(9, 0, 2, 6, blessed.box, { label: ' Account Balances ' }),
       tags: true,
       scrollable: true,
       alwaysScroll: true,
-      scrollbar: { ch: ' ', inverse: true }
+      scrollbar: { ch: ' ' }
     });
 
-    // ── Row 8-10, Col 6-9: Orders ──
     this.orderTable = blessed.box({
-      parent: this.grid.set(8, 6, 2, 3, blessed.box, { label: ' Orders ' }),
+      parent: this.grid.set(9, 6, 2, 3, blessed.box, { label: ' Orders ' }),
       tags: true,
       scrollable: true,
       alwaysScroll: true,
-      scrollbar: { ch: ' ', inverse: true }
+      scrollbar: { ch: ' ' }
     });
 
-    // ── Row 8-10, Col 9-12: Risk (NEW) ──
     this.riskBox = blessed.box({
-      parent: this.grid.set(8, 9, 2, 3, blessed.box, { label: ' 🛡 Risk ' }),
+      parent: this.grid.set(9, 9, 2, 3, blessed.box, { label: ' 🛡 Risk ' }),
       tags: true,
       scrollable: true,
       alwaysScroll: true,
-      scrollbar: { ch: ' ', inverse: true },
+      scrollbar: { ch: ' ' },
       content: ' {gray-fg}No risk events yet{/gray-fg}',
-    });
-
-    // ── Row 10-12, Col 0-12: Log Panel ──
-    this.logPanel = this.grid.set(10, 0, 2, 12, blessed.log, {
-      label: ' ◉ System Logs ',
-      border: { type: 'line', fg: 'gray' },
-      scrollable: true,
-      tags: true,
-      style: { fg: 'gray' },
-      scrollbar: { ch: ' ', inverse: true },
     });
 
     // ── Keyboard Shortcuts ──
@@ -177,33 +166,44 @@ export class TuiApp {
       this.render();
     });
 
-    this.screen.key(['left', 'h', 'S-tab'], () => this.switchFocus(-1));
-    this.screen.key(['right', 'l', 'tab'], () => this.switchFocus(1));
-
-    for (let i = 1; i <= 9; i++) {
-      this.screen.key([i.toString()], () => {
-        if (i <= this.pairs.length) {
-          this.focusIndex = i - 1;
+    // Pair navigation via keypress (fires before widget focus consumes keys).
+    this.screen.on('keypress', (_ch: any, key: any) => {
+      if (!key || !key.name) return;
+      const n = key.name;
+      if (n === 'left' || n === 'h' || (n === 'tab' && key.shift)) {
+        this.switchFocus(-1);
+        return;
+      }
+      if (n === 'right' || n === 'l' || (n === 'tab' && !key.shift)) {
+        this.switchFocus(1);
+        return;
+      }
+      if (/^[1-9]$/.test(n) && !key.shift && !key.ctrl) {
+        const idx = Number(n) - 1;
+        if (idx < this.pairs.length && idx !== this.focusIndex) {
+          this.focusIndex = idx;
           this.emitFocusChange();
         }
-      });
-    }
+      }
+    });
 
     // ── Help overlay (non-focusable, non-clickable to avoid stealing keys) ──
     this.helpOverlay = blessed.box({
       parent: this.screen,
       top: 'center', left: 'center',
       width: '60%', height: '60%',
-      border: { type: 'line', fg: 'cyan' },
+      border: { type: 'line' },
       label: ' ? Keybindings ',
       tags: true,
       hidden: true,
       keyable: false,
       clickable: false,
-      style: { fg: 'white', bg: 'black' },
+      style: { border: { fg: 'cyan' }, fg: 'white', bg: 'black' },
       content: this.buildHelpContent(),
     });
+
     this.screen.key(['?'], () => this.toggleHelp());
+
     // Quick scroll into panels via shift-modified keys (Shift+S/R/P/B/L) so
     // single-letter keys remain free for future use and never collide with
     // arrow / 1-9 pair switching.
@@ -212,9 +212,13 @@ export class TuiApp {
     this.screen.key(['S-p'], () => { this.positionsTable.focus(); this.render(); });
     this.screen.key(['S-b'], () => { this.balanceTable.focus(); this.render(); });
     this.screen.key(['S-l'], () => { this.logPanel.focus(); this.render(); });
+
     // Esc returns focus to screen so global shortcuts work again.
     this.screen.key(['escape'], () => {
-      if (!this.helpOverlay.hidden) { this.helpOverlay.hide(); this.render(); }
+      if (!this.helpOverlay.hidden) {
+        this.helpOverlay.hide();
+      }
+      this.render();
     });
 
     const modeStr = config.isReadOnly ? 'READ-ONLY' : 'LIVE';
@@ -222,6 +226,10 @@ export class TuiApp {
     this.log('Controls: ← → / h l / Tab pair, 1-9 direct, ? help, Shift+S/R/P/B/L focus panel, c clear log, q quit, Esc close help');
 
     this.updateStatus({});
+    this.emitFocusChange();
+    
+    // Finalize render
+    this.render();
   }
 
   get focusedPair(): string {
@@ -352,7 +360,9 @@ export class TuiApp {
   }
 
   log(message: string) {
-    this.logPanel.log(`[${new Date().toLocaleTimeString()}] ${message}`);
+    if (this.logPanel) {
+      this.logPanel.log(`[${new Date().toLocaleTimeString()}] ${message}`);
+    }
   }
 
   updateOrderBook(asks: string[][], bids: string[][], lastPrice: string, pair?: string) {
@@ -427,32 +437,16 @@ export class TuiApp {
 
   updatePositions(rows: string[][]) {
     // SYM(6) SIDE(5) QTY(10) ENT(10) LAST(10) MARK(10) SL(6) PNL(10)
-    const headers = [
-      this.padLeft('SYM', 6),
-      this.padLeft('SIDE', 5),
-      this.padRight('QTY', 10),
-      this.padRight('ENT', 10),
-      this.padRight('LAST', 10),
-      this.padRight('MARK', 10),
-      this.padRight('SL', 6),
-      this.padRight('PNL', 10)
-    ];
+    const header = ` {yellow-fg}${this.padLeft('SYM', 6)} ${this.padLeft('SIDE', 5)} ${this.padRight('QTY', 10)} ${this.padRight('ENT', 10)} ${this.padRight('LAST', 10)} ${this.padRight('MARK', 10)} ${this.padRight('SL', 6)} ${this.padRight('PNL', 10)}{/yellow-fg}\n`;
 
-    const data = [headers];
-    rows.forEach(r => {
-      data.push([
-        this.padLeft(r[0] || '', 6),
-        this.padLeft(r[1] || '', 5),
-        this.padRight(r[2] || '', 10),
-        this.padRight(r[3] || '', 10),
-        this.padRight(r[4] || '', 10),
-        this.padRight(r[5] || '', 10),
-        this.padRight(r[6] || '', 6),
-        this.padRight(r[7] || '', 10)
-      ]);
-    });
+    const content = rows.map(r => {
+      const pnlVal = parseFloat(r[7] || '0');
+      const pnlColor = pnlVal > 0 ? 'green' : pnlVal < 0 ? 'red' : 'white';
+      
+      return ` ${this.padLeft(r[0] || '', 6)} ${this.padLeft(r[1] || '', 5)} ${this.padRight(r[2] || '', 10)} ${this.padRight(r[3] || '', 10)} ${this.padRight(r[4] || '', 10)} ${this.padRight(r[5] || '', 10)} ${this.padRight(r[6] || '', 6)} {${pnlColor}-fg}${this.padRight(r[7] || '', 10)}{/${pnlColor}-fg}`;
+    }).join('\n');
 
-    this.positionsTable.setData(data);
+    this.positionsTable.setContent(header + content);
     this.render();
   }
 
