@@ -12,56 +12,65 @@ export interface Candle {
 export class MarketStateBuilder {
   constructor(private logger: AppLogger) {}
 
-  build(candles: Candle[], orderBook: any, positions: any[]): any {
-    if (candles.length < 10) return null;
+  build(htfCandles: Candle[], ltfCandles: Candle[], orderBook: any, positions: any[]): any {
+    if (ltfCandles.length < 10) return null;
 
-    const structure = this.analyzeStructure(candles);
-    const smc = this.analyzeSMC(candles);
-    const liquidity = this.analyzeLiquidity(candles);
+    const htf = this.analyzeStructure(htfCandles, '1h');
+    const ltf = this.analyzeStructure(ltfCandles, '15m');
+    const smc = this.analyzeSMC(ltfCandles);
+    const liquidity = this.analyzeLiquidity(ltfCandles);
 
     return {
-      structure,
-      liquidity,
-      smc: {
-        ...smc,
-        premium_discount: this.calculatePremiumDiscount(candles, structure.swing_high, structure.swing_low)
+      htf: {
+        trend: htf.trend,
+        swing_high: htf.swing_high,
+        swing_low: htf.swing_low,
       },
+      ltf: {
+        ...ltf,
+        ...smc,
+        premium_discount: this.calculatePremiumDiscount(ltfCandles, ltf.swing_high, ltf.swing_low)
+      },
+      confluence: {
+        aligned: htf.trend === ltf.trend,
+        narrative: this.generateNarrative(htf.trend, ltf.trend, liquidity.event)
+      },
+      liquidity,
       state: {
-        is_trending: structure.trend !== 'range',
-        is_range: structure.trend === 'range',
-        is_liquidity_event: liquidity.event !== 'none',
+        is_trending: ltf.trend !== 'range',
         is_post_sweep: liquidity.event === 'sweep',
         is_pre_expansion: smc.displacement.present && !smc.mitigation.status.includes('full')
-      },
-      time: {
-        tf: '15m', // Defaulting for now
-        valid_candles: 6,
-        expires_at: new Date(Date.now() + 15 * 6 * 60000).toISOString()
       }
     };
   }
 
-  private analyzeStructure(candles: Candle[]) {
+  private analyzeStructure(candles: Candle[], tf: string) {
+    if (candles.length === 0) return { trend: 'unknown', swing_high: 0, swing_low: 0 };
     const last = candles[candles.length - 1];
-    const prev = candles[candles.length - 2];
     
-    // Simple Swing detection for POC
+    // Use slightly larger window for HTF
+    const window = tf === '1h' ? 30 : 20;
     const highs = candles.map(c => c.high);
     const lows = candles.map(c => c.low);
-    const swing_high = Math.max(...highs.slice(-20));
-    const swing_low = Math.min(...lows.slice(-20));
+    const swing_high = Math.max(...highs.slice(-window));
+    const swing_low = Math.min(...lows.slice(-window));
 
     let trend = 'range';
-    if (last.close > swing_high * 0.99) trend = 'uptrend';
-    if (last.close < swing_low * 1.01) trend = 'downtrend';
+    if (last.close > swing_high * 0.995) trend = 'uptrend';
+    if (last.close < swing_low * 1.005) trend = 'downtrend';
 
     return {
       trend,
-      phase: last.volume > prev.volume ? 'impulse' : 'consolidation',
       bos: last.close > swing_high || last.close < swing_low,
       swing_high,
       swing_low
     };
+  }
+
+  private generateNarrative(htfTrend: string, ltfTrend: string, liqEvent: string) {
+    if (htfTrend === ltfTrend) return `Strong ${htfTrend} momentum confirmed across timeframes.`;
+    if (liqEvent === 'sweep') return `Counter-trend sweep detected. Potential reversal in play.`;
+    return `Timeframe divergence. HTF ${htfTrend} vs LTF ${ltfTrend}. Exercise caution.`;
   }
 
   private analyzeSMC(candles: Candle[]) {
@@ -98,7 +107,7 @@ export class MarketStateBuilder {
     };
   }
 
-  private analyzeLiquidity(candles: Candle[]) {
+  private analyzeLiquidity(_candles: Candle[]) {
     // Simplified Liquidity detection
     return {
       pools: [],

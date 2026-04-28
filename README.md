@@ -2,14 +2,21 @@
 
 Read-only institutional-grade observation + signal-emitter bot for CoinDCX. **Never places, cancels, or modifies orders.** A `ReadOnlyGuard` axios interceptor enforces this in code by blocking write verbs and any path on the order/funds-transfer deny-list.
 
-## Phase 1 (current): Reliability & Observability Foundation
+## Phases
 
-- Validated config (zod) with secret redaction
-- Pino logging (stdout JSON + rotating file)
-- Postgres persistence (audit, signal log, resume cursors)
-- Pluggable signal sinks (stdout / JSONL file / Telegram)
+### Phase 1: Reliability foundation (shipped)
+- Validated config (zod), pino logging, Postgres persistence
+- Pluggable signal sinks (stdout / JSONL / Telegram)
 - ReadOnlyGuard with signed-read POST allowlist
 - Graceful shutdown, hybrid crash-resume
+
+### Phase 2: Market data integrity (current)
+- L2 OrderBook with checksum + state machine
+- BookManager + ResyncOrchestrator (WS-first, REST fallback under token-bucket)
+- Heartbeat watchdog, StaleWatcher (hybrid floor + 3×p99 threshold)
+- Latency histograms (ws-rtt + tick-age, p50/p95/p99)
+- Time-sync (exchange + NTP, critical alarm on |skew| > threshold)
+- Always-on TailBuffer; `npm run probe -- --pair X --duration N` for raw frame capture
 
 ## Setup
 
@@ -18,13 +25,14 @@ Read-only institutional-grade observation + signal-emitter bot for CoinDCX. **Ne
 3. Migrate: `npm run db:migrate`
 4. Start: `npm start`
 
+Probe live feeds: `npm run probe -- --pair B-SOL_USDT --duration 60`
+
 ## Quality gate
 
 `npm run check` — typecheck + lint + tests. Some integration tests require Docker (skip with `SKIP_DOCKER_TESTS=1`).
 
 ## Roadmap
 
-- F2: market data integrity (L2 OB, gap detection, latency)
 - F3: account state reconciler
 - F4: strategy/signal framework + backtester
 - F5: risk-alert engine

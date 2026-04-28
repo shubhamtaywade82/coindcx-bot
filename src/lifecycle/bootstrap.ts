@@ -58,7 +58,7 @@ export async function bootstrap(): Promise<Context> {
   audit.start();
 
   const sinks: Sink[] = [];
-  if (config.SIGNAL_SINKS.includes('stdout')) sinks.push(new StdoutSink());
+  // if (config.SIGNAL_SINKS.includes('stdout')) sinks.push(new StdoutSink());
   if (config.SIGNAL_SINKS.includes('file')) sinks.push(new FileSink({ dir: config.LOG_DIR }));
   if (config.SIGNAL_SINKS.includes('telegram') && config.TELEGRAM_BOT_TOKEN && config.TELEGRAM_CHAT_ID) {
     sinks.push(new TelegramSink({
@@ -80,7 +80,7 @@ export async function bootstrap(): Promise<Context> {
   });
 
   audit.recordEvent({ kind: 'boot', source: 'lifecycle', payload: { sinks: config.SIGNAL_SINKS } });
-  
+
   const { AiAnalyzer } = await import('../ai/analyzer');
   const { MarketStateBuilder } = await import('../ai/state-builder');
   const analyzer = new AiAnalyzer(config, logger);

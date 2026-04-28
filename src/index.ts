@@ -6,6 +6,9 @@ import { formatPrice, formatPnl, formatChange, cleanPair, formatQty, formatTime 
 import { bootstrap } from './lifecycle/bootstrap';
 import { installSignalHandlers } from './lifecycle/shutdown';
 import type { Context } from './lifecycle/context';
+import { IntegrityController } from './marketdata/integrity-controller';
+import ntp from 'ntp-client';
+import axios from 'axios';
 
 // ── Types ──
 interface TickerInfo {
@@ -47,7 +50,72 @@ async function runApp(ctx: Context) {
   const ws = new CoinDCXWs();
   ctx.logger.info({ mod: 'app' }, 'app start');
 
+  const integrity = new IntegrityController({
+    config: ctx.config,
+    logger: ctx.logger.child({ mod: 'integrity' }),
+    pool: ctx.pool,
+    audit: ctx.audit,
+    bus: ctx.bus,
+    ws: ws as any,
+    restFetchOrderBook: async (pair: string) => {
+      const r = await axios.get('https://api.coindcx.com/exchange/v1/derivatives/data/orderbook', {
+        params: { pair }, timeout: 10_000,
+      });
+      const data = r.data as { asks?: any; bids?: any };
+      const toArr = (v: any): Array<[string, string]> => {
+        if (Array.isArray(v)) return v;
+        if (v && typeof v === 'object') return Object.entries(v).map(([p, q]) => [p, String(q)] as [string, string]);
+        return [];
+      };
+      return { asks: toArr(data.asks), bids: toArr(data.bids), ts: Date.now() };
+    },
+    fetchExchangeMs: async () => {
+      const r = await axios.get('https://api.coindcx.com/exchange/v1/markets', { timeout: 5000 });
+      const dh = r.headers['date'];
+      if (typeof dh === 'string') return Date.parse(dh);
+      throw new Error('no date header');
+    },
+    fetchNtpMs: () => new Promise((resolve, reject) => {
+      ntp.getNetworkTime('pool.ntp.org', 123, (err, date) => {
+        if (err || !date) return reject(err ?? new Error('ntp failed'));
+        resolve(date.getTime());
+      });
+    }),
+  });
+  integrity.start();
+
+  ws.on('depth-snapshot', (raw: any) => integrity.ingest('depth-snapshot', raw));
+  ws.on('depth-update',   (raw: any) => integrity.ingest('depth-update',   raw));
+  ws.on('new-trade',      (raw: any) => integrity.ingest('new-trade',      raw));
+  ws.on('currentPrices@futures#update', (raw: any) => integrity.ingest('currentPrices@futures#update', raw));
+  ws.on('currentPrices@spot#update',    (raw: any) => integrity.ingest('currentPrices@spot#update',    raw));
+
+  setInterval(() => {
+    tui.updateStatus({ lastUpdate: Date.now() });
+    const focused = tui.focusedPair;
+    const book = integrity.books.get(focused);
+    tui.updateBookState(book ? book.state() : '—');
+  }, 1000);
+
   const MAX_TRADES = 50;
+
+  function log(msg: any) {
+    if (typeof msg === 'string' && msg.startsWith('{')) {
+      try {
+        const data = JSON.parse(msg);
+        if (data.type === 'clock_skew') {
+          const skew = data.payload?.localVsNtp || 0;
+          tui.log(`{red-fg}{bold}[CRITICAL]{/bold} Clock Skew: ${skew}ms. Run 'sudo chronyc -a makestep' to sync.{/red-fg}`);
+          return;
+        }
+        if (data.strategy === 'integrity') {
+          tui.log(`{yellow-fg}[INTEGRITY] ${data.type}: ${data.payload?.reason || 'check failed'}{/yellow-fg}`);
+          return;
+        }
+      } catch { /* fallback to raw */ }
+    }
+    tui.log(msg);
+  }
 
   function safeParse(data: any) {
     if (typeof data === 'string') {
@@ -84,39 +152,45 @@ async function runApp(ctx: Context) {
   setInterval(async () => {
     try {
       const symbol = getFocusedCleanPair();
-      // Fetch 15m candles to build structural context
-      const rawCandles = await CoinDCXApi.getCandles(symbol, '15m', 50);
-      
-      // Map to standard Candle interface
-      const candles = (Array.isArray(rawCandles) ? rawCandles : []).map((c: any) => ({
-        timestamp: c[0],
-        open: parseFloat(c[1]),
-        high: parseFloat(c[2]),
-        low: parseFloat(c[3]),
-        close: parseFloat(c[4]),
-        volume: parseFloat(c[5])
+      const [rawHtf, rawLtf] = await Promise.all([
+        CoinDCXApi.getCandles(symbol, '1h', 50),
+        CoinDCXApi.getCandles(symbol, '15m', 50)
+      ]);
+      const mapCandles = (raw: any) => (Array.isArray(raw) ? raw : []).map((c: any) => ({
+        timestamp: c[0], open: parseFloat(c[1]), high: parseFloat(c[2]),
+        low: parseFloat(c[3]), close: parseFloat(c[4]), volume: parseFloat(c[5])
       }));
-
+      const htfCandles = mapCandles(rawHtf);
+      const ltfCandles = mapCandles(rawLtf);
       const pulse = getMarketPulse();
-      // Build institutional market state
-      const marketState = ctx.stateBuilder.build(candles, pulse.orderBook, pulse.positions);
+      const marketState = ctx.stateBuilder.build(htfCandles, ltfCandles, pulse.orderBook, pulse.positions);
       
       if (marketState) {
         marketState.symbol = symbol;
+        tui.log(`{gray-fg}[AI] Sending ${symbol} snapshot to local brain...{/gray-fg}`);
         const analysis = await ctx.analyzer.analyze(marketState);
         tui.updateAi(analysis);
-      } else {
-        tui.updateAi({ 
-          verdict: 'Collecting structural data...', 
-          signal: 'WAIT', 
-          confidence: 0,
-          no_trade_condition: 'Insufficient candles'
-        });
+        tui.log(`{green-fg}✓ [AI] Pulse updated for ${symbol}{/green-fg}`);
       }
     } catch (err: any) {
-      ctx.logger.error({ mod: 'ai', err: err.message }, 'AI loop failed');
+      ctx.logger.error({ mod: 'ai', err: err.message }, 'AI MTF loop failed');
+      tui.log(`{red-fg}⚠ [AI] Analysis failed: ${err.message}{/red-fg}`);
     }
-  }, 60000);
+  }, 15000); // 4x faster (15s instead of 60s)
+
+  // ── Institutional Signal Sink ──
+  class TuiSink {
+    readonly name = 'tui';
+    async emit(signal: any) {
+      log(JSON.stringify(signal));
+    }
+  }
+
+  // Inject TUI sink into the global bus
+  const sinks = (ctx.bus as any).opts.sinks;
+  if (Array.isArray(sinks)) {
+    sinks.push(new TuiSink());
+  }
 
   function refreshBookDisplay() {
     const focused = getFocusedCleanPair();
@@ -177,15 +251,23 @@ async function runApp(ctx: Context) {
         const clean = cleanPair(p.pair || 'N/A');
         const sym = clean.replace('USDT', '');
         const ticker = state.tickers.get(clean);
+        const currentPrice = ticker ? parseFloat(ticker.price) : parseFloat(p.mark_price || p.avg_price);
+        const entryPrice = parseFloat(p.avg_price);
+        const qty = Math.abs(parseFloat(p.active_pos));
+        
+        // Dynamic PnL calculation
+        const isLong = parseFloat(p.active_pos) > 0;
+        const pnl = isLong ? (currentPrice - entryPrice) * qty : (entryPrice - currentPrice) * qty;
+
         return [
           sym,
-          p.active_pos > 0 ? '{green-fg}LONG{/green-fg}' : '{red-fg}SHORT{/red-fg}',
-          formatQty(Math.abs(p.active_pos)),
-          formatPrice(p.avg_price),
+          isLong ? '{green-fg}LONG{/green-fg}' : '{red-fg}SHORT{/red-fg}',
+          formatQty(qty),
+          formatPrice(entryPrice),
           ticker ? formatPrice(ticker.price) : '—',
           formatPrice(p.mark_price),
           '—',
-          formatPnl(p.unrealized_pnl || 0),
+          formatPnl(pnl),
         ];
       });
     tui.updatePositions(rows.length > 0 ? rows : [['—', '—', '—', '—', '—', '—', '—', '—']]);
@@ -207,72 +289,82 @@ async function runApp(ctx: Context) {
   }
 
   function refreshBalanceDisplay() {
-    const activePnlMap = new Map<string, number>();
     let totalEqInr = 0;
     let totalWalInr = 0;
     let totalPnlInr = 0;
+    let totalPnlUsdt = 0;
 
+    // 1. Sum up PnL from all positions dynamically
     Array.from(state.positions.values()).forEach((p: any) => {
-       const pnl = parseFloat(p.unrealized_pnl || '0');
-       const currency = (p.margin_currency_short_name || p.settlement_currency_short_name || 'USDT').toUpperCase();
-       activePnlMap.set(currency, (activePnlMap.get(currency) || 0) + pnl);
+       const clean = cleanPair(p.pair || '');
+       const ticker = state.tickers.get(clean);
+       const currentPrice = ticker ? parseFloat(ticker.price) : parseFloat(p.mark_price || p.avg_price);
+       const entryPrice = parseFloat(p.avg_price);
+       const qty = Math.abs(parseFloat(p.active_pos));
        
-       // Add to total global PnL (converted to INR)
-       if (currency === 'INR') {
+       const isLong = parseFloat(p.active_pos) > 0;
+       const pnl = isLong ? (currentPrice - entryPrice) * qty : (entryPrice - currentPrice) * qty;
+
+       const pair = (p.pair || '').toUpperCase();
+       if (pair.endsWith('INR')) {
          totalPnlInr += pnl;
-       } else if (currency === 'USDT' || currency === 'USD') {
-         totalPnlInr += pnl * state.usdtInrRate;
+         totalPnlUsdt += pnl / (state.usdtInrRate || 88);
+       } else {
+         totalPnlUsdt += pnl;
+         totalPnlInr += pnl * (state.usdtInrRate || 88);
        }
     });
 
     const rows: string[][] = [];
 
+    // 2. Build rows from balanceMap
     Array.from(state.balanceMap.entries())
       .filter(([_, info]) => parseFloat(info.balance) > 0 || parseFloat(info.locked) > 0)
       .forEach(([currency, info]) => {
         const available = parseFloat(info.balance || '0');
         const locked = parseFloat(info.locked || '0');
         const walletBalance = available + locked;
-        let activePnl = activePnlMap.get(currency) || 0;
         
-        // For the main INR row, show the total aggregated PnL across all currencies
-        if (currency === 'INR') {
-          activePnl = totalPnlInr;
-        }
+        const isInrRow = currency === 'INR' || currency === 'USDTINR';
+        const isUsdtRow = currency === 'USDT' || currency === 'USD';
         
-        const currentValue = walletBalance + activePnl;
-        const pnlPct = walletBalance > 0 ? (activePnl / walletBalance) * 100 : 0;
+        let rowPnl = 0;
+        if (isInrRow) rowPnl = totalPnlInr;
+        else if (isUsdtRow) rowPnl = totalPnlUsdt;
+
+        const pnlInRowCurrency = isInrRow ? totalPnlInr : (isUsdtRow ? totalPnlUsdt : 0);
+        const currentValue = walletBalance + pnlInRowCurrency;
+        const pnlPct = walletBalance > 0 ? (rowPnl / walletBalance) * 100 : 0;
         const utilPct = walletBalance > 0 ? (locked / walletBalance) * 100 : 0;
 
-        // Add to global totals (converted to INR)
-        const inrValue = currency === 'INR' ? currentValue : currentValue * state.usdtInrRate;
-        const inrWallet = currency === 'INR' ? walletBalance : walletBalance * state.usdtInrRate;
+        // Global Totals (INR)
+        const inrValue = isInrRow ? currentValue : currentValue * state.usdtInrRate;
+        const inrWallet = isInrRow ? walletBalance : walletBalance * state.usdtInrRate;
         totalEqInr += inrValue;
         totalWalInr += inrWallet;
 
-        const isInr = currency === 'INR' || currency === 'USDTINR'; // Special case for INR-settled
-        const prefix = isInr ? '₹' : '';
-
+        const prefix = isInrRow ? '₹' : (isUsdtRow ? '$' : '');
         rows.push([
-          isInr ? '₹ INR' : currency,
+          isInrRow ? '₹ INR' : currency,
           `${prefix}${formatQty(currentValue)}`,
           `${prefix}${formatQty(walletBalance)}`,
-          formatPnl(activePnl, prefix),
+          formatPnl(rowPnl, prefix),
           `{${pnlPct >= 0 ? 'green' : 'red'}-fg}${pnlPct.toFixed(2)}%{/${pnlPct >= 0 ? 'green' : 'red'}-fg}`,
           `${prefix}${formatQty(available)}`,
           `${prefix}${formatQty(locked)}`,
           `{yellow-fg}${utilPct.toFixed(1)}%{/yellow-fg}`
         ]);
 
-        if (isInr && state.usdtInrRate > 0) {
-          const usdEq = currentValue / state.usdtInrRate;
-          const usdWal = walletBalance / state.usdtInrRate;
+        // Virtual USD row below INR
+        if (isInrRow && state.usdtInrRate > 0) {
+          const usdEq = totalEqInr / state.usdtInrRate;
+          const usdWal = totalWalInr / state.usdtInrRate;
           rows.push([
             '{cyan-fg}$ USD{/cyan-fg}',
             `{cyan-fg}$${formatQty(usdEq, 2)}{/cyan-fg}`,
             `{cyan-fg}$${formatQty(usdWal, 2)}{/cyan-fg}`,
-            formatPnl(activePnl / state.usdtInrRate, '$'),
-            `{${pnlPct >= 0 ? 'green' : 'red'}-fg}${pnlPct.toFixed(2)}%{/${pnlPct >= 0 ? 'green' : 'red'}-fg}`,
+            formatPnl(totalPnlUsdt, '$'),
+            `{${totalPnlUsdt >= 0 ? 'green' : 'red'}-fg}${pnlPct.toFixed(2)}%{/${totalPnlUsdt >= 0 ? 'green' : 'red'}-fg}`,
             `{cyan-fg}$${formatQty(available / state.usdtInrRate, 2)}{/cyan-fg}`,
             `{cyan-fg}$${formatQty(locked / state.usdtInrRate, 2)}{/cyan-fg}`,
             `{yellow-fg}${utilPct.toFixed(1)}%{/yellow-fg}`
@@ -282,12 +374,12 @@ async function runApp(ctx: Context) {
       
     tui.updateBalances(rows.length > 0 ? rows : [['No balances', '—', '—', '—', '—', '—']]);
     
-    // Update top summary bar
+    // 3. Update Summary
     tui.updateSummary({
       equity: `₹${formatQty(totalEqInr)} (${formatQty(totalEqInr / state.usdtInrRate, 2)} USDT)`,
       wallet: `₹${formatQty(totalWalInr)} (${formatQty(totalWalInr / state.usdtInrRate, 2)} USDT)`,
       net: formatPnl(totalPnlInr, '₹'),
-      unrealUsdt: `${formatQty(totalPnlInr / state.usdtInrRate, 2)} USDT`
+      unrealUsdt: `${formatQty(totalPnlUsdt, 2)} USDT`
     });
   }
 
@@ -317,7 +409,7 @@ async function runApp(ctx: Context) {
     if (!state.hasValidAuth) return;
 
     try {
-      tui.log('Fetching account balances...');
+      log('Fetching account balances...');
       const balances = await CoinDCXApi.getBalances();
       const balArr = Array.isArray(balances) ? balances : [];
       balArr.forEach((b: any) => {
@@ -331,15 +423,15 @@ async function runApp(ctx: Context) {
           locked: newLocked,
         });
       });
-      tui.log(`✓ Loaded ${state.balanceMap.size} balances`);
+      log(`✓ Loaded ${state.balanceMap.size} balances`);
       refreshBalanceDisplay();
     } catch (err: any) {
-      tui.log(`⚠ Balance fetch failed: ${err.message}`);
+      log(`⚠ Balance fetch failed: ${err.message}`);
       tui.updateBalances([['API error', err.message.substring(0, 30), '—', '—', '—', '—']]);
     }
 
     try {
-      tui.log('Fetching futures positions...');
+      log('Fetching futures positions...');
       const posRaw = await CoinDCXApi.getFuturesPositions();
       const posArr = Array.isArray(posRaw) ? posRaw : (posRaw?.data || []);
 
@@ -351,9 +443,9 @@ async function runApp(ctx: Context) {
 
       refreshPositionsDisplay();
       refreshBalanceDisplay(); // Because PnL depends on positions
-      tui.log(`✓ Loaded ${state.positions.size} active positions`);
+      log(`✓ Loaded ${state.positions.size} active positions`);
     } catch (err: any) {
-      tui.log(`⚠ Position fetch failed: ${err.message}`);
+      log(`⚠ Position fetch failed: ${err.message}`);
       tui.updatePositions([['API error', '—', '—', '—', '—', '—']]);
     }
   }
@@ -363,29 +455,29 @@ async function runApp(ctx: Context) {
   // ══════════════════════════════════════════════════════
   if (config.apiKey && config.apiSecret) {
     void fetchPrivateData();
-    setInterval(fetchPrivateData, 30000); // refresh every 30s as a fallback
+    setInterval(fetchPrivateData, 5000); // 6x faster polling (5s instead of 30s)
   } else {
-    tui.log('⚠ API Key/Secret missing — PUBLIC ONLY mode');
+    log('⚠ API Key/Secret missing — PUBLIC ONLY mode');
     state.hasValidAuth = false;
     tui.updateBalances([['No API key', '—', '—', '—', '—', '—']]);
     tui.updatePositions([['No API key', '—', '—', '—', '—', '—']]);
   }
-  // ── WebSocket Events ──
+  // ── WebSocket Logic ──
   // ══════════════════════════════════════════════════════
 
   ws.on('connected', () => {
     state.isWsConnected = true;
-    tui.log('✓ WebSocket connected');
+    log('✓ WebSocket connected');
     tui.updateStatus({ connected: true });
     ctx.audit.recordEvent({ kind: 'ws_reconnect', source: 'ws', payload: {} });
   });
   ws.on('disconnected', (reason) => {
     state.isWsConnected = false;
-    tui.log(`✗ Disconnected: ${reason}`);
+    log(`✗ Disconnected: ${reason}`);
     tui.updateStatus({ connected: false });
   });
   ws.on('error', (error) => {
-    tui.log(`✗ WS error: ${error.message}`);
+    log(`✗ WS error: ${error.message}`);
     tui.updateStatus({ connected: false });
   });
   ws.on('debug', (msg) => ctx.logger.debug({ mod: 'ws' }, msg));
@@ -501,6 +593,8 @@ async function runApp(ctx: Context) {
       }
     });
     refreshHeader();
+    refreshPositionsDisplay(); // Reactive PnL update
+    refreshBalanceDisplay();   // Reactive Equity update
   });
 
   // ── currentPrices@futures#update: { prices: { "B-SOL_USDT": { mp, ls, pc, ... } } } ──
@@ -557,7 +651,7 @@ async function runApp(ctx: Context) {
     const data = safeParse(raw);
     if (!data) return;
     const positions = Array.isArray(data) ? data : [data];
-    tui.log(`Position update: ${positions.length} received`);
+    log(`Position update: ${positions.length} received`);
 
     positions.forEach((p: any) => {
       if (p.id) {
@@ -574,7 +668,7 @@ async function runApp(ctx: Context) {
     const data = safeParse(raw);
     if (!data) return;
     const orders = Array.isArray(data) ? data : [data];
-    tui.log(`Order update: ${orders.length} received`);
+    log(`Order update: ${orders.length} received`);
 
     orders.forEach((o: any) => {
       if (o.id) {
@@ -594,7 +688,7 @@ async function runApp(ctx: Context) {
     const data = safeParse(raw);
     if (!data) return;
     const balances = Array.isArray(data) ? data : [data];
-    tui.log(`Balance update: ${balances.length} assets`);
+    log(`Balance update: ${balances.length} assets`);
 
     balances.forEach((b: any) => {
       const name = b.currency_short_name || b.currency || 'N/A';
@@ -639,7 +733,7 @@ async function runApp(ctx: Context) {
       });
       refreshBalanceDisplay();
     } catch (err: any) {
-      tui.log(`Refresh error: ${err.message}`);
+      log(`Refresh error: ${err.message}`);
     }
   }, 30_000);
 }

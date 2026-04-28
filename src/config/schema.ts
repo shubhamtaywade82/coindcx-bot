@@ -28,6 +28,25 @@ export const ConfigSchema = z.object({
   SOCKET_BASE_URL: z.string().url().default('wss://stream.coindcx.com'),
   OLLAMA_URL: z.string().url().default('http://127.0.0.1:11434'),
   OLLAMA_MODEL: z.string().default('llama3'),
+
+  // F2 Market Data Integrity
+  RESYNC_WS_TIMEOUT_MS: z.coerce.number().int().positive().default(3000),
+  REST_BUDGET_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
+  REST_BUDGET_GLOBAL_PER_MIN: z.coerce.number().int().positive().default(6),
+  REST_BUDGET_PAIR_PER_MIN: z.coerce.number().int().positive().default(1),
+  HEARTBEAT_TIMEOUT_MS: z.coerce.number().int().positive().default(35000),
+  HEARTBEAT_INTERVAL_MS: z.coerce.number().int().positive().default(15000),
+  STALE_FLOOR_currentPrices: z.coerce.number().int().positive().default(5000),
+  STALE_FLOOR_newTrade: z.coerce.number().int().positive().default(30000),
+  STALE_FLOOR_depthUpdate: z.coerce.number().int().positive().default(10000),
+  CHECKSUM_INTERVAL_MS: z.coerce.number().int().positive().default(30000),
+  REST_CHECKSUM_INTERVAL_MS: z.coerce.number().int().positive().default(600000),
+  TIME_SYNC_INTERVAL_MS: z.coerce.number().int().positive().default(900000),
+  SKEW_THRESHOLD_MS: z.coerce.number().int().positive().default(500),
+  TAIL_BUFFER_SIZE: z.coerce.number().int().positive().default(1000),
+  LATENCY_RESERVOIR: z.coerce.number().int().positive().default(4096),
+  STALE_RESERVOIR: z.coerce.number().int().positive().default(1024),
+  BOOK_INTEGRITY_MODE: z.enum(['heuristic', 'strict']).default('heuristic'),
 }).superRefine((data, _ctx) => {
   // If telegram is requested but credentials are missing, silently filter it out
   // to prevent startup crashes.
