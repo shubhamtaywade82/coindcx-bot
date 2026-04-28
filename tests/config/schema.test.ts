@@ -37,6 +37,19 @@ describe('ConfigSchema', () => {
   });
 });
 
+describe('F4 strategy config defaults', () => {
+  it('parses with F4 defaults', () => {
+    const cfg = ConfigSchema.parse(validEnv);
+    expect(cfg.STRATEGY_TIMEOUT_MS).toBe(5000);
+    expect(cfg.STRATEGY_ERROR_THRESHOLD).toBe(3);
+    expect(cfg.STRATEGY_EMIT_WAIT).toBe(false);
+    expect(cfg.STRATEGY_INTERVAL_DEFAULT_MS).toBe(15000);
+    expect(cfg.STRATEGY_BACKPRESSURE_DROP_RATIO_ALARM).toBe(0.5);
+    expect(cfg.BACKTEST_PESSIMISTIC).toBe(true);
+    expect(cfg.STRATEGY_ENABLED_IDS).toEqual(['smc.rule.v1','ma.cross.v1','llm.pulse.v1']);
+  });
+});
+
 describe('F3 account config defaults', () => {
   it('parses with F3 defaults', () => {
     const cfg = ConfigSchema.parse(validEnv);

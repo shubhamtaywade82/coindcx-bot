@@ -62,6 +62,17 @@ export const ConfigSchema = z.object({
   ACCOUNT_SIGNAL_COOLDOWN_MS: z.coerce.number().int().positive().default(300_000),
   ACCOUNT_STORM_THRESHOLD: z.coerce.number().int().positive().default(20),
   ACCOUNT_STORM_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+
+  // F4 Strategy Framework
+  STRATEGY_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
+  STRATEGY_ERROR_THRESHOLD: z.coerce.number().int().positive().default(3),
+  STRATEGY_EMIT_WAIT: z.string().default('false').transform(s => s === 'true'),
+  STRATEGY_INTERVAL_DEFAULT_MS: z.coerce.number().int().positive().default(15000),
+  STRATEGY_BACKPRESSURE_DROP_RATIO_ALARM: z.coerce.number().default(0.5),
+  STRATEGY_ENABLED_IDS: z.string().default('smc.rule.v1,ma.cross.v1,llm.pulse.v1')
+    .transform(s => s.split(',').map(x => x.trim()).filter(Boolean)),
+  BACKTEST_PESSIMISTIC: z.string().default('true').transform(s => s !== 'false'),
+  BACKTEST_OUTPUT_DIR: z.string().default('./logs/backtest'),
 }).superRefine((data, _ctx) => {
   // If telegram is requested but credentials are missing, silently filter it out
   // to prevent startup crashes.
