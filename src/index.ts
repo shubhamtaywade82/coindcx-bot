@@ -204,7 +204,7 @@ async function runApp(ctx: Context) {
       const marketState = ctx.stateBuilder.build(htfCandles, ltfCandles, pulse.orderBook, pulse.positions);
       
       if (marketState) {
-        marketState.symbol = symbol;
+        (marketState as any).symbol = symbol;
         tui.log(`{gray-fg}[AI] Sending ${symbol} snapshot to local brain...{/gray-fg}`);
         const analysis = await ctx.analyzer.analyze(marketState);
         tui.updateAi(analysis);

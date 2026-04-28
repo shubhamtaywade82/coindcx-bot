@@ -9,10 +9,52 @@ export interface Candle {
   volume: number;
 }
 
+export interface MarketStateHtf {
+  trend: string;
+  swing_high: number;
+  swing_low: number;
+}
+
+export interface MarketStateLtf {
+  trend: string;
+  bos: boolean;
+  swing_high: number;
+  swing_low: number;
+  displacement: { present: boolean; strength: 'weak' | 'strong' };
+  fvg: Array<{ type: 'bullish' | 'bearish'; gap: [number, number]; filled: boolean }>;
+  mitigation: { status: string; zone: [number, number] };
+  inducement: { present: boolean };
+  premium_discount: 'premium' | 'discount' | 'equilibrium';
+}
+
+export interface MarketStateConfluence {
+  aligned: boolean;
+  narrative: string;
+}
+
+export interface MarketStateLiquidity {
+  pools: unknown[];
+  event: string;
+}
+
+export interface MarketStateFlags {
+  is_trending: boolean;
+  is_post_sweep: boolean;
+  is_pre_expansion: boolean;
+}
+
+export interface MarketState {
+  htf: MarketStateHtf;
+  ltf: MarketStateLtf;
+  confluence: MarketStateConfluence;
+  liquidity: MarketStateLiquidity;
+  state: MarketStateFlags;
+}
+
 export class MarketStateBuilder {
   constructor(private logger: AppLogger) {}
 
-  build(htfCandles: Candle[], ltfCandles: Candle[], orderBook: any, positions: any[]): any {
+  build(htfCandles: Candle[], ltfCandles: Candle[], _orderBook: unknown, _positions: unknown[]): MarketState | null {
     if (ltfCandles.length < 10) return null;
 
     const htf = this.analyzeStructure(htfCandles, '1h');
@@ -45,7 +87,7 @@ export class MarketStateBuilder {
   }
 
   private analyzeStructure(candles: Candle[], tf: string) {
-    if (candles.length === 0) return { trend: 'unknown', swing_high: 0, swing_low: 0 };
+    if (candles.length === 0) return { trend: 'unknown', bos: false, swing_high: 0, swing_low: 0 };
     const last = candles[candles.length - 1];
     
     // Use slightly larger window for HTF
@@ -96,14 +138,14 @@ export class MarketStateBuilder {
     return {
       displacement: {
         present: lastBody > avgBody * 1.5,
-        strength: lastBody > avgBody * 2.5 ? 'strong' : 'weak',
+        strength: (lastBody > avgBody * 2.5 ? 'strong' : 'weak') as 'strong' | 'weak',
       },
-      fvg: fvgs.slice(-3),
+      fvg: fvgs.slice(-3) as Array<{ type: 'bullish' | 'bearish'; gap: [number, number]; filled: boolean }>,
       mitigation: {
         status: 'untouched',
-        zone: [0, 0]
+        zone: [0, 0] as [number, number],
       },
-      inducement: { present: false }
+      inducement: { present: false },
     };
   }
 
