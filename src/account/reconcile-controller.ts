@@ -214,7 +214,10 @@ export class AccountReconcileController {
     }
   }
 
+  private fillsRestDisabled = false;
+
   private async sweepFills(): Promise<void> {
+    if (this.fillsRestDisabled) return;
     try {
       const since = this.fills.cursor()
         ? new Date(this.fills.cursor()).getTime()
@@ -229,6 +232,15 @@ export class AccountReconcileController {
         }
       }
     } catch (err) {
+      const msg = (err as Error).message ?? '';
+      if (/\[404\]/.test(msg) || /not_found/i.test(msg)) {
+        this.fillsRestDisabled = true;
+        await this.emit({
+          type: 'reconcile.fills_rest_disabled', severity: 'info',
+          payload: { reason: 'REST trade-history endpoint returned 404; relying on WS df-trade-update only', error: msg },
+        });
+        return;
+      }
       await this.emitSweepFailed('fill', err as Error);
     }
   }
