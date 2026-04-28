@@ -14,11 +14,11 @@ describe('PassthroughRiskFilter', () => {
   it('returns input unchanged for LONG', () => {
     const f = new PassthroughRiskFilter();
     const s: StrategySignal = { side: 'LONG', confidence: 0.8, reason: 'r' };
-    expect(f.filter(s, manifest, account)).toEqual(s);
+    expect(f.filter(s, manifest, account, 'B-BTC_USDT')).toEqual(s);
   });
   it('returns input unchanged for WAIT', () => {
     const f = new PassthroughRiskFilter();
     const s: StrategySignal = { side: 'WAIT', confidence: 0, reason: 'r' };
-    expect(f.filter(s, manifest, account)).toEqual(s);
+    expect(f.filter(s, manifest, account, 'B-BTC_USDT')).toEqual(s);
   });
 });

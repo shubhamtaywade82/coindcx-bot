@@ -73,6 +73,16 @@ export const ConfigSchema = z.object({
     .transform(s => s.split(',').map(x => x.trim()).filter(Boolean)),
   BACKTEST_PESSIMISTIC: z.string().default('true').transform(s => s !== 'false'),
   BACKTEST_OUTPUT_DIR: z.string().default('./logs/backtest'),
+
+  // F5 Risk Alert Engine
+  RISK_FILTER_MODE: z.enum(['passthrough', 'composite']).default('composite'),
+  RISK_MAX_CONCURRENT_SIGNALS: z.coerce.number().int().nonnegative().default(3),
+  RISK_MAX_PER_STRATEGY_POSITIONS: z.coerce.number().int().nonnegative().default(1),
+  RISK_DRAWDOWN_GATE_PCT: z.coerce.number().default(0.10),
+  RISK_PER_PAIR_COOLDOWN_MS: z.coerce.number().int().nonnegative().default(60_000),
+  RISK_CORRELATION_BLOCK_OPPOSING: z.string().default('true').transform(s => s !== 'false'),
+  RISK_MIN_CONFIDENCE: z.coerce.number().default(0.5),
+  RISK_ALERT_EMIT: z.string().default('true').transform(s => s !== 'false'),
 }).superRefine((data, _ctx) => {
   // If telegram is requested but credentials are missing, silently filter it out
   // to prevent startup crashes.
