@@ -115,7 +115,7 @@ export class StrategyController {
       return;
     }
     this.registry.resetErrorStreak(id, pair);
-    const filtered = this.riskFilter.filter(raw, manifest, ctx.account);
+    const filtered = this.riskFilter.filter(raw, manifest, ctx.account, pair);
     if (!filtered) return;
     if (filtered.side === 'WAIT' && !this.opts.config.emitWait) return;
     await this.emit(filtered, manifest, pair);

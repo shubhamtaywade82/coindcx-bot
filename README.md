@@ -27,7 +27,7 @@ Read-only institutional-grade observation + signal-emitter bot for CoinDCX. **Ne
 - Read-only forever — only signed-read endpoints used
 - Probe: `npm run probe:account -- --duration N`
 
-### Phase 4: Strategy framework + backtester (current)
+### Phase 4: Strategy framework + backtester (shipped)
 - Pluggable Strategy interface with mixed cadence (interval / tick / bar_close)
 - Per-pair instance isolation; auto-disable on error threshold
 - RiskFilter passthrough boundary for F5
@@ -49,9 +49,15 @@ Probe live feeds: `npm run probe -- --pair B-SOL_USDT --duration 60`
 
 `npm run check` — typecheck + lint + tests. Some integration tests require Docker (skip with `SKIP_DOCKER_TESTS=1`).
 
+### Phase 5: Risk-alert engine (current)
+- `CompositeRiskFilter` chains pluggable rules
+- Built-in rules: MinConfidence, MaxConcurrentSignals, PerStrategyMaxPositions, DrawdownGate, OpposingPairCorrelation, PerPairCooldown
+- Live-signal tracking with TTL expiry
+- Blocks emit `risk.blocked` signals with rule reasons (`RISK_ALERT_EMIT=true`)
+- Mode switch: `RISK_FILTER_MODE=composite|passthrough`
+
 ## Roadmap
 
-- F5: risk-alert engine (real RiskFilter impl)
 - F6: TUI v2 + Prometheus metrics
 
 See `docs/superpowers/specs/` for design specs and `docs/superpowers/plans/` for implementation plans.

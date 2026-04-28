@@ -15,6 +15,14 @@ import { SmcRule } from './strategy/strategies/smc-rule';
 import { MaCross } from './strategy/strategies/ma-cross';
 import { LlmPulse } from './strategy/strategies/llm-pulse';
 import { PassthroughRiskFilter } from './strategy/risk/risk-filter';
+import { CompositeRiskFilter } from './strategy/risk/composite-filter';
+import { MinConfidenceRule } from './strategy/risk/rules/min-confidence';
+import { MaxConcurrentSignalsRule } from './strategy/risk/rules/max-concurrent-signals';
+import { PerStrategyMaxPositionsRule } from './strategy/risk/rules/per-strategy-max-positions';
+import { PerPairCooldownRule } from './strategy/risk/rules/cooldown';
+import { OpposingPairCorrelationRule } from './strategy/risk/rules/correlation';
+import { DrawdownGateRule } from './strategy/risk/rules/drawdown-gate';
+import type { RiskFilter } from './strategy/types';
 import type { Candle } from './ai/state-builder';
 import ntp from 'ntp-client';
 import axios from 'axios';
@@ -142,10 +150,29 @@ async function runApp(ctx: Context) {
   const enabledIds = new Set(ctx.config.STRATEGY_ENABLED_IDS);
   const configuredPairs: string[] = ctx.config.COINDCX_PAIRS as unknown as string[];
 
+  const buildRiskFilter = (): RiskFilter => {
+    if (ctx.config.RISK_FILTER_MODE === 'passthrough') return new PassthroughRiskFilter();
+    const cooldown = new PerPairCooldownRule(ctx.config.RISK_PER_PAIR_COOLDOWN_MS);
+    const rules: import('./strategy/risk/rules/types').RiskRule[] = [
+      new MinConfidenceRule(ctx.config.RISK_MIN_CONFIDENCE),
+      new PerStrategyMaxPositionsRule(ctx.config.RISK_MAX_PER_STRATEGY_POSITIONS, 60_000),
+      new MaxConcurrentSignalsRule(ctx.config.RISK_MAX_CONCURRENT_SIGNALS, 60_000),
+      new DrawdownGateRule(ctx.config.RISK_DRAWDOWN_GATE_PCT),
+    ];
+    if (ctx.config.RISK_CORRELATION_BLOCK_OPPOSING) rules.push(new OpposingPairCorrelationRule(60_000));
+    rules.push(cooldown);
+    return new CompositeRiskFilter({
+      rules,
+      signalBus: ctx.bus,
+      emitAlerts: ctx.config.RISK_ALERT_EMIT,
+      liveTtlDefaultMs: 5 * 60_000,
+    });
+  };
+
   const strategyController = new StrategyController({
     ws,
     signalBus: ctx.bus,
-    riskFilter: new PassthroughRiskFilter(),
+    riskFilter: buildRiskFilter(),
     buildMarketState: (htf, ltf) => ctx.stateBuilder.build(htf, ltf, null, []),
     candleProvider: {
       ltf: pair => ensureCandles(pair).ltf,

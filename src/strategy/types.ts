@@ -51,5 +51,5 @@ export interface Strategy {
 }
 
 export interface RiskFilter {
-  filter(signal: StrategySignal, manifest: StrategyManifest, account: AccountSnapshot): StrategySignal | null;
+  filter(signal: StrategySignal, manifest: StrategyManifest, account: AccountSnapshot, pair: string): StrategySignal | null;
 }
