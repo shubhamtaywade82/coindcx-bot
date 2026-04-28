@@ -15,7 +15,9 @@
     "check": "npm run typecheck && npm run lint && npm run test",
     "db:migrate": "ts-node src/db/migrate.ts up",
     "db:rollback": "ts-node src/db/migrate.ts down",
-    "probe": "ts-node src/cli/probe.ts"
+    "probe": "ts-node src/cli/probe.ts",
+    "probe:account": "ts-node src/cli/probe-account.ts",
+    "backtest": "ts-node src/cli/backtest.ts"
   },
   "keywords": [],
   "author": "",

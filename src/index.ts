@@ -7,6 +7,15 @@ import { bootstrap } from './lifecycle/bootstrap';
 import { installSignalHandlers } from './lifecycle/shutdown';
 import type { Context } from './lifecycle/context';
 import { IntegrityController } from './marketdata/integrity-controller';
+import { AccountReconcileController } from './account/reconcile-controller';
+import { AccountPersistence } from './account/persistence';
+import { RestBudget } from './marketdata/rate-limit/rest-budget';
+import { StrategyController } from './strategy/controller';
+import { SmcRule } from './strategy/strategies/smc-rule';
+import { MaCross } from './strategy/strategies/ma-cross';
+import { LlmPulse } from './strategy/strategies/llm-pulse';
+import { PassthroughRiskFilter } from './strategy/risk/risk-filter';
+import type { Candle } from './ai/state-builder';
 import ntp from 'ntp-client';
 import axios from 'axios';
 
@@ -84,11 +93,82 @@ async function runApp(ctx: Context) {
   });
   integrity.start();
 
+  // ── F3 Account Reconciler ──
+  const accountPersistence = new AccountPersistence({ pool: ctx.pool, retryMax: 1000 });
+  const accountBudget = new RestBudget({ globalPerMin: 60, pairPerMin: 60, timeoutMs: 1000 });
+  const account = new AccountReconcileController({
+    restApi: {
+      getFuturesPositions: () => CoinDCXApi.getFuturesPositions(),
+      getBalances: () => CoinDCXApi.getBalances(),
+      getOpenOrders: () => CoinDCXApi.getOpenOrders(),
+      getFuturesTradeHistory: opts => CoinDCXApi.getFuturesTradeHistory(opts),
+    },
+    persistence: accountPersistence,
+    signalBus: ctx.bus,
+    tryAcquireBudget: async () => {
+      try { await accountBudget.acquire('account'); return true; } catch { return false; }
+    },
+    config: {
+      driftSweepMs: ctx.config.ACCOUNT_DRIFT_SWEEP_MS,
+      heartbeatFloors: {
+        position: ctx.config.ACCOUNT_HEARTBEAT_FLOOR_POSITION_MS,
+        balance: ctx.config.ACCOUNT_HEARTBEAT_FLOOR_BALANCE_MS,
+        order: ctx.config.ACCOUNT_HEARTBEAT_FLOOR_ORDER_MS,
+        fill: ctx.config.ACCOUNT_HEARTBEAT_FLOOR_FILL_MS,
+      },
+      pnlAlarmPct: ctx.config.ACCOUNT_PNL_ALARM_PCT,
+      utilAlarmPct: ctx.config.ACCOUNT_UTIL_ALARM_PCT,
+      divergencePnlAbsAlarm: ctx.config.ACCOUNT_DIVERGENCE_PNL_ABS_INR,
+      divergencePnlPctAlarm: ctx.config.ACCOUNT_DIVERGENCE_PNL_PCT,
+      backfillHours: ctx.config.ACCOUNT_BACKFILL_HOURS,
+      signalCooldownMs: ctx.config.ACCOUNT_SIGNAL_COOLDOWN_MS,
+      stormThreshold: ctx.config.ACCOUNT_STORM_THRESHOLD,
+      stormWindowMs: ctx.config.ACCOUNT_STORM_WINDOW_MS,
+    },
+  });
+
   ws.on('depth-snapshot', (raw: any) => integrity.ingest('depth-snapshot', raw));
   ws.on('depth-update',   (raw: any) => integrity.ingest('depth-update',   raw));
   ws.on('new-trade',      (raw: any) => integrity.ingest('new-trade',      raw));
   ws.on('currentPrices@futures#update', (raw: any) => integrity.ingest('currentPrices@futures#update', raw));
   ws.on('currentPrices@spot#update',    (raw: any) => integrity.ingest('currentPrices@spot#update',    raw));
+
+  // ── F4 Strategy Framework ──
+  const candleStore = new Map<string, { ltf: Candle[]; htf: Candle[] }>();
+  const ensureCandles = (pair: string) => {
+    if (!candleStore.has(pair)) candleStore.set(pair, { ltf: [], htf: [] });
+    return candleStore.get(pair)!;
+  };
+  const enabledIds = new Set(ctx.config.STRATEGY_ENABLED_IDS);
+  const configuredPairs: string[] = ctx.config.COINDCX_PAIRS as unknown as string[];
+
+  const strategyController = new StrategyController({
+    ws,
+    signalBus: ctx.bus,
+    riskFilter: new PassthroughRiskFilter(),
+    buildMarketState: (htf, ltf) => ctx.stateBuilder.build(htf, ltf, null, []),
+    candleProvider: {
+      ltf: pair => ensureCandles(pair).ltf,
+      htf: pair => ensureCandles(pair).htf,
+    },
+    accountSnapshot: () => account.snapshot(),
+    recentFills: (n = 20) => account.fills.recent(n),
+    extractPair: (raw: any) => raw?.pair ?? raw?.s,
+    config: {
+      timeoutMs: ctx.config.STRATEGY_TIMEOUT_MS,
+      errorThreshold: ctx.config.STRATEGY_ERROR_THRESHOLD,
+      emitWait: ctx.config.STRATEGY_EMIT_WAIT,
+      backpressureDropRatioAlarm: ctx.config.STRATEGY_BACKPRESSURE_DROP_RATIO_ALARM,
+    },
+  });
+
+  // Override star expansion to use configured pairs.
+  (strategyController as any).expandStarPairs = () => configuredPairs;
+
+  if (enabledIds.has('smc.rule.v1')) strategyController.register(new SmcRule());
+  if (enabledIds.has('ma.cross.v1')) strategyController.register(new MaCross());
+  if (enabledIds.has('llm.pulse.v1')) strategyController.register(new LlmPulse(ctx.analyzer));
+  strategyController.start();
 
   setInterval(() => {
     tui.updateStatus({ lastUpdate: Date.now() });
@@ -152,9 +232,10 @@ async function runApp(ctx: Context) {
   setInterval(async () => {
     try {
       const symbol = getFocusedCleanPair();
+      const rawPair = tui.focusedPair;
       const [rawHtf, rawLtf] = await Promise.all([
-        CoinDCXApi.getCandles(symbol, '1h', 50),
-        CoinDCXApi.getCandles(symbol, '15m', 50)
+        CoinDCXApi.getCandles(rawPair, '1h', 50),
+        CoinDCXApi.getCandles(rawPair, '15m', 50)
       ]);
       const mapCandles = (raw: any) => (Array.isArray(raw) ? raw : []).map((c: any) => ({
         timestamp: c[0], open: parseFloat(c[1]), high: parseFloat(c[2]),
@@ -166,11 +247,13 @@ async function runApp(ctx: Context) {
       const marketState = ctx.stateBuilder.build(htfCandles, ltfCandles, pulse.orderBook, pulse.positions);
       
       if (marketState) {
-        marketState.symbol = symbol;
+        (marketState as any).symbol = symbol;
         tui.log(`{gray-fg}[AI] Sending ${symbol} snapshot to local brain...{/gray-fg}`);
         const analysis = await ctx.analyzer.analyze(marketState);
         tui.updateAi(analysis);
         tui.log(`{green-fg}✓ [AI] Pulse updated for ${symbol}{/green-fg}`);
+      } else {
+        tui.log(`{yellow-fg}⚠ [AI] No candles for ${rawPair} (htf=${htfCandles.length} ltf=${ltfCandles.length}){/yellow-fg}`);
       }
     } catch (err: any) {
       ctx.logger.error({ mod: 'ai', err: err.message }, 'AI MTF loop failed');
@@ -245,18 +328,15 @@ async function runApp(ctx: Context) {
   }
 
   function refreshPositionsDisplay() {
-    const rows = Array.from(state.positions.values())
-      .filter((p: any) => p.active_pos !== 0) // Only show active positions
-      .map((p: any) => {
+    const rows = account.snapshot().positions
+      .map(p => {
         const clean = cleanPair(p.pair || 'N/A');
         const sym = clean.replace('USDT', '');
         const ticker = state.tickers.get(clean);
-        const currentPrice = ticker ? parseFloat(ticker.price) : parseFloat(p.mark_price || p.avg_price);
-        const entryPrice = parseFloat(p.avg_price);
-        const qty = Math.abs(parseFloat(p.active_pos));
-        
-        // Dynamic PnL calculation
-        const isLong = parseFloat(p.active_pos) > 0;
+        const currentPrice = ticker ? parseFloat(ticker.price) : parseFloat(p.markPrice ?? p.avgPrice);
+        const entryPrice = parseFloat(p.avgPrice);
+        const qty = Math.abs(parseFloat(p.activePos));
+        const isLong = parseFloat(p.activePos) > 0;
         const pnl = isLong ? (currentPrice - entryPrice) * qty : (entryPrice - currentPrice) * qty;
 
         return [
@@ -265,7 +345,7 @@ async function runApp(ctx: Context) {
           formatQty(qty),
           formatPrice(entryPrice),
           ticker ? formatPrice(ticker.price) : '—',
-          formatPrice(p.mark_price),
+          formatPrice(p.markPrice ?? '0'),
           '—',
           formatPnl(pnl),
         ];
@@ -274,15 +354,15 @@ async function runApp(ctx: Context) {
   }
 
   function refreshOrdersDisplay() {
-    const rows = Array.from(state.orders.values())
-      .map((o: any) => {
-        const side = (o.side || 'N/A').toUpperCase();
-        const sideChar = side === 'BUY' ? '{green-fg}B{/green-fg}' : '{red-fg}S{/red-fg}';
+    const rows = account.snapshot().orders
+      .filter(o => o.status === 'open' || o.status === 'partially_filled')
+      .map(o => {
+        const sideChar = o.side === 'buy' ? '{green-fg}B{/green-fg}' : '{red-fg}S{/red-fg}';
         return [
           sideChar,
           cleanPair(o.pair || 'N/A'),
           (o.status || 'N/A').substring(0, 4).toUpperCase(),
-          '—'
+          '—',
         ];
       });
     tui.updateOrders(rows.length > 0 ? rows : [['—', '—', '—', '—']]);
@@ -294,15 +374,15 @@ async function runApp(ctx: Context) {
     let totalPnlInr = 0;
     let totalPnlUsdt = 0;
 
-    // 1. Sum up PnL from all positions dynamically
-    Array.from(state.positions.values()).forEach((p: any) => {
+    // 1. Sum up PnL from all positions dynamically (controller snapshot)
+    account.snapshot().positions.forEach(p => {
        const clean = cleanPair(p.pair || '');
        const ticker = state.tickers.get(clean);
-       const currentPrice = ticker ? parseFloat(ticker.price) : parseFloat(p.mark_price || p.avg_price);
-       const entryPrice = parseFloat(p.avg_price);
-       const qty = Math.abs(parseFloat(p.active_pos));
-       
-       const isLong = parseFloat(p.active_pos) > 0;
+       const currentPrice = ticker ? parseFloat(ticker.price) : parseFloat(p.markPrice ?? p.avgPrice);
+       const entryPrice = parseFloat(p.avgPrice);
+       const qty = Math.abs(parseFloat(p.activePos));
+
+       const isLong = parseFloat(p.activePos) > 0;
        const pnl = isLong ? (currentPrice - entryPrice) * qty : (entryPrice - currentPrice) * qty;
 
        const pair = (p.pair || '').toUpperCase();
@@ -317,12 +397,13 @@ async function runApp(ctx: Context) {
 
     const rows: string[][] = [];
 
-    // 2. Build rows from balanceMap
-    Array.from(state.balanceMap.entries())
-      .filter(([_, info]) => parseFloat(info.balance) > 0 || parseFloat(info.locked) > 0)
-      .forEach(([currency, info]) => {
-        const available = parseFloat(info.balance || '0');
-        const locked = parseFloat(info.locked || '0');
+    // 2. Build rows from controller snapshot balances
+    account.snapshot().balances
+      .filter(b => parseFloat(b.available) > 0 || parseFloat(b.locked) > 0)
+      .forEach(b => {
+        const currency = b.currency;
+        const available = parseFloat(b.available || '0');
+        const locked = parseFloat(b.locked || '0');
         const walletBalance = available + locked;
         
         const isInrRow = currency === 'INR' || currency === 'USDTINR';
@@ -492,6 +573,10 @@ async function runApp(ctx: Context) {
     const price = data.p;
     const _isFutures = data.pr === 'f';
 
+    // F4: notify bar driver of trade timestamp
+    const tradeTs = Number(data.T ?? Date.now());
+    if (Number.isFinite(tradeTs)) strategyController.notifyTrade(pair, tradeTs);
+
     // Update ticker
     if (clean && price) {
       const existing = state.tickers.get(clean) || { price: '0', markPrice: '0', change: '0' };
@@ -657,6 +742,7 @@ async function runApp(ctx: Context) {
       if (p.id) {
         state.positions.set(p.id, p);
       }
+      void account.ingest('position', p);
     });
 
     refreshPositionsDisplay();
@@ -678,9 +764,18 @@ async function runApp(ctx: Context) {
           state.orders.delete(o.id);
         }
       }
+      void account.ingest('order', o);
     });
 
     refreshOrdersDisplay();
+  });
+
+  // ── df-trade-update: [{ id, order_id, pair, side, price, quantity, executed_at }] ──
+  ws.on('df-trade-update', (raw) => {
+    const data = safeParse(raw);
+    if (!data) return;
+    const fills = Array.isArray(data) ? data : [data];
+    fills.forEach((f: any) => { void account.ingest('fill', f); });
   });
 
   // ── balance-update: [{ balance, locked_balance, currency_short_name }] ──
@@ -696,8 +791,25 @@ async function runApp(ctx: Context) {
         balance: b.balance?.toString() || '0',
         locked: (b.locked_balance ?? '0').toString(),
       });
+      void account.ingest('balance', b);
     });
     refreshBalanceDisplay();
+  });
+
+  // ── F3 boot: seed + start; reconnect triggers forced sweep ──
+  let accountStarted = false;
+  if (config.apiKey && config.apiSecret) {
+    try {
+      await account.seed();
+      account.start();
+      accountStarted = true;
+      log(`✓ Account reconciler started (positions=${account.snapshot().positions.length}, balances=${account.snapshot().balances.length})`);
+    } catch (err: any) {
+      log(`⚠ Account reconciler seed failed: ${err.message}`);
+    }
+  }
+  ws.on('connected', () => {
+    if (accountStarted) void account.onWsReconnect();
   });
 
   // ── Connect ──
