@@ -103,7 +103,8 @@ export class TuiApp {
     // ── Row 3-8, Col 6-9: Positions ──
     this.positionsTable = blessed.listtable({
       parent: this.grid.set(3, 6, 5, 3, blessed.box, { label: ' Active Positions ' }),
-      keys: true,
+      keys: false,
+      mouse: false,
       tags: true,
       data: [['SYM', 'SIDE', 'QTY', 'ENT', 'LAST', 'MARK', 'SL', 'PNL']],
       style: {
@@ -166,7 +167,7 @@ export class TuiApp {
     });
 
     // ── Keyboard Shortcuts ──
-    this.screen.key(['escape', 'q', 'C-c'], () => process.exit(0));
+    this.screen.key(['q', 'C-c'], () => process.exit(0));
     this.screen.key(['C-l'], () => {
       this.screen.realloc();
       this.render();
@@ -188,7 +189,7 @@ export class TuiApp {
       });
     }
 
-    // ── Help overlay ──
+    // ── Help overlay (non-focusable, non-clickable to avoid stealing keys) ──
     this.helpOverlay = blessed.box({
       parent: this.screen,
       top: 'center', left: 'center',
@@ -197,18 +198,28 @@ export class TuiApp {
       label: ' ? Keybindings ',
       tags: true,
       hidden: true,
+      keyable: false,
+      clickable: false,
       style: { fg: 'white', bg: 'black' },
       content: this.buildHelpContent(),
     });
     this.screen.key(['?'], () => this.toggleHelp());
-    this.screen.key(['s'], () => this.signalsBox.focus());
-    this.screen.key(['r'], () => this.riskBox.focus());
-    this.screen.key(['p'], () => this.positionsTable.focus());
-    this.screen.key(['b'], () => this.balanceTable.focus());
+    // Quick scroll into panels via shift-modified keys (Shift+S/R/P/B/L) so
+    // single-letter keys remain free for future use and never collide with
+    // arrow / 1-9 pair switching.
+    this.screen.key(['S-s'], () => { this.signalsBox.focus(); this.render(); });
+    this.screen.key(['S-r'], () => { this.riskBox.focus(); this.render(); });
+    this.screen.key(['S-p'], () => { this.positionsTable.focus(); this.render(); });
+    this.screen.key(['S-b'], () => { this.balanceTable.focus(); this.render(); });
+    this.screen.key(['S-l'], () => { this.logPanel.focus(); this.render(); });
+    // Esc returns focus to screen so global shortcuts work again.
+    this.screen.key(['escape'], () => {
+      if (!this.helpOverlay.hidden) { this.helpOverlay.hide(); this.render(); }
+    });
 
     const modeStr = config.isReadOnly ? 'READ-ONLY' : 'LIVE';
     this.log(`CoinDCX Terminal [${modeStr}] — ${this.pairs.length} pairs loaded`);
-    this.log('Controls: ← → / h l / Tab pair, 1-9 direct, ? help, s/r/p/b focus, c clear log, q quit');
+    this.log('Controls: ← → / h l / Tab pair, 1-9 direct, ? help, Shift+S/R/P/B/L focus panel, c clear log, q quit, Esc close help');
 
     this.updateStatus({});
   }
@@ -576,16 +587,18 @@ export class TuiApp {
     return `\n {bold}Pair navigation{/bold}\n` +
       `   ←/h, →/l, Tab    switch pair\n` +
       `   1-9              direct select pair by index\n\n` +
-      ` {bold}Panel focus{/bold}\n` +
-      `   p                positions table\n` +
-      `   b                balances\n` +
-      `   s                signals\n` +
-      `   r                risk\n\n` +
+      ` {bold}Panel focus (Shift + key){/bold}\n` +
+      `   Shift+P          positions table\n` +
+      `   Shift+B          balances\n` +
+      `   Shift+S          signals\n` +
+      `   Shift+R          risk\n` +
+      `   Shift+L          system log\n\n` +
       ` {bold}Misc{/bold}\n` +
       `   c                clear log panel\n` +
       `   ?                toggle this help\n` +
+      `   Esc              close help overlay\n` +
       `   Ctrl-L           re-allocate screen\n` +
-      `   q / Esc / Ctrl-C quit\n\n` +
+      `   q / Ctrl-C       quit\n\n` +
       ` {gray-fg}Press ? again to close{/gray-fg}`;
   }
 }
