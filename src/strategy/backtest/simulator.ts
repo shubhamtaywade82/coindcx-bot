@@ -70,6 +70,10 @@ export class Simulator {
 
   markToMarketBar(ts: number, bar: { high: number; low: number }): void {
     this.advanceClock(ts);
+    if (this.pending) {
+      const midPrice = (bar.high + bar.low) / 2;
+      this.markToMarket(ts, midPrice);
+    }
     if (!this.position) return;
     const slHit = this.position.side === 'LONG' ? bar.low <= this.position.stopLoss : bar.high >= this.position.stopLoss;
     const tpHit = this.position.side === 'LONG' ? bar.high >= this.position.takeProfit : bar.low <= this.position.takeProfit;
