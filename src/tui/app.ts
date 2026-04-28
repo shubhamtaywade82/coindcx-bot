@@ -21,6 +21,9 @@ export class TuiApp {
   private recentSignals: Array<{ ts: number; type: string; pair: string; side?: string; conf?: number; reason?: string }> = [];
   private recentRisk: Array<{ ts: number; pair: string; side?: string; rules: string[] }> = [];
   private riskStats = { drawdownPeak: 0, drawdownPct: 0, liveCount: 0 };
+  private aiByPair = new Map<string, { verdict: string; signal: string; confidence: number; no_trade_condition?: string }>();
+  private bookByPair = new Map<string, { asks: string[][]; bids: string[][]; lastPrice: string }>();
+  private signalCountsByPair = new Map<string, { long: number; short: number; wait: number; err: number }>();
   private readonly SIGNAL_RING = 30;
   private readonly RISK_RING = 20;
 
@@ -236,13 +239,40 @@ export class TuiApp {
   private buildHeaderContent() {
     const parts = this.pairs.map((pair, i) => {
       const name = cleanPair(pair);
+      const c = this.signalCountsByPair.get(pair) ?? { long: 0, short: 0, wait: 0, err: 0 };
+      const badges: string[] = [];
+      if (c.long > 0) badges.push(`{green-fg}L${c.long}{/green-fg}`);
+      if (c.short > 0) badges.push(`{red-fg}S${c.short}{/red-fg}`);
+      if (c.err > 0) badges.push(`{red-fg}!${c.err}{/red-fg}`);
+      const badgeStr = badges.length ? ` ${badges.join(' ')}` : '';
       if (i === this.focusIndex) {
-        return `{cyan-fg}{bold}◉ ${name}{/bold}{/cyan-fg}`;
+        return `{cyan-fg}{bold}◉ ${name}{/bold}${badgeStr}{/cyan-fg}`;
       }
-      return `{gray-fg}○ ${name}{/gray-fg}`;
+      return `{gray-fg}○ ${name}${badgeStr}{/gray-fg}`;
     });
     const selector = parts.join('  │  ');
-    return `  ${selector}    {gray-fg}[← →]{/gray-fg} switch  {gray-fg}[1-${this.pairs.length}]{/gray-fg} select`;
+    return `  ${selector}    {gray-fg}[← →]{/gray-fg} switch  {gray-fg}[1-${this.pairs.length}]{/gray-fg} select  {gray-fg}[?]{/gray-fg} help`;
+  }
+
+  private bumpSignalCount(pair: string, side: string | undefined): void {
+    if (!pair || pair === '—') return;
+    const c = this.signalCountsByPair.get(pair) ?? { long: 0, short: 0, wait: 0, err: 0 };
+    if (side === 'LONG') c.long++;
+    else if (side === 'SHORT') c.short++;
+    else if (side === 'WAIT') c.wait++;
+    else if (side === 'ERR') c.err++;
+    this.signalCountsByPair.set(pair, c);
+  }
+
+  private refreshHeader(): void {
+    this.headerBox.setContent(this.buildHeaderContent());
+    this.render();
+  }
+
+  private renderBookCached(): void {
+    const data = this.bookByPair.get(this.focusedPair);
+    if (!data) return;
+    this.updateOrderBook(data.asks, data.bids, data.lastPrice, this.focusedPair);
   }
 
   updateStatus(data: Partial<{ connected: boolean; lastUpdate: number }>) {
@@ -278,6 +308,9 @@ export class TuiApp {
     this.updateHeader({});
     this.updateStatus({});
     this.tradeTable.setLabel(` ◉ Book — ${this.focusedPairClean} `);
+    this.aiBox.setLabel(` ◈ AI Strategy Pulse — ${this.focusedPairClean} `);
+    this.renderBookCached();
+    this.renderAi();
     this.render();
     if (this.onFocusChange) {
       this.onFocusChange(this.focusedPair);
@@ -311,9 +344,12 @@ export class TuiApp {
     this.logPanel.log(`[${new Date().toLocaleTimeString()}] ${message}`);
   }
 
-  updateOrderBook(asks: string[][], bids: string[][], lastPrice: string) {
+  updateOrderBook(asks: string[][], bids: string[][], lastPrice: string, pair?: string) {
+    const target = pair ?? this.focusedPair;
+    this.bookByPair.set(target, { asks, bids, lastPrice });
+    if (target !== this.focusedPair) return;
     const header = ' {gray-fg}PRICE           AMOUNT            SUM{/gray-fg}\n';
-    
+
     // Asks (Red)
     const askRows = asks.slice(0, 10).map(row => {
       const price = `{red-fg}${this.padRight(row[0], 12)}{/red-fg}`;
@@ -340,12 +376,26 @@ export class TuiApp {
     this.render();
   }
 
-  updateAi(data: { verdict: string; signal: string; confidence: number; no_trade_condition?: string }) {
-    const signal = data.signal || 'WAIT';
-    const color = signal === 'LONG' ? 'green' : signal === 'SHORT' ? 'red' : 'yellow';
+  updateAi(data: { verdict: string; signal: string; confidence: number; no_trade_condition?: string; pair?: string }) {
+    const pair = data.pair ?? this.focusedPair;
+    this.aiByPair.set(pair, {
+      verdict: data.verdict, signal: data.signal,
+      confidence: data.confidence, no_trade_condition: data.no_trade_condition,
+    });
+    if (pair === this.focusedPair) this.renderAi();
+  }
+
+  private renderAi(): void {
+    const data = this.aiByPair.get(this.focusedPair);
+    if (!data) {
+      this.aiBox.setContent(' {gray-fg}Awaiting analysis...{/gray-fg}');
+      this.render();
+      return;
+    }
+    const sig = data.signal || 'WAIT';
+    const color = sig === 'LONG' ? 'green' : sig === 'SHORT' ? 'red' : 'yellow';
     const reason = data.no_trade_condition ? `\n {gray-fg}REASON: ${data.no_trade_condition}{/gray-fg}` : '';
-    
-    const content = `\n {bold}${data.verdict}{/bold}\n\n {${color}-fg}SIGNAL: ${signal}{/${color}-fg}\n {gray-fg}CONF: ${(data.confidence * 100).toFixed(0)}%{/gray-fg}${reason}`;
+    const content = `\n {bold}${data.verdict}{/bold}\n\n {${color}-fg}SIGNAL: ${sig}{/${color}-fg}\n {gray-fg}CONF: ${(data.confidence * 100).toFixed(0)}%{/gray-fg}${reason}`;
     this.aiBox.setContent(content);
     this.render();
   }
@@ -436,14 +486,18 @@ export class TuiApp {
       const reason = String(signal.payload?.reason ?? '').slice(0, 30);
       this.recentSignals.unshift({ ts, type, pair, side, conf, reason });
       this.recentSignals = this.recentSignals.slice(0, this.SIGNAL_RING);
+      this.bumpSignalCount(pair, side);
       this.renderSignals();
+      this.refreshHeader();
       return;
     }
 
     if (type === 'strategy.error' || type === 'strategy.disabled') {
       this.recentSignals.unshift({ ts, type, pair, reason: String(signal.payload?.error ?? signal.payload?.reason ?? '').slice(0, 30) });
       this.recentSignals = this.recentSignals.slice(0, this.SIGNAL_RING);
+      this.bumpSignalCount(pair, 'ERR');
       this.renderSignals();
+      this.refreshHeader();
       return;
     }
 
