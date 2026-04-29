@@ -593,10 +593,12 @@ export class TuiApp {
           pair,
         });
       }
-      this.recentSignals.unshift({ ts, type, pair, side, conf, reason });
-      this.recentSignals = this.recentSignals.slice(0, this.SIGNAL_RING);
+      if (side !== 'WAIT') {
+        this.recentSignals.unshift({ ts, type, pair, side, conf, reason });
+        this.recentSignals = this.recentSignals.slice(0, this.SIGNAL_RING);
+        this.renderSignals();
+      }
       this.bumpSignalCount(pair, side);
-      this.renderSignals();
       this.refreshHeader();
       return;
     }

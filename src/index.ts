@@ -214,6 +214,14 @@ async function runApp(ctx: Context) {
     recentFills: (n = 20) => account.fills.recent(n),
     extractPair: (raw: any) => raw?.pair ?? raw?.s,
     beforeEvaluate: async (id, pair, trigger) => {
+      if (id === 'llm.pulse.v1') {
+        tui.updateAi({
+          verdict: ' {yellow-fg}Analyzing market pulse...{/yellow-fg}',
+          signal: 'WAIT',
+          confidence: 0,
+          pair,
+        });
+      }
       if (id === 'llm.pulse.v1' && trigger.kind === 'bar_close') {
         await refreshPairCandles(pair);
       }
@@ -313,9 +321,16 @@ async function runApp(ctx: Context) {
 
   async function seedInitialAiPulse(): Promise<void> {
     if (!enabledIds.has('llm.pulse.v1')) return;
-    for (const rawPair of configuredPairs) {
-      await strategyController.runOnce('llm.pulse.v1', rawPair, { kind: 'interval' });
-    }
+    tui.log(`{gray-fg}[AI] Starting initial analysis for ${configuredPairs.length} pairs...{/gray-fg}`);
+    
+    await Promise.all(configuredPairs.map(async (rawPair) => {
+      try {
+        await strategyController.runOnce('llm.pulse.v1', rawPair, { kind: 'interval' });
+        tui.log(`{cyan-fg}[AI] Initial analysis complete for ${rawPair}{/cyan-fg}`);
+      } catch (err: any) {
+        tui.log(`{red-fg}⚠ [AI] Initial analysis failed for ${rawPair}: ${err.message}{/red-fg}`, 'error');
+      }
+    }));
   }
 
   // ── Strategy Market Data Loop ──

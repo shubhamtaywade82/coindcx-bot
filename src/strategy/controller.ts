@@ -63,9 +63,9 @@ export class StrategyController {
   }
 
   register(s: Strategy): void {
-    this.registry.register(s);
     const m = s.manifest;
     const pairs = m.pairs.includes('*') ? this.expandStarPairs(m) : m.pairs;
+    this.registry.register(s, pairs);
     if (m.mode === 'interval') {
       this.intervalDriver.add({ id: m.id, pairs, intervalMs: m.intervalMs ?? 15000 });
     } else if (m.mode === 'tick') {
