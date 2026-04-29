@@ -70,7 +70,14 @@ async function runApp(ctx: Context) {
   // F6: Tap SignalBus emissions into TUI signals + risk panels
   const _origBusEmit = ctx.bus.emit.bind(ctx.bus);
   (ctx.bus as any).emit = async (s: any) => {
-    try { tui.observeSignal(s); } catch { /* ignore tui errors */ }
+    try { 
+      tui.observeSignal(s);
+      if (s && s.type && s.type.startsWith('strategy.')) {
+        tui.log(`Bus emitted: ${s.type} for ${s.pair}`);
+      }
+    } catch (e: any) { 
+      tui.log(`TUI observer error: ${e.message}`);
+    }
     return _origBusEmit(s);
   };
 
@@ -191,7 +198,7 @@ async function runApp(ctx: Context) {
     config: {
       timeoutMs: ctx.config.STRATEGY_TIMEOUT_MS,
       errorThreshold: ctx.config.STRATEGY_ERROR_THRESHOLD,
-      emitWait: ctx.config.STRATEGY_EMIT_WAIT,
+      emitWait: true, // Force true for TUI visibility
       backpressureDropRatioAlarm: ctx.config.STRATEGY_BACKPRESSURE_DROP_RATIO_ALARM,
     },
   });
@@ -262,21 +269,27 @@ async function runApp(ctx: Context) {
     };
   }
 
-  // ── AI Analysis Loop ──
+  // ── AI Analysis & Strategy Data Loop ──
   setInterval(async () => {
-    try {
-      const symbol = getFocusedCleanPair();
-      const rawPair = tui.focusedPair;
-      const [rawHtf, rawLtf] = await Promise.all([
-        CoinDCXApi.getCandles(rawPair, '1h', 50),
-        CoinDCXApi.getCandles(rawPair, '15m', 50)
-      ]);
+    for (const rawPair of configuredPairs) {
+      try {
+        const symbol = cleanPair(rawPair);
+        const [rawHtf, rawLtf] = await Promise.all([
+          CoinDCXApi.getCandles(rawPair, '1h', 50),
+          CoinDCXApi.getCandles(rawPair, '15m', 50)
+        ]);
       const mapCandles = (raw: any) => (Array.isArray(raw) ? raw : []).map((c: any) => ({
         timestamp: c[0], open: parseFloat(c[1]), high: parseFloat(c[2]),
         low: parseFloat(c[3]), close: parseFloat(c[4]), volume: parseFloat(c[5])
       }));
       const htfCandles = mapCandles(rawHtf);
       const ltfCandles = mapCandles(rawLtf);
+
+      // F6: Populate candleStore so StrategyController can evaluate
+      const store = ensureCandles(rawPair);
+      store.htf = htfCandles;
+      store.ltf = ltfCandles;
+
       const pulse = getMarketPulse();
       const marketState = ctx.stateBuilder.build(htfCandles, ltfCandles, pulse.orderBook, pulse.positions);
       
@@ -290,10 +303,11 @@ async function runApp(ctx: Context) {
         tui.log(`{yellow-fg}⚠ [AI] No candles for ${rawPair} (htf=${htfCandles.length} ltf=${ltfCandles.length}){/yellow-fg}`);
       }
     } catch (err: any) {
-      ctx.logger.error({ mod: 'ai', err: err.message }, 'AI MTF loop failed');
-      tui.log(`{red-fg}⚠ [AI] Analysis failed: ${err.message}{/red-fg}`);
+        ctx.logger.error({ mod: 'ai', err: err.message }, 'AI MTF loop failed');
+        tui.log(`{red-fg}⚠ [AI] Analysis failed for ${rawPair}: ${err.message}{/red-fg}`);
+      }
     }
-  }, 15000); // 4x faster (15s instead of 60s)
+  }, 15000); // 15s interval
 
   // ── Institutional Signal Sink ──
   class TuiSink {

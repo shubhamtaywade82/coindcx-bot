@@ -45,7 +45,8 @@ export class TuiApp {
       input: process.stdin,
       output: process.stdout,
       fullUnicode: true,
-      keys: true
+      keys: true,
+      // Removed grabKeys: true as it can sometimes interfere with input bubbling in some terminals
     });
 
     this.pairs = config.pairs;
@@ -61,14 +62,7 @@ export class TuiApp {
       scrollbar: { ch: ' ' },
     });
 
-    this.log(`TUI initialized with ${this.pairs.length} pairs: ${this.pairs.join(', ')}`);
-
-    // Debug: Log all keypresses to help diagnose terminal issues
-    this.screen.on('keypress', (ch: any, key: any) => {
-      if (key && key.name) {
-        this.log(`Key detected: ${key.name} (ch: ${ch || 'none'})`);
-      }
-    });
+    this.log(`Tui initialized with ${this.pairs.length} pairs: ${this.pairs.join(', ')}`);
 
     // ── Row 0: Top Status Bar ──
     this.statusBar = this.grid.set(0, 0, 1, 12, blessed.box, {
@@ -155,35 +149,86 @@ export class TuiApp {
       content: ' {gray-fg}No risk events yet{/gray-fg}',
     });
 
-    // ── Keyboard Shortcuts ──
-    this.screen.key(['q', 'C-c'], () => process.exit(0));
-    this.screen.key(['C-l'], () => {
-      this.screen.realloc();
-      this.render();
-    });
-    this.screen.key(['c'], () => {
-      this.logPanel.setContent('');
-      this.render();
-    });
+    // ── Global Keyboard Handling ──
+    this.screen.on('keypress', (ch, key) => {
+      if (!key) {
+        // Handle cases where key is not present but ch is (e.g. some symbols)
+        if (ch === '?') { this.toggleHelp(); return; }
+        return;
+      }
+      
+      const keyName = key.name;
+      const fullKey = key.full || key.name;
 
-    // Pair navigation via keypress (fires before widget focus consumes keys).
-    this.screen.on('keypress', (_ch: any, key: any) => {
-      if (!key || !key.name) return;
-      const n = key.name;
-      if (n === 'left' || n === 'h' || (n === 'tab' && key.shift)) {
+      // Diagnostic logging
+      if (this.logPanel) {
+        this.log(`[DEBUG] Key: ${keyName} | Full: ${fullKey} | Ch: ${ch || 'none'}`);
+      }
+
+      // 1. Exit
+      if (keyName === 'q' || fullKey === 'C-c') {
+        process.exit(0);
+      }
+
+      // 2. Help
+      if (keyName === '?' || ch === '?') {
+        this.toggleHelp();
+        return;
+      }
+
+      // 3. Clear Logs
+      if (keyName === 'c') {
+        if (this.logPanel) this.logPanel.setContent('');
+        this.render();
+        return;
+      }
+
+      // 4. Pair Navigation (Arrow keys, h/l, Tab)
+      if (keyName === 'left' || keyName === 'h' || (keyName === 'tab' && key.shift)) {
         this.switchFocus(-1);
         return;
       }
-      if (n === 'right' || n === 'l' || (n === 'tab' && !key.shift)) {
+      if (keyName === 'right' || keyName === 'l' || (keyName === 'tab' && !key.shift)) {
         this.switchFocus(1);
         return;
       }
-      if (/^[1-9]$/.test(n) && !key.shift && !key.ctrl) {
-        const idx = Number(n) - 1;
-        if (idx < this.pairs.length && idx !== this.focusIndex) {
-          this.focusIndex = idx;
-          this.emitFocusChange();
+
+      // 5. Direct Pair Selection (1-9)
+      if (/^[1-9]$/.test(keyName)) {
+        const i = parseInt(keyName);
+        if (i <= this.pairs.length) {
+          const newIdx = i - 1;
+          if (this.focusIndex !== newIdx) {
+            this.focusIndex = newIdx;
+            this.emitFocusChange();
+          }
         }
+        return;
+      }
+
+      // 6. Panel Focus (Shift + key)
+      if (fullKey === 'S-s') { this.signalsBox.focus(); this.log('Focus -> Signals'); this.render(); return; }
+      if (fullKey === 'S-r') { this.riskBox.focus(); this.log('Focus -> Risk'); this.render(); return; }
+      if (fullKey === 'S-p') { this.positionsTable.focus(); this.log('Focus -> Positions'); this.render(); return; }
+      if (fullKey === 'S-b') { this.balanceTable.focus(); this.log('Focus -> Balances'); this.render(); return; }
+      if (fullKey === 'S-l') { this.logPanel.focus(); this.log('Focus -> Logs'); this.render(); return; }
+
+      // 7. System Keys
+      if (fullKey === 'C-l') {
+        this.screen.realloc();
+        this.render();
+        return;
+      }
+
+      if (keyName === 'escape') {
+        if (!this.helpOverlay.hidden) {
+          this.helpOverlay.hide();
+        } else {
+          // If help is not open, escape can also return focus to logs as a safe default
+          this.logPanel.focus();
+        }
+        this.render();
+        return;
       }
     });
 
@@ -202,31 +247,15 @@ export class TuiApp {
       content: this.buildHelpContent(),
     });
 
-    this.screen.key(['?'], () => this.toggleHelp());
-
-    // Quick scroll into panels via shift-modified keys (Shift+S/R/P/B/L) so
-    // single-letter keys remain free for future use and never collide with
-    // arrow / 1-9 pair switching.
-    this.screen.key(['S-s'], () => { this.signalsBox.focus(); this.render(); });
-    this.screen.key(['S-r'], () => { this.riskBox.focus(); this.render(); });
-    this.screen.key(['S-p'], () => { this.positionsTable.focus(); this.render(); });
-    this.screen.key(['S-b'], () => { this.balanceTable.focus(); this.render(); });
-    this.screen.key(['S-l'], () => { this.logPanel.focus(); this.render(); });
-
-    // Esc returns focus to screen so global shortcuts work again.
-    this.screen.key(['escape'], () => {
-      if (!this.helpOverlay.hidden) {
-        this.helpOverlay.hide();
-      }
-      this.render();
-    });
-
     const modeStr = config.isReadOnly ? 'READ-ONLY' : 'LIVE';
     this.log(`CoinDCX Terminal [${modeStr}] — ${this.pairs.length} pairs loaded`);
     this.log('Controls: ← → / h l / Tab pair, 1-9 direct, ? help, Shift+S/R/P/B/L focus panel, c clear log, q quit, Esc close help');
 
     this.updateStatus({});
     this.emitFocusChange();
+    
+    // Default focus
+    this.logPanel.focus();
     
     // Finalize render
     this.render();
