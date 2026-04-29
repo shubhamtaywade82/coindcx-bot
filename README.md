@@ -66,6 +66,8 @@ Probe live feeds: `npm run probe -- --pair B-SOL_USDT --duration 60`
 
 ## Roadmap
 
-- All planned phases (F1–F6) shipped.
+- Original read-only phases (F1–F6) shipped.
+- Forward roadmap for retail-safe automated futures trading: `docs/institutional-retail-trading-roadmap.md`.
+- Live trading readiness, canary rules, and safety gates are documented in the roadmap's "When Can This Go Live?" section.
 
 See `docs/superpowers/specs/` for design specs and `docs/superpowers/plans/` for implementation plans.
