@@ -100,7 +100,10 @@ export class StrategyController {
       await this.opts.beforeEvaluate?.(id, pair, trigger);
       evalCtx = this.contextBuilder.build({ pair, trigger });
       if (!evalCtx) return;
-      raw = await this.withTimeout(Promise.resolve(strat.evaluate(evalCtx)));
+      raw = await this.withTimeout(
+        Promise.resolve(strat.evaluate(evalCtx)),
+        manifest.evaluationTimeoutMs ?? this.opts.config.timeoutMs,
+      );
     } catch (err) {
       await this.handleError(id, pair, err as Error);
       return;
@@ -147,10 +150,10 @@ export class StrategyController {
     this.registry.recordEmit(manifest.id);
   }
 
-  private async withTimeout<T>(p: Promise<T>): Promise<T> {
+  private async withTimeout<T>(p: Promise<T>, timeoutMs: number): Promise<T> {
     return await Promise.race([
       p,
-      new Promise<T>((_, rej) => setTimeout(() => rej(new Error('strategy timeout')), this.opts.config.timeoutMs)),
+      new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`strategy timeout after ${timeoutMs}ms`)), timeoutMs)),
     ]);
   }
 

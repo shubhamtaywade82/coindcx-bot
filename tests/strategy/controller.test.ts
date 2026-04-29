@@ -72,6 +72,39 @@ describe('StrategyController', () => {
     expect(deps.signalBus.emit).not.toHaveBeenCalled();
   });
 
+  it('uses manifest-specific evaluation timeout when present', async () => {
+    vi.useFakeTimers();
+    try {
+      const deps = baseDeps();
+      const ctrl = new StrategyController(deps);
+      const manifest: StrategyManifest = {
+        id: 'slow',
+        version: '1',
+        mode: 'interval',
+        intervalMs: 100,
+        evaluationTimeoutMs: 50,
+        pairs: ['B-BTC_USDT'],
+        description: '',
+      };
+      ctrl.register({
+        manifest,
+        evaluate: () => new Promise(resolve => setTimeout(() => resolve({ side: 'LONG', confidence: 0.9, reason: 'late' }), 100)),
+      });
+
+      const run = ctrl.runOnce('slow', 'B-BTC_USDT', { kind: 'interval' });
+      await vi.advanceTimersByTimeAsync(51);
+      await run;
+
+      expect(deps.signalBus.emit).toHaveBeenCalledWith(expect.objectContaining({
+        strategy: 'slow',
+        type: 'strategy.error',
+        payload: expect.objectContaining({ error: 'strategy timeout after 50ms' }),
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not emit WAIT by default', async () => {
     const deps = baseDeps();
     const ctrl = new StrategyController(deps);

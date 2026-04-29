@@ -6,6 +6,7 @@ interface AnalyzerLike {
 
 const MANIFEST: StrategyManifest = {
   id: 'llm.pulse.v1', version: '1.0.0', mode: 'bar_close', barTimeframes: ['15m'],
+  evaluationTimeoutMs: 45_000,
   pairs: ['*'], warmupCandles: 50,
   description: 'LLM-driven SMC pulse via Ollama on 15m candle close',
 };

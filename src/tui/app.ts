@@ -14,6 +14,8 @@ interface AiPanelState {
   rr?: number;
 }
 
+type SystemLogLevel = 'debug' | 'info' | 'warn' | 'error';
+
 export class TuiApp {
   private screen: any;
   private grid: any;
@@ -34,6 +36,8 @@ export class TuiApp {
   private riskStats = { drawdownPeak: 0, drawdownPct: 0, liveCount: 0 };
   private aiByPair = new Map<string, AiPanelState>();
   private bookByPair = new Map<string, { asks: string[][]; bids: string[][]; lastPrice: string }>();
+  private lastLtpByPair = new Map<string, number>();
+  private trendByPair = new Map<string, string>();
   private signalCountsByPair = new Map<string, { long: number; short: number; wait: number; err: number }>();
   private readonly SIGNAL_RING = 30;
   private readonly RISK_RING = 20;
@@ -381,7 +385,20 @@ export class TuiApp {
     let content = this.buildHeaderContent();
     if (stats) {
       const s: string[] = [];
-      if (stats.ltp) s.push(`LTP: {white-fg}${stats.ltp}{/white-fg}`);
+      if (stats.ltp) {
+        const currentLtp = parseFloat(stats.ltp);
+        const lastLtp = this.lastLtpByPair.get(this.focusedPair);
+        
+        if (lastLtp !== undefined && !isNaN(currentLtp) && currentLtp !== lastLtp) {
+          const color = currentLtp > lastLtp ? 'green' : 'red';
+          const arrow = currentLtp > lastLtp ? '▲' : '▼';
+          this.trendByPair.set(this.focusedPair, `{${color}-fg}${arrow}{/${color}-fg}`);
+        }
+        
+        const trend = this.trendByPair.get(this.focusedPair) || '';
+        s.push(`LTP: {white-fg}${stats.ltp}{/white-fg} ${trend}`);
+        if (!isNaN(currentLtp)) this.lastLtpByPair.set(this.focusedPair, currentLtp);
+      }
       if (stats.mark) s.push(`Mark: {white-fg}${stats.mark}{/white-fg}`);
       if (stats.change) {
         const num = parseFloat(stats.change);
@@ -399,7 +416,8 @@ export class TuiApp {
     this.screen.render();
   }
 
-  log(message: string) {
+  log(message: string, level: SystemLogLevel = 'info') {
+    if (level !== 'error') return;
     if (this.logPanel) {
       this.logPanel.log(`[${new Date().toLocaleTimeString()}] ${message}`);
     }
@@ -425,7 +443,18 @@ export class TuiApp {
     }).reverse();
 
     // Last Price Row
-    const ltpRow = ` {yellow-fg}{bold}${this.padRight(formatPrice(lastPrice), 12)}{/bold}{/yellow-fg}\n`;
+    const currentPrice = parseFloat(lastPrice);
+    const prevPrice = this.lastLtpByPair.get(target);
+    
+    if (prevPrice !== undefined && !isNaN(currentPrice) && currentPrice !== prevPrice) {
+      const color = currentPrice > prevPrice ? 'green' : 'red';
+      const arrow = currentPrice > prevPrice ? '▲' : '▼';
+      this.trendByPair.set(target, `{${color}-fg}${arrow}{/${color}-fg}`);
+    }
+    
+    const trend = this.trendByPair.get(target) || '';
+    const ltpRow = ` {yellow-fg}{bold}${this.padRight(formatPrice(lastPrice), 12)}{/bold}{/yellow-fg} ${trend}\n`;
+    if (!isNaN(currentPrice)) this.lastLtpByPair.set(target, currentPrice);
 
     // Bids (Green)
     const bidRows = bids.slice(0, count).map(row => {
@@ -573,6 +602,16 @@ export class TuiApp {
     }
 
     if (type === 'strategy.error' || type === 'strategy.disabled') {
+      if (signal.strategy === 'llm.pulse.v1') {
+        const err = String(signal.payload?.error ?? signal.payload?.reason ?? 'analysis failed');
+        this.updateAi({
+          verdict: `AI analysis unavailable: ${err}`,
+          signal: 'WAIT',
+          confidence: 0,
+          no_trade_condition: err,
+          pair,
+        });
+      }
       this.recentSignals.unshift({ ts, type, pair, reason: String(signal.payload?.error ?? signal.payload?.reason ?? '').slice(0, 30) });
       this.recentSignals = this.recentSignals.slice(0, this.SIGNAL_RING);
       this.bumpSignalCount(pair, 'ERR');

@@ -76,7 +76,7 @@ async function runApp(ctx: Context) {
         tui.log(`Bus emitted: ${s.type} for ${s.pair}`);
       }
     } catch (e: any) {
-      tui.log(`TUI observer error: ${e.message}`);
+      tui.log(`TUI observer error: ${e.message}`, 'error');
     }
     return _origBusEmit(s);
   };
@@ -264,11 +264,18 @@ async function runApp(ctx: Context) {
         const data = JSON.parse(msg);
         if (data.type === 'clock_skew') {
           const skew = data.payload?.localVsNtp || 0;
-          tui.log(`{red-fg}{bold}[CRITICAL]{/bold} Clock Skew: ${skew}ms. Run 'sudo chronyc -a makestep' to sync.{/red-fg}`);
+          tui.log(`{red-fg}{bold}[CRITICAL]{/bold} Clock Skew: ${skew}ms. Run 'sudo chronyc -a makestep' to sync.{/red-fg}`, 'error');
           return;
         }
         if (data.strategy === 'integrity') {
-          tui.log(`{yellow-fg}[INTEGRITY] ${data.type}: ${data.payload?.reason || 'check failed'}{/yellow-fg}`);
+          if (data.severity === 'critical' || data.severity === 'warn') {
+            tui.log(`{red-fg}[INTEGRITY] ${data.type}: ${data.payload?.reason || 'check failed'}{/red-fg}`, 'error');
+          }
+          return;
+        }
+        if (typeof data.type === 'string' && (data.type.includes('error') || data.severity === 'critical')) {
+          const reason = data.payload?.error ?? data.payload?.reason ?? 'check failed';
+          tui.log(`{red-fg}[${data.strategy ?? 'signal'}] ${data.type}: ${reason}{/red-fg}`, 'error');
           return;
         }
       } catch { /* fallback to raw */ }
@@ -295,11 +302,11 @@ async function runApp(ctx: Context) {
         if (candles.htf > 0 && candles.ltf > 0) {
           tui.log(`{gray-fg}[STRATEGY] Market state refreshed for ${symbol}{/gray-fg}`);
         } else {
-          tui.log(`{yellow-fg}⚠ [STRATEGY] No candles for ${rawPair} (htf=${candles.htf} ltf=${candles.ltf}){/yellow-fg}`);
+          tui.log(`{red-fg}⚠ [STRATEGY] No candles for ${rawPair} (htf=${candles.htf} ltf=${candles.ltf}){/red-fg}`, 'error');
         }
       } catch (err: any) {
         ctx.logger.error({ mod: 'strategy-data', err: err.message }, 'strategy market data refresh failed');
-        tui.log(`{red-fg}⚠ [STRATEGY] Candle refresh failed for ${rawPair}: ${err.message}{/red-fg}`);
+        tui.log(`{red-fg}⚠ [STRATEGY] Candle refresh failed for ${rawPair}: ${err.message}{/red-fg}`, 'error');
       }
     }
   }
@@ -561,7 +568,7 @@ async function runApp(ctx: Context) {
       log(`✓ Loaded ${state.balanceMap.size} balances`);
       refreshBalanceDisplay();
     } catch (err: any) {
-      log(`⚠ Balance fetch failed: ${err.message}`);
+      tui.log(`{red-fg}⚠ Balance fetch failed: ${err.message}{/red-fg}`, 'error');
       tui.updateBalances([['API error', err.message.substring(0, 30), '—', '—', '—', '—']]);
     }
 
@@ -580,7 +587,7 @@ async function runApp(ctx: Context) {
       refreshBalanceDisplay(); // Because PnL depends on positions
       log(`✓ Loaded ${state.positions.size} active positions`);
     } catch (err: any) {
-      log(`⚠ Position fetch failed: ${err.message}`);
+      tui.log(`{red-fg}⚠ Position fetch failed: ${err.message}{/red-fg}`, 'error');
       tui.updatePositions([['API error', '—', '—', '—', '—', '—']]);
     }
   }
@@ -592,7 +599,7 @@ async function runApp(ctx: Context) {
     void fetchPrivateData();
     setInterval(fetchPrivateData, 5000); // 6x faster polling (5s instead of 30s)
   } else {
-    log('⚠ API Key/Secret missing — PUBLIC ONLY mode');
+    tui.log('{red-fg}⚠ API Key/Secret missing — PUBLIC ONLY mode{/red-fg}', 'error');
     state.hasValidAuth = false;
     tui.updateBalances([['No API key', '—', '—', '—', '—', '—']]);
     tui.updatePositions([['No API key', '—', '—', '—', '—', '—']]);
@@ -608,11 +615,11 @@ async function runApp(ctx: Context) {
   });
   ws.on('disconnected', (reason) => {
     state.isWsConnected = false;
-    log(`✗ Disconnected: ${reason}`);
+    tui.log(`{red-fg}✗ Disconnected: ${reason}{/red-fg}`, 'error');
     tui.updateStatus({ connected: false });
   });
   ws.on('error', (error) => {
-    log(`✗ WS error: ${error.message}`);
+    tui.log(`{red-fg}✗ WS error: ${error.message}{/red-fg}`, 'error');
     tui.updateStatus({ connected: false });
   });
   ws.on('debug', (msg) => ctx.logger.debug({ mod: 'ws' }, msg));
@@ -859,7 +866,7 @@ async function runApp(ctx: Context) {
       accountStarted = true;
       log(`✓ Account reconciler started (positions=${account.snapshot().positions.length}, balances=${account.snapshot().balances.length})`);
     } catch (err: any) {
-      log(`⚠ Account reconciler seed failed: ${err.message}`);
+      tui.log(`{red-fg}⚠ Account reconciler seed failed: ${err.message}{/red-fg}`, 'error');
     }
   }
   ws.on('connected', () => {
@@ -899,7 +906,7 @@ async function runApp(ctx: Context) {
       });
       refreshBalanceDisplay();
     } catch (err: any) {
-      log(`Refresh error: ${err.message}`);
+      tui.log(`{red-fg}Refresh error: ${err.message}{/red-fg}`, 'error');
     }
   }, 30_000);
 }
