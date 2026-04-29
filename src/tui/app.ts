@@ -12,6 +12,7 @@ interface AiPanelState {
   stopLoss?: string;
   takeProfit?: string;
   rr?: number;
+  levels?: string[];
 }
 
 type SystemLogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -103,7 +104,7 @@ export class TuiApp {
     });
 
     // ── Row 3-7: Top Row Panels ──
-    this.tradeTable = this.grid.set(3, 0, 4, 3, blessed.box, {
+    this.tradeTable = this.grid.set(3, 0, 5, 3, blessed.box, {
       label: ` ◉ Book — ${this.focusedPairClean} `,
       border: { type: 'line', fg: 'blue' },
       style: { fg: 'white' },
@@ -112,7 +113,7 @@ export class TuiApp {
       scrollable: true
     });
 
-    this.aiBox = this.grid.set(3, 3, 4, 3, blessed.box, {
+    this.aiBox = this.grid.set(3, 3, 5, 6, blessed.box, {
       label: ` ◈ AI Strategy Pulse — ${this.focusedPairClean} `,
       border: { type: 'line', fg: 'cyan' },
       tags: true,
@@ -121,7 +122,7 @@ export class TuiApp {
     });
 
     this.signalsBox = blessed.box({
-      parent: this.grid.set(3, 6, 4, 6, blessed.box, { label: ' ⚡ Signals ' }),
+      parent: this.grid.set(3, 9, 5, 3, blessed.box, { label: ' ⚡ Signals ' }),
       tags: true,
       scrollable: true,
       alwaysScroll: true,
@@ -131,7 +132,7 @@ export class TuiApp {
 
     // ── Row 7-9: Active Positions (Full Width) ──
     this.positionsTable = blessed.box({
-      parent: this.grid.set(7, 0, 2, 12, blessed.box, { label: ' Active Positions ' }),
+      parent: this.grid.set(8, 0, 2, 12, blessed.box, { label: ' Active Positions ' }),
       tags: true,
       scrollable: true,
       alwaysScroll: true,
@@ -140,15 +141,15 @@ export class TuiApp {
 
     // ── Row 9-11: Account & Risk ──
     this.balanceTable = blessed.box({
-      parent: this.grid.set(9, 0, 2, 6, blessed.box, { label: ' Account Balances ' }),
+      parent: this.grid.set(10, 0, 1, 6, blessed.box, { label: ' Balances ' }),
       tags: true,
       scrollable: true,
       alwaysScroll: true,
       scrollbar: { ch: ' ' }
     });
-
+    
     this.orderTable = blessed.box({
-      parent: this.grid.set(9, 6, 2, 3, blessed.box, { label: ' Orders ' }),
+      parent: this.grid.set(10, 6, 1, 3, blessed.box, { label: ' Orders ' }),
       tags: true,
       scrollable: true,
       alwaysScroll: true,
@@ -156,7 +157,7 @@ export class TuiApp {
     });
 
     this.riskBox = blessed.box({
-      parent: this.grid.set(9, 9, 2, 3, blessed.box, { label: ' 🛡 Risk ' }),
+      parent: this.grid.set(10, 9, 1, 3, blessed.box, { label: ' 🛡 Risk ' }),
       tags: true,
       scrollable: true,
       alwaysScroll: true,
@@ -478,12 +479,14 @@ export class TuiApp {
     stopLoss?: string;
     takeProfit?: string;
     rr?: number;
+    levels?: string[];
   }) {
     const pair = data.pair ?? this.focusedPair;
     this.aiByPair.set(pair, {
       verdict: data.verdict, signal: data.signal,
       confidence: data.confidence, no_trade_condition: data.no_trade_condition,
       entry: data.entry, stopLoss: data.stopLoss, takeProfit: data.takeProfit, rr: data.rr,
+      levels: data.levels,
     });
     if (pair === this.focusedPair) this.renderAi();
   }
@@ -507,7 +510,10 @@ export class TuiApp {
           ].filter(Boolean).join('\n')
         : '';
     const reason = data.no_trade_condition ? `\n {gray-fg}REASON: ${data.no_trade_condition}{/gray-fg}` : '';
-    const content = `\n {bold}${data.verdict}{/bold}\n\n {${color}-fg}SIGNAL: ${sig}{/${color}-fg}\n {gray-fg}CONF: ${(data.confidence * 100).toFixed(0)}%{/gray-fg}${setup ? `\n${setup}` : ''}${reason}`;
+    const levelsStr = Array.isArray(data.levels) && data.levels.length > 0 
+      ? `\n\n {white-fg}LEVELS TO MONITOR:{/white-fg}\n${data.levels.map((l: string) => ` • ${l}`).join('\n')}` 
+      : '';
+    const content = `\n {bold}${data.verdict}{/bold}\n\n {${color}-fg}SIGNAL: ${sig}{/${color}-fg}\n {gray-fg}CONF: ${(data.confidence * 100).toFixed(0)}%{/gray-fg}${setup ? `\n${setup}` : ''}${levelsStr}${reason}`;
     this.aiBox.setContent(content);
     this.render();
   }

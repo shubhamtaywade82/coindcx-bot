@@ -237,6 +237,7 @@ async function runApp(ctx: Context) {
         stopLoss: signal.stopLoss,
         takeProfit: signal.takeProfit,
         rr: typeof signal.meta?.rr === 'number' ? signal.meta.rr : undefined,
+        levels: Array.isArray(signal.meta?.levels) ? signal.meta.levels : undefined,
         pair,
       });
     },

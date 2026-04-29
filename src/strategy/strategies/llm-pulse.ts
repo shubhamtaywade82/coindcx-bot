@@ -42,7 +42,7 @@ export class LlmPulse implements Strategy {
       reason: String(resp?.verdict ?? ''),
       noTradeCondition: resp?.no_trade_condition ? String(resp.no_trade_condition) : undefined,
       ttlMs: 5 * 60_000,
-      meta: { rr: resp?.setup?.rr, alternate: resp?.alternate_scenario },
+      meta: { rr: resp?.setup?.rr, alternate: resp?.alternate_scenario, levels: resp?.levels },
     };
   }
 }

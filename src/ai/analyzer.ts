@@ -53,6 +53,7 @@ export class AiAnalyzer {
              "tp": "price",
              "rr": number
            },
+           "levels": ["Key level 1", "Key level 2"],
            "alternate_scenario": "What happens if this fails?",
            "no_trade_condition": "Explicit reason to stay out"
          }
