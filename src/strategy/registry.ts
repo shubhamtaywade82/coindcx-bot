@@ -11,21 +11,25 @@ interface RegistryEntry {
 export class StrategyRegistry {
   private entries = new Map<string, RegistryEntry>();
 
-  register(s: Strategy): void {
+  register(s: Strategy, pairs?: string[]): void {
     if (this.entries.has(s.manifest.id)) {
       throw new Error(`duplicate strategy id: ${s.manifest.id}`);
     }
-    if (s.manifest.pairs.length > 1 && !s.clone) {
+    
+    const targetPairs = pairs || s.manifest.pairs;
+    if (targetPairs.length > 1 && !s.clone) {
       throw new Error(`strategy ${s.manifest.id} declares multi-pair but lacks clone()`);
     }
+
     const perInstance = new Map<string, Strategy>();
-    if (s.manifest.pairs.length > 1) {
-      for (const pair of s.manifest.pairs) {
+    if (targetPairs.length > 1) {
+      for (const pair of targetPairs) {
         perInstance.set(pair, s.clone!());
       }
     } else {
-      perInstance.set(s.manifest.pairs[0]!, s);
+      perInstance.set(targetPairs[0]!, s);
     }
+
     this.entries.set(s.manifest.id, {
       manifest: s.manifest,
       enabled: true,

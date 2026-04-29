@@ -10,6 +10,7 @@ export interface StrategyManifest {
   version: string;
   mode: StrategyMode;
   intervalMs?: number;
+  evaluationTimeoutMs?: number;
   barTimeframes?: string[];
   tickChannels?: TickChannel[];
   pairs: string[];

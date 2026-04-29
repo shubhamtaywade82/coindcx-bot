@@ -5,9 +5,10 @@ interface AnalyzerLike {
 }
 
 const MANIFEST: StrategyManifest = {
-  id: 'llm.pulse.v1', version: '1.0.0', mode: 'interval', intervalMs: 15000,
+  id: 'llm.pulse.v1', version: '1.0.0', mode: 'bar_close', barTimeframes: ['15m'],
+  evaluationTimeoutMs: 45_000,
   pairs: ['*'], warmupCandles: 50,
-  description: 'LLM-driven SMC pulse via Ollama',
+  description: 'LLM-driven SMC pulse via Ollama on 15m candle close',
 };
 
 function clamp(v: number): number {
@@ -41,7 +42,7 @@ export class LlmPulse implements Strategy {
       reason: String(resp?.verdict ?? ''),
       noTradeCondition: resp?.no_trade_condition ? String(resp.no_trade_condition) : undefined,
       ttlMs: 5 * 60_000,
-      meta: { rr: resp?.setup?.rr, alternate: resp?.alternate_scenario },
+      meta: { rr: resp?.setup?.rr, alternate: resp?.alternate_scenario, levels: resp?.levels },
     };
   }
 }

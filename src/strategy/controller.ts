@@ -30,6 +30,8 @@ export interface StrategyControllerOptions {
   accountSnapshot: () => AccountSnapshot;
   recentFills: (n?: number) => Fill[];
   extractPair: (raw: unknown) => string | undefined;
+  beforeEvaluate?: (id: string, pair: string, trigger: StrategyTrigger) => Promise<void> | void;
+  onEvaluatedSignal?: (signal: StrategySignal, manifest: StrategyManifest, pair: string) => void;
   config: ControllerConfig;
   clock?: () => number;
   pool?: Pool;
@@ -61,9 +63,9 @@ export class StrategyController {
   }
 
   register(s: Strategy): void {
-    this.registry.register(s);
     const m = s.manifest;
     const pairs = m.pairs.includes('*') ? this.expandStarPairs(m) : m.pairs;
+    this.registry.register(s, pairs);
     if (m.mode === 'interval') {
       this.intervalDriver.add({ id: m.id, pairs, intervalMs: m.intervalMs ?? 15000 });
     } else if (m.mode === 'tick') {
@@ -92,11 +94,16 @@ export class StrategyController {
     const strat = this.registry.instance(id, pair);
     const manifest = this.registry.manifest(id);
     if (!strat || !manifest) return;
-    const ctx = this.contextBuilder.build({ pair, trigger });
-    if (!ctx) return;
     let raw: StrategySignal | null;
+    let evalCtx: ReturnType<ContextBuilder['build']>;
     try {
-      raw = await this.withTimeout(Promise.resolve(strat.evaluate(ctx)));
+      await this.opts.beforeEvaluate?.(id, pair, trigger);
+      evalCtx = this.contextBuilder.build({ pair, trigger });
+      if (!evalCtx) return;
+      raw = await this.withTimeout(
+        Promise.resolve(strat.evaluate(evalCtx)),
+        manifest.evaluationTimeoutMs ?? this.opts.config.timeoutMs,
+      );
     } catch (err) {
       await this.handleError(id, pair, err as Error);
       return;
@@ -115,7 +122,8 @@ export class StrategyController {
       return;
     }
     this.registry.resetErrorStreak(id, pair);
-    const filtered = this.riskFilter.filter(raw, manifest, ctx.account, pair);
+    this.opts.onEvaluatedSignal?.(raw, manifest, pair);
+    const filtered = this.riskFilter.filter(raw, manifest, evalCtx.account, pair);
     if (!filtered) return;
     if (filtered.side === 'WAIT' && !this.opts.config.emitWait) return;
     await this.emit(filtered, manifest, pair);
@@ -142,10 +150,10 @@ export class StrategyController {
     this.registry.recordEmit(manifest.id);
   }
 
-  private async withTimeout<T>(p: Promise<T>): Promise<T> {
+  private async withTimeout<T>(p: Promise<T>, timeoutMs: number): Promise<T> {
     return await Promise.race([
       p,
-      new Promise<T>((_, rej) => setTimeout(() => rej(new Error('strategy timeout')), this.opts.config.timeoutMs)),
+      new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`strategy timeout after ${timeoutMs}ms`)), timeoutMs)),
     ]);
   }
 

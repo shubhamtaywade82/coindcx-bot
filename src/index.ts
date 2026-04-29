@@ -67,6 +67,20 @@ async function runApp(ctx: Context) {
   const ws = new CoinDCXWs();
   ctx.logger.info({ mod: 'app' }, 'app start');
 
+  // F6: Tap SignalBus emissions into TUI signals + risk panels
+  const _origBusEmit = ctx.bus.emit.bind(ctx.bus);
+  (ctx.bus as any).emit = async (s: any) => {
+    try {
+      tui.observeSignal(s);
+      if (s && s.type && s.type.startsWith('strategy.')) {
+        tui.log(`Bus emitted: ${s.type} for ${s.pair}`);
+      }
+    } catch (e: any) {
+      tui.log(`TUI observer error: ${e.message}`, 'error');
+    }
+    return _origBusEmit(s);
+  };
+
   const integrity = new IntegrityController({
     config: ctx.config,
     logger: ctx.logger.child({ mod: 'integrity' }),
@@ -150,6 +164,24 @@ async function runApp(ctx: Context) {
   const enabledIds = new Set(ctx.config.STRATEGY_ENABLED_IDS);
   const configuredPairs: string[] = ctx.config.COINDCX_PAIRS as unknown as string[];
 
+  const mapCandles = (raw: any) => (Array.isArray(raw) ? raw : []).map((c: any) => ({
+    timestamp: c[0], open: parseFloat(c[1]), high: parseFloat(c[2]),
+    low: parseFloat(c[3]), close: parseFloat(c[4]), volume: parseFloat(c[5])
+  }));
+
+  async function refreshPairCandles(rawPair: string): Promise<{ htf: number; ltf: number }> {
+    const [rawHtf, rawLtf] = await Promise.all([
+      CoinDCXApi.getCandles(rawPair, '1h', 50),
+      CoinDCXApi.getCandles(rawPair, '15m', 50)
+    ]);
+    const htfCandles = mapCandles(rawHtf);
+    const ltfCandles = mapCandles(rawLtf);
+    const store = ensureCandles(rawPair);
+    store.htf = htfCandles;
+    store.ltf = ltfCandles;
+    return { htf: htfCandles.length, ltf: ltfCandles.length };
+  }
+
   const buildRiskFilter = (): RiskFilter => {
     if (ctx.config.RISK_FILTER_MODE === 'passthrough') return new PassthroughRiskFilter();
     const cooldown = new PerPairCooldownRule(ctx.config.RISK_PER_PAIR_COOLDOWN_MS);
@@ -181,10 +213,38 @@ async function runApp(ctx: Context) {
     accountSnapshot: () => account.snapshot(),
     recentFills: (n = 20) => account.fills.recent(n),
     extractPair: (raw: any) => raw?.pair ?? raw?.s,
+    beforeEvaluate: async (id, pair, trigger) => {
+      if (id === 'llm.pulse.v1') {
+        tui.updateAi({
+          verdict: ' {yellow-fg}Analyzing market pulse...{/yellow-fg}',
+          signal: 'WAIT',
+          confidence: 0,
+          pair,
+        });
+      }
+      if (id === 'llm.pulse.v1' && trigger.kind === 'bar_close') {
+        await refreshPairCandles(pair);
+      }
+    },
+    onEvaluatedSignal: (signal, manifest, pair) => {
+      if (manifest.id !== 'llm.pulse.v1') return;
+      tui.updateAi({
+        verdict: signal.reason,
+        signal: signal.side,
+        confidence: signal.confidence,
+        no_trade_condition: signal.noTradeCondition,
+        entry: signal.entry,
+        stopLoss: signal.stopLoss,
+        takeProfit: signal.takeProfit,
+        rr: typeof signal.meta?.rr === 'number' ? signal.meta.rr : undefined,
+        levels: Array.isArray(signal.meta?.levels) ? signal.meta.levels : undefined,
+        pair,
+      });
+    },
     config: {
       timeoutMs: ctx.config.STRATEGY_TIMEOUT_MS,
       errorThreshold: ctx.config.STRATEGY_ERROR_THRESHOLD,
-      emitWait: ctx.config.STRATEGY_EMIT_WAIT,
+      emitWait: true, // Force true for TUI visibility
       backpressureDropRatioAlarm: ctx.config.STRATEGY_BACKPRESSURE_DROP_RATIO_ALARM,
     },
   });
@@ -205,6 +265,7 @@ async function runApp(ctx: Context) {
   }, 1000);
 
   const MAX_TRADES = 50;
+  const CANDLE_REFRESH_MS = 60_000;
 
   function log(msg: any) {
     if (typeof msg === 'string' && msg.startsWith('{')) {
@@ -212,11 +273,18 @@ async function runApp(ctx: Context) {
         const data = JSON.parse(msg);
         if (data.type === 'clock_skew') {
           const skew = data.payload?.localVsNtp || 0;
-          tui.log(`{red-fg}{bold}[CRITICAL]{/bold} Clock Skew: ${skew}ms. Run 'sudo chronyc -a makestep' to sync.{/red-fg}`);
+          tui.log(`{red-fg}{bold}[CRITICAL]{/bold} Clock Skew: ${skew}ms. Run 'sudo chronyc -a makestep' to sync.{/red-fg}`, 'error');
           return;
         }
         if (data.strategy === 'integrity') {
-          tui.log(`{yellow-fg}[INTEGRITY] ${data.type}: ${data.payload?.reason || 'check failed'}{/yellow-fg}`);
+          if (data.severity === 'critical' || data.severity === 'warn') {
+            tui.log(`{red-fg}[INTEGRITY] ${data.type}: ${data.payload?.reason || 'check failed'}{/red-fg}`, 'error');
+          }
+          return;
+        }
+        if (typeof data.type === 'string' && (data.type.includes('error') || data.severity === 'critical')) {
+          const reason = data.payload?.error ?? data.payload?.reason ?? 'check failed';
+          tui.log(`{red-fg}[${data.strategy ?? 'signal'}] ${data.type}: ${reason}{/red-fg}`, 'error');
           return;
         }
       } catch { /* fallback to raw */ }
@@ -235,58 +303,40 @@ async function runApp(ctx: Context) {
     return tui.focusedPairClean;
   }
 
-  function getMarketPulse(): any {
-    const symbol = getFocusedCleanPair();
-    const info = state.tickers.get(symbol);
-    const book = state.orderBooks.get(symbol);
-    const asks = Array.from(book?.asks.entries() || []).sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]));
-    const bids = Array.from(book?.bids.entries() || []).sort((a, b) => parseFloat(b[0]) - parseFloat(a[0]));
-    
-    return {
-      symbol,
-      price: info?.price || '0',
-      change24h: info?.change || '0',
-      orderBook: {
-        bestAsk: asks[0]?.[0] || '0',
-        bestBid: bids[0]?.[0] || '0',
-        spread: asks[0] && bids[0] ? (parseFloat(asks[0][0]) - parseFloat(bids[0][0])).toString() : '0'
-      },
-      positions: Array.from(state.positions.values()).filter(p => cleanPair(p.pair) === symbol)
-    };
+  async function refreshStrategyCandles() {
+    for (const rawPair of configuredPairs) {
+      try {
+        const symbol = cleanPair(rawPair);
+        const candles = await refreshPairCandles(rawPair);
+        if (candles.htf > 0 && candles.ltf > 0) {
+          tui.log(`{gray-fg}[STRATEGY] Market state refreshed for ${symbol}{/gray-fg}`);
+        } else {
+          tui.log(`{red-fg}⚠ [STRATEGY] No candles for ${rawPair} (htf=${candles.htf} ltf=${candles.ltf}){/red-fg}`, 'error');
+        }
+      } catch (err: any) {
+        ctx.logger.error({ mod: 'strategy-data', err: err.message }, 'strategy market data refresh failed');
+        tui.log(`{red-fg}⚠ [STRATEGY] Candle refresh failed for ${rawPair}: ${err.message}{/red-fg}`, 'error');
+      }
+    }
   }
 
-  // ── AI Analysis Loop ──
-  setInterval(async () => {
-    try {
-      const symbol = getFocusedCleanPair();
-      const rawPair = tui.focusedPair;
-      const [rawHtf, rawLtf] = await Promise.all([
-        CoinDCXApi.getCandles(rawPair, '1h', 50),
-        CoinDCXApi.getCandles(rawPair, '15m', 50)
-      ]);
-      const mapCandles = (raw: any) => (Array.isArray(raw) ? raw : []).map((c: any) => ({
-        timestamp: c[0], open: parseFloat(c[1]), high: parseFloat(c[2]),
-        low: parseFloat(c[3]), close: parseFloat(c[4]), volume: parseFloat(c[5])
-      }));
-      const htfCandles = mapCandles(rawHtf);
-      const ltfCandles = mapCandles(rawLtf);
-      const pulse = getMarketPulse();
-      const marketState = ctx.stateBuilder.build(htfCandles, ltfCandles, pulse.orderBook, pulse.positions);
-      
-      if (marketState) {
-        (marketState as any).symbol = symbol;
-        tui.log(`{gray-fg}[AI] Sending ${symbol} snapshot to local brain...{/gray-fg}`);
-        const analysis = await ctx.analyzer.analyze(marketState);
-        tui.updateAi(analysis);
-        tui.log(`{green-fg}✓ [AI] Pulse updated for ${symbol}{/green-fg}`);
-      } else {
-        tui.log(`{yellow-fg}⚠ [AI] No candles for ${rawPair} (htf=${htfCandles.length} ltf=${ltfCandles.length}){/yellow-fg}`);
+  async function seedInitialAiPulse(): Promise<void> {
+    if (!enabledIds.has('llm.pulse.v1')) return;
+    tui.log(`{gray-fg}[AI] Starting initial analysis for ${configuredPairs.length} pairs...{/gray-fg}`);
+    
+    await Promise.all(configuredPairs.map(async (rawPair) => {
+      try {
+        await strategyController.runOnce('llm.pulse.v1', rawPair, { kind: 'interval' });
+        tui.log(`{cyan-fg}[AI] Initial analysis complete for ${rawPair}{/cyan-fg}`);
+      } catch (err: any) {
+        tui.log(`{red-fg}⚠ [AI] Initial analysis failed for ${rawPair}: ${err.message}{/red-fg}`, 'error');
       }
-    } catch (err: any) {
-      ctx.logger.error({ mod: 'ai', err: err.message }, 'AI MTF loop failed');
-      tui.log(`{red-fg}⚠ [AI] Analysis failed: ${err.message}{/red-fg}`);
-    }
-  }, 15000); // 4x faster (15s instead of 60s)
+    }));
+  }
+
+  // ── Strategy Market Data Loop ──
+  void refreshStrategyCandles().then(() => seedInitialAiPulse());
+  setInterval(() => { void refreshStrategyCandles(); }, CANDLE_REFRESH_MS);
 
   // ── Institutional Signal Sink ──
   class TuiSink {
@@ -306,7 +356,7 @@ async function runApp(ctx: Context) {
     const focused = getFocusedCleanPair();
     const book = state.orderBooks.get(focused);
     const ticker = state.tickers.get(focused);
-    
+
     if (!book) {
        tui.updateOrderBook([], [], ticker?.price || '—');
        return;
@@ -432,10 +482,10 @@ async function runApp(ctx: Context) {
         const available = parseFloat(b.available || '0');
         const locked = parseFloat(b.locked || '0');
         const walletBalance = available + locked;
-        
+
         const isInrRow = currency === 'INR' || currency === 'USDTINR';
         const isUsdtRow = currency === 'USDT' || currency === 'USD';
-        
+
         let rowPnl = 0;
         if (isInrRow) rowPnl = totalPnlInr;
         else if (isUsdtRow) rowPnl = totalPnlUsdt;
@@ -479,9 +529,9 @@ async function runApp(ctx: Context) {
           ]);
         }
       });
-      
+
     tui.updateBalances(rows.length > 0 ? rows : [['No balances', '—', '—', '—', '—', '—']]);
-    
+
     // 3. Update Summary
     tui.updateSummary({
       equity: `₹${formatQty(totalEqInr)} (${formatQty(totalEqInr / state.usdtInrRate, 2)} USDT)`,
@@ -534,7 +584,7 @@ async function runApp(ctx: Context) {
       log(`✓ Loaded ${state.balanceMap.size} balances`);
       refreshBalanceDisplay();
     } catch (err: any) {
-      log(`⚠ Balance fetch failed: ${err.message}`);
+      tui.log(`{red-fg}⚠ Balance fetch failed: ${err.message}{/red-fg}`, 'error');
       tui.updateBalances([['API error', err.message.substring(0, 30), '—', '—', '—', '—']]);
     }
 
@@ -553,7 +603,7 @@ async function runApp(ctx: Context) {
       refreshBalanceDisplay(); // Because PnL depends on positions
       log(`✓ Loaded ${state.positions.size} active positions`);
     } catch (err: any) {
-      log(`⚠ Position fetch failed: ${err.message}`);
+      tui.log(`{red-fg}⚠ Position fetch failed: ${err.message}{/red-fg}`, 'error');
       tui.updatePositions([['API error', '—', '—', '—', '—', '—']]);
     }
   }
@@ -565,7 +615,7 @@ async function runApp(ctx: Context) {
     void fetchPrivateData();
     setInterval(fetchPrivateData, 5000); // 6x faster polling (5s instead of 30s)
   } else {
-    log('⚠ API Key/Secret missing — PUBLIC ONLY mode');
+    tui.log('{red-fg}⚠ API Key/Secret missing — PUBLIC ONLY mode{/red-fg}', 'error');
     state.hasValidAuth = false;
     tui.updateBalances([['No API key', '—', '—', '—', '—', '—']]);
     tui.updatePositions([['No API key', '—', '—', '—', '—', '—']]);
@@ -581,11 +631,11 @@ async function runApp(ctx: Context) {
   });
   ws.on('disconnected', (reason) => {
     state.isWsConnected = false;
-    log(`✗ Disconnected: ${reason}`);
+    tui.log(`{red-fg}✗ Disconnected: ${reason}{/red-fg}`, 'error');
     tui.updateStatus({ connected: false });
   });
   ws.on('error', (error) => {
-    log(`✗ WS error: ${error.message}`);
+    tui.log(`{red-fg}✗ WS error: ${error.message}{/red-fg}`, 'error');
     tui.updateStatus({ connected: false });
   });
   ws.on('debug', (msg) => ctx.logger.debug({ mod: 'ws' }, msg));
@@ -638,16 +688,16 @@ async function runApp(ctx: Context) {
     const data = safeParse(raw);
     if (!data || !data.s) return;
     const pair = cleanPair(data.s);
-    
+
     const asks = new Map<string, string>();
     const bids = new Map<string, string>();
-    
+
     const rawAsks = Array.isArray(data.asks) ? data.asks : (data.asks ? Object.entries(data.asks) : []);
     const rawBids = Array.isArray(data.bids) ? data.bids : (data.bids ? Object.entries(data.bids) : []);
 
     rawAsks.forEach(([p, q]: [any, any]) => asks.set(p.toString(), q.toString()));
     rawBids.forEach(([p, q]: [any, any]) => bids.set(p.toString(), q.toString()));
-    
+
     state.orderBooks.set(pair, { asks, bids });
     if (pair === getFocusedCleanPair()) refreshBookDisplay();
   });
@@ -658,12 +708,12 @@ async function runApp(ctx: Context) {
     if (!data || !data.s) return;
     const pair = cleanPair(data.s);
     let book = state.orderBooks.get(pair);
-    
+
     if (!book) {
        book = { asks: new Map(), bids: new Map() };
        state.orderBooks.set(pair, book);
     }
-    
+
     const rawAsks = Array.isArray(data.asks) ? data.asks : (data.asks ? Object.entries(data.asks) : []);
     const rawBids = Array.isArray(data.bids) ? data.bids : (data.bids ? Object.entries(data.bids) : []);
 
@@ -671,12 +721,12 @@ async function runApp(ctx: Context) {
       if (parseFloat(q) === 0) book!.asks.delete(p.toString());
       else book!.asks.set(p.toString(), q.toString());
     });
-    
+
     rawBids.forEach(([p, q]: [any, any]) => {
       if (parseFloat(q) === 0) book!.bids.delete(p.toString());
       else book!.bids.set(p.toString(), q.toString());
     });
-    
+
     if (pair === getFocusedCleanPair()) refreshBookDisplay();
   });
 
@@ -832,7 +882,7 @@ async function runApp(ctx: Context) {
       accountStarted = true;
       log(`✓ Account reconciler started (positions=${account.snapshot().positions.length}, balances=${account.snapshot().balances.length})`);
     } catch (err: any) {
-      log(`⚠ Account reconciler seed failed: ${err.message}`);
+      tui.log(`{red-fg}⚠ Account reconciler seed failed: ${err.message}{/red-fg}`, 'error');
     }
   }
   ws.on('connected', () => {
@@ -872,7 +922,7 @@ async function runApp(ctx: Context) {
       });
       refreshBalanceDisplay();
     } catch (err: any) {
-      log(`Refresh error: ${err.message}`);
+      tui.log(`{red-fg}Refresh error: ${err.message}{/red-fg}`, 'error');
     }
   }, 30_000);
 }
