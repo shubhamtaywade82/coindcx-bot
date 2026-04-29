@@ -54,6 +54,24 @@ describe('StrategyController', () => {
     }));
   });
 
+  it('notifies evaluated signals before risk filtering', async () => {
+    const deps = baseDeps();
+    const onEvaluatedSignal = vi.fn();
+    const ctrl = new StrategyController({
+      ...deps,
+      onEvaluatedSignal,
+      riskFilter: { filter: vi.fn().mockReturnValue(null) },
+    });
+    ctrl.register(makeStrategy('a', ['B-BTC_USDT'], () => ({ side: 'LONG', confidence: 0.9, reason: 'ok' })));
+    await ctrl.runOnce('a', 'B-BTC_USDT', { kind: 'interval' });
+    expect(onEvaluatedSignal).toHaveBeenCalledWith(
+      expect.objectContaining({ side: 'LONG', confidence: 0.9, reason: 'ok' }),
+      expect.objectContaining({ id: 'a' }),
+      'B-BTC_USDT',
+    );
+    expect(deps.signalBus.emit).not.toHaveBeenCalled();
+  });
+
   it('does not emit WAIT by default', async () => {
     const deps = baseDeps();
     const ctrl = new StrategyController(deps);

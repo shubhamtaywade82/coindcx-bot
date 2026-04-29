@@ -164,6 +164,24 @@ async function runApp(ctx: Context) {
   const enabledIds = new Set(ctx.config.STRATEGY_ENABLED_IDS);
   const configuredPairs: string[] = ctx.config.COINDCX_PAIRS as unknown as string[];
 
+  const mapCandles = (raw: any) => (Array.isArray(raw) ? raw : []).map((c: any) => ({
+    timestamp: c[0], open: parseFloat(c[1]), high: parseFloat(c[2]),
+    low: parseFloat(c[3]), close: parseFloat(c[4]), volume: parseFloat(c[5])
+  }));
+
+  async function refreshPairCandles(rawPair: string): Promise<{ htf: number; ltf: number }> {
+    const [rawHtf, rawLtf] = await Promise.all([
+      CoinDCXApi.getCandles(rawPair, '1h', 50),
+      CoinDCXApi.getCandles(rawPair, '15m', 50)
+    ]);
+    const htfCandles = mapCandles(rawHtf);
+    const ltfCandles = mapCandles(rawLtf);
+    const store = ensureCandles(rawPair);
+    store.htf = htfCandles;
+    store.ltf = ltfCandles;
+    return { htf: htfCandles.length, ltf: ltfCandles.length };
+  }
+
   const buildRiskFilter = (): RiskFilter => {
     if (ctx.config.RISK_FILTER_MODE === 'passthrough') return new PassthroughRiskFilter();
     const cooldown = new PerPairCooldownRule(ctx.config.RISK_PER_PAIR_COOLDOWN_MS);
@@ -195,6 +213,25 @@ async function runApp(ctx: Context) {
     accountSnapshot: () => account.snapshot(),
     recentFills: (n = 20) => account.fills.recent(n),
     extractPair: (raw: any) => raw?.pair ?? raw?.s,
+    beforeEvaluate: async (id, pair, trigger) => {
+      if (id === 'llm.pulse.v1' && trigger.kind === 'bar_close') {
+        await refreshPairCandles(pair);
+      }
+    },
+    onEvaluatedSignal: (signal, manifest, pair) => {
+      if (manifest.id !== 'llm.pulse.v1') return;
+      tui.updateAi({
+        verdict: signal.reason,
+        signal: signal.side,
+        confidence: signal.confidence,
+        no_trade_condition: signal.noTradeCondition,
+        entry: signal.entry,
+        stopLoss: signal.stopLoss,
+        takeProfit: signal.takeProfit,
+        rr: typeof signal.meta?.rr === 'number' ? signal.meta.rr : undefined,
+        pair,
+      });
+    },
     config: {
       timeoutMs: ctx.config.STRATEGY_TIMEOUT_MS,
       errorThreshold: ctx.config.STRATEGY_ERROR_THRESHOLD,
@@ -219,6 +256,7 @@ async function runApp(ctx: Context) {
   }, 1000);
 
   const MAX_TRADES = 50;
+  const CANDLE_REFRESH_MS = 60_000;
 
   function log(msg: any) {
     if (typeof msg === 'string' && msg.startsWith('{')) {
@@ -249,75 +287,33 @@ async function runApp(ctx: Context) {
     return tui.focusedPairClean;
   }
 
-  function getMarketPulse(): any {
-    const symbol = getFocusedCleanPair();
-    const info = state.tickers.get(symbol);
-    const book = state.orderBooks.get(symbol);
-    const asks = Array.from(book?.asks.entries() || []).sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]));
-    const bids = Array.from(book?.bids.entries() || []).sort((a, b) => parseFloat(b[0]) - parseFloat(a[0]));
-
-    return {
-      symbol,
-      price: info?.price || '0',
-      change24h: info?.change || '0',
-      orderBook: {
-        bestAsk: asks[0]?.[0] || '0',
-        bestBid: bids[0]?.[0] || '0',
-        spread: asks[0] && bids[0] ? (parseFloat(asks[0][0]) - parseFloat(bids[0][0])).toString() : '0'
-      },
-      positions: Array.from(state.positions.values()).filter(p => cleanPair(p.pair) === symbol)
-    };
-  }
-
-  // ── AI Analysis & Strategy Data Loop ──
-  setInterval(async () => {
+  async function refreshStrategyCandles() {
     for (const rawPair of configuredPairs) {
       try {
         const symbol = cleanPair(rawPair);
-        const [rawHtf, rawLtf] = await Promise.all([
-          CoinDCXApi.getCandles(rawPair, '1h', 50),
-          CoinDCXApi.getCandles(rawPair, '15m', 50)
-        ]);
-      const mapCandles = (raw: any) => (Array.isArray(raw) ? raw : []).map((c: any) => ({
-        timestamp: c[0], open: parseFloat(c[1]), high: parseFloat(c[2]),
-        low: parseFloat(c[3]), close: parseFloat(c[4]), volume: parseFloat(c[5])
-      }));
-      const htfCandles = mapCandles(rawHtf);
-      const ltfCandles = mapCandles(rawLtf);
-
-      // F6: Populate candleStore so StrategyController can evaluate
-      const store = ensureCandles(rawPair);
-      store.htf = htfCandles;
-      store.ltf = ltfCandles;
-
-      const pulse = getMarketPulse();
-      const marketState = ctx.stateBuilder.build(htfCandles, ltfCandles, pulse.orderBook, pulse.positions);
-
-      if (marketState) {
-        (marketState as any).symbol = symbol;
-        tui.log(`{gray-fg}[AI] Sending ${symbol} snapshot to local brain...{/gray-fg}`);
-        const analysis = await ctx.analyzer.analyze(marketState);
-        tui.updateAi({
-          verdict: String(analysis?.verdict ?? ''),
-          signal: String(analysis?.signal ?? 'WAIT'),
-          confidence: Number(analysis?.confidence ?? 0),
-          no_trade_condition: analysis?.no_trade_condition ? String(analysis.no_trade_condition) : undefined,
-          entry: analysis?.setup?.entry ? String(analysis.setup.entry) : undefined,
-          stopLoss: analysis?.setup?.sl ? String(analysis.setup.sl) : undefined,
-          takeProfit: analysis?.setup?.tp ? String(analysis.setup.tp) : undefined,
-          rr: typeof analysis?.setup?.rr === 'number' ? analysis.setup.rr : undefined,
-          pair: rawPair,
-        });
-        tui.log(`{green-fg}✓ [AI] Pulse updated for ${symbol}{/green-fg}`);
-      } else {
-        tui.log(`{yellow-fg}⚠ [AI] No candles for ${rawPair} (htf=${htfCandles.length} ltf=${ltfCandles.length}){/yellow-fg}`);
-      }
-    } catch (err: any) {
-        ctx.logger.error({ mod: 'ai', err: err.message }, 'AI MTF loop failed');
-        tui.log(`{red-fg}⚠ [AI] Analysis failed for ${rawPair}: ${err.message}{/red-fg}`);
+        const candles = await refreshPairCandles(rawPair);
+        if (candles.htf > 0 && candles.ltf > 0) {
+          tui.log(`{gray-fg}[STRATEGY] Market state refreshed for ${symbol}{/gray-fg}`);
+        } else {
+          tui.log(`{yellow-fg}⚠ [STRATEGY] No candles for ${rawPair} (htf=${candles.htf} ltf=${candles.ltf}){/yellow-fg}`);
+        }
+      } catch (err: any) {
+        ctx.logger.error({ mod: 'strategy-data', err: err.message }, 'strategy market data refresh failed');
+        tui.log(`{red-fg}⚠ [STRATEGY] Candle refresh failed for ${rawPair}: ${err.message}{/red-fg}`);
       }
     }
-  }, 15000); // 15s interval
+  }
+
+  async function seedInitialAiPulse(): Promise<void> {
+    if (!enabledIds.has('llm.pulse.v1')) return;
+    for (const rawPair of configuredPairs) {
+      await strategyController.runOnce('llm.pulse.v1', rawPair, { kind: 'interval' });
+    }
+  }
+
+  // ── Strategy Market Data Loop ──
+  void refreshStrategyCandles().then(() => seedInitialAiPulse());
+  setInterval(() => { void refreshStrategyCandles(); }, CANDLE_REFRESH_MS);
 
   // ── Institutional Signal Sink ──
   class TuiSink {

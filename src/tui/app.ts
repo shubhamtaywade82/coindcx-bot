@@ -410,40 +410,32 @@ export class TuiApp {
     this.bookByPair.set(target, { asks, bids, lastPrice });
     if (target !== this.focusedPair) return;
 
-    // Equalize bids and asks count (max 5)
-    const count = Math.min(asks.length, bids.length, 5);
-    const bookWidth = 42; // Approximate width based on PRICE(12) + AMOUNT(15) + SUM(15)
+    // Equalize bids and asks count (max 7)
+    const count = Math.min(asks.length, bids.length, 7);
+    const bookWidth = 42; 
 
-    const header = ' {gray-fg}PRICE           AMOUNT            SUM{/gray-fg}\n';
+    const header = ` {gray-fg}${this.padRight('PRICE', 12)}${this.padRight('AMOUNT', 15)}${this.padRight('SUM', 15)}{/gray-fg}\n`;
 
     // Asks (Red)
     const askRows = asks.slice(0, count).map(row => {
-      const price = `{red-fg}${this.padRight(row[0], 12)}{/red-fg}`;
+      const price = `{red-fg}${this.padRight(formatPrice(row[0]), 12)}{/red-fg}`;
       const amount = this.padRight(row[1], 15);
       const sum = this.padRight(row[2], 15);
       return ` ${price}${amount}${sum}`;
     }).reverse();
 
     // Last Price Row
-    const ltpRow = ` {bold}${this.padRight(lastPrice, 12)}{/bold}\n`;
+    const ltpRow = ` {yellow-fg}{bold}${this.padRight(formatPrice(lastPrice), 12)}{/bold}{/yellow-fg}\n`;
 
     // Bids (Green)
     const bidRows = bids.slice(0, count).map(row => {
-      const price = `{green-fg}${this.padRight(row[0], 12)}{/green-fg}`;
+      const price = `{green-fg}${this.padRight(formatPrice(row[0]), 12)}{/green-fg}`;
       const amount = this.padRight(row[1], 15);
       const sum = this.padRight(row[2], 15);
       return ` ${price}${amount}${sum}`;
     });
 
-    const asksLabel = "---- ASKS ----";
-    const bidsLabel = "---- BIDS ----";
-    const asksPadding = " ".repeat(Math.max(0, Math.floor((bookWidth - asksLabel.length) / 2)));
-    const bidsPadding = " ".repeat(Math.max(0, Math.floor((bookWidth - bidsLabel.length) / 2)));
-
-    const asksHeader = ` {red-fg}${asksPadding}${asksLabel}{/red-fg}\n`;
-    const bidsHeader = ` {green-fg}${bidsPadding}${bidsLabel}{/green-fg}\n`;
-
-    this.tradeTable.setContent(header + asksHeader + askRows.join('\n') + ltpRow + bidsHeader + bidRows.join('\n'));
+    this.tradeTable.setContent(header + askRows.join('\n') + '\n' + ltpRow + bidRows.join('\n'));
     this.render();
   }
 
@@ -550,7 +542,7 @@ export class TuiApp {
   // ── F6: Signals + Risk panels + bus observer ──
   // ══════════════════════════════════════════════════════
 
-  observeSignal(signal: { type: string; pair?: string; payload?: any; ts?: string }): void {
+  observeSignal(signal: { strategy?: string; type: string; pair?: string; payload?: any; ts?: string }): void {
     const ts = signal.ts ? new Date(signal.ts).getTime() : Date.now();
     const type = signal.type ?? 'unknown';
     const pair = signal.pair ?? '—';
@@ -559,6 +551,19 @@ export class TuiApp {
       const side = type.split('.')[1]?.toUpperCase();
       const conf = Number(signal.payload?.confidence ?? 0);
       const reason = String(signal.payload?.reason ?? '').slice(0, 30);
+      if (signal.strategy === 'llm.pulse.v1') {
+        this.updateAi({
+          verdict: String(signal.payload?.reason ?? ''),
+          signal: side ?? 'WAIT',
+          confidence: conf,
+          no_trade_condition: signal.payload?.noTradeCondition ? String(signal.payload.noTradeCondition) : undefined,
+          entry: signal.payload?.entry ? String(signal.payload.entry) : undefined,
+          stopLoss: signal.payload?.stopLoss ? String(signal.payload.stopLoss) : undefined,
+          takeProfit: signal.payload?.takeProfit ? String(signal.payload.takeProfit) : undefined,
+          rr: typeof signal.payload?.meta?.rr === 'number' ? signal.payload.meta.rr : undefined,
+          pair,
+        });
+      }
       this.recentSignals.unshift({ ts, type, pair, side, conf, reason });
       this.recentSignals = this.recentSignals.slice(0, this.SIGNAL_RING);
       this.bumpSignalCount(pair, side);

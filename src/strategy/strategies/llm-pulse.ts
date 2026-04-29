@@ -5,9 +5,9 @@ interface AnalyzerLike {
 }
 
 const MANIFEST: StrategyManifest = {
-  id: 'llm.pulse.v1', version: '1.0.0', mode: 'interval', intervalMs: 15000,
+  id: 'llm.pulse.v1', version: '1.0.0', mode: 'bar_close', barTimeframes: ['15m'],
   pairs: ['*'], warmupCandles: 50,
-  description: 'LLM-driven SMC pulse via Ollama',
+  description: 'LLM-driven SMC pulse via Ollama on 15m candle close',
 };
 
 function clamp(v: number): number {
