@@ -118,6 +118,18 @@ Rollback strategy:
 - If live canary misbehaves, trigger kill switch, stop new orders, reconcile account state, and return to `READ_ONLY=true`.
 - Never require execution modules for monitoring, account reconciliation, market integrity, or TUI startup.
 
+## Implementation Progress
+
+- `[done]` Slice 1 foundation: added `TradeIntent`, signal-to-intent mapping, and deterministic intent validation under `src/execution/`.
+- `[pending]` Slice 1 runtime wiring: convert strategy signals to intents behind a disabled-by-default execution flag.
+- `[pending]` Slice 2: add `RiskSizer` and risk budget.
+- `[pending]` Slice 3: add `PaperExecutionEngine`.
+- `[pending]` Slice 4: add order lifecycle persistence.
+- `[pending]` Slice 5: add TUI execution panels.
+- `[pending]` Slice 6: upgrade backtest execution model.
+- `[pending]` Slice 7: add live adapter behind strict safety gates.
+- `[pending]` Slice 8: add live canary controls.
+
 ## When Can This Go Live?
 
 The bot should not trade live in its current state. Today it is a read-only signal and monitoring system. That is intentional and should remain the default until the execution and risk-management layers exist.

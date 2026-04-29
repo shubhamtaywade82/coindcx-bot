@@ -272,8 +272,12 @@ async function runApp(ctx: Context) {
       try {
         const data = JSON.parse(msg);
         if (data.type === 'clock_skew') {
-          const skew = data.payload?.localVsNtp || 0;
-          tui.log(`{red-fg}{bold}[CRITICAL]{/bold} Clock Skew: ${skew}ms. Run 'sudo chronyc -a makestep' to sync.{/red-fg}`, 'error');
+          if (data.severity === 'critical') {
+            const skew = data.payload?.localVsNtp || 0;
+            tui.log(`{red-fg}{bold}[CRITICAL]{/bold} Clock Skew: ${skew}ms. Run 'sudo chronyc -a makestep' to sync.{/red-fg}`, 'error');
+          } else if (data.severity === 'warn') {
+            tui.log(`{yellow-fg}[WARN] Time Sync: ${data.payload?.reason || 'connection unstable'}{/yellow-fg}`, 'warn');
+          }
           return;
         }
         if (data.strategy === 'integrity') {
