@@ -8,7 +8,7 @@ export interface CandleProvider {
 }
 
 export interface ContextBuilderOptions {
-  buildMarketState: (htf: Candle[], ltf: Candle[]) => MarketState | null;
+  buildMarketState: (htf: Candle[], ltf: Candle[], pair: string) => Promise<MarketState | null> | MarketState | null;
   candleProvider: CandleProvider;
   accountSnapshot: () => AccountSnapshot;
   recentFills: (n?: number) => Fill[];
@@ -22,10 +22,10 @@ export class ContextBuilder {
     this.clock = opts.clock ?? Date.now;
   }
 
-  build(args: { pair: string; trigger: StrategyTrigger }): StrategyContext | null {
+  async build(args: { pair: string; trigger: StrategyTrigger }): Promise<StrategyContext | null> {
     const ltf = this.opts.candleProvider.ltf(args.pair);
     const htf = this.opts.candleProvider.htf(args.pair);
-    const marketState = this.opts.buildMarketState(htf, ltf);
+    const marketState = await this.opts.buildMarketState(htf, ltf, args.pair);
     if (!marketState) return null;
     return {
       ts: this.clock(),

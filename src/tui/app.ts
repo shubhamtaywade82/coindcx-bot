@@ -13,6 +13,7 @@ interface AiPanelState {
   takeProfit?: string;
   rr?: number;
   levels?: string[];
+  management?: string;
 }
 
 type SystemLogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -418,7 +419,9 @@ export class TuiApp {
   }
 
   log(message: string, level: SystemLogLevel = 'info') {
-    if (level !== 'error') return;
+    // We allow info, warn, and error to be visible to the user
+    if (level === 'debug' && config.LOG_LEVEL !== 'debug') return;
+    
     if (this.logPanel) {
       this.logPanel.log(`[${new Date().toLocaleTimeString()}] ${message}`);
     }
@@ -480,13 +483,14 @@ export class TuiApp {
     takeProfit?: string;
     rr?: number;
     levels?: string[];
+    management?: string;
   }) {
     const pair = data.pair ?? this.focusedPair;
     this.aiByPair.set(pair, {
       verdict: data.verdict, signal: data.signal,
       confidence: data.confidence, no_trade_condition: data.no_trade_condition,
       entry: data.entry, stopLoss: data.stopLoss, takeProfit: data.takeProfit, rr: data.rr,
-      levels: data.levels,
+      levels: data.levels, management: data.management,
     });
     if (pair === this.focusedPair) this.renderAi();
   }
@@ -509,11 +513,12 @@ export class TuiApp {
             data.rr !== undefined && Number.isFinite(data.rr) ? ` {white-fg}R:R:{/white-fg} ${Number(data.rr).toFixed(2)}` : undefined,
           ].filter(Boolean).join('\n')
         : '';
-    const reason = data.no_trade_condition ? `\n {gray-fg}REASON: ${data.no_trade_condition}{/gray-fg}` : '';
+    const reason = data.no_trade_condition && data.no_trade_condition !== 'None' ? `\n {gray-fg}REASON: ${data.no_trade_condition}{/gray-fg}` : '';
+    const mgmt = data.management ? `\n\n {yellow-fg}🛡️ MANAGEMENT:{/yellow-fg} {bold}${data.management}{/bold}` : '';
     const levelsStr = Array.isArray(data.levels) && data.levels.length > 0 
       ? `\n\n {white-fg}LEVELS TO MONITOR:{/white-fg}\n${data.levels.map((l: string) => ` • ${l}`).join('\n')}` 
       : '';
-    const content = `\n {bold}${data.verdict}{/bold}\n\n {${color}-fg}SIGNAL: ${sig}{/${color}-fg}\n {gray-fg}CONF: ${(data.confidence * 100).toFixed(0)}%{/gray-fg}${setup ? `\n${setup}` : ''}${levelsStr}${reason}`;
+    const content = `\n {bold}${data.verdict}{/bold}\n\n {${color}-fg}SIGNAL: ${sig}{/${color}-fg}\n {gray-fg}CONF: ${(data.confidence * 100).toFixed(0)}%{/gray-fg}${setup ? `\n${setup}` : ''}${mgmt}${levelsStr}${reason}`;
     this.aiBox.setContent(content);
     this.render();
   }
@@ -596,6 +601,7 @@ export class TuiApp {
           stopLoss: signal.payload?.stopLoss ? String(signal.payload.stopLoss) : undefined,
           takeProfit: signal.payload?.takeProfit ? String(signal.payload.takeProfit) : undefined,
           rr: typeof signal.payload?.meta?.rr === 'number' ? signal.payload.meta.rr : undefined,
+          management: signal.payload?.management ? String(signal.payload.management) : undefined,
           pair,
         });
       }

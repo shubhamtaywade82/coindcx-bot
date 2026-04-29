@@ -25,7 +25,7 @@ export interface StrategyControllerOptions {
   ws: EventEmitter;
   signalBus: Pick<SignalBus, 'emit'>;
   riskFilter?: RiskFilter;
-  buildMarketState: (htf: Candle[], ltf: Candle[]) => MarketState | null;
+  buildMarketState: (htf: Candle[], ltf: Candle[], pair: string) => Promise<MarketState | null> | MarketState | null;
   candleProvider: CandleProvider;
   accountSnapshot: () => AccountSnapshot;
   recentFills: (n?: number) => Fill[];
@@ -95,10 +95,10 @@ export class StrategyController {
     const manifest = this.registry.manifest(id);
     if (!strat || !manifest) return;
     let raw: StrategySignal | null;
-    let evalCtx: ReturnType<ContextBuilder['build']>;
+    let evalCtx: import('./types').StrategyContext | null;
     try {
       await this.opts.beforeEvaluate?.(id, pair, trigger);
-      evalCtx = this.contextBuilder.build({ pair, trigger });
+      evalCtx = await this.contextBuilder.build({ pair, trigger });
       if (!evalCtx) return;
       raw = await this.withTimeout(
         Promise.resolve(strat.evaluate(evalCtx)),
