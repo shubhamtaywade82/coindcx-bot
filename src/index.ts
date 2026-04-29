@@ -70,12 +70,12 @@ async function runApp(ctx: Context) {
   // F6: Tap SignalBus emissions into TUI signals + risk panels
   const _origBusEmit = ctx.bus.emit.bind(ctx.bus);
   (ctx.bus as any).emit = async (s: any) => {
-    try { 
+    try {
       tui.observeSignal(s);
       if (s && s.type && s.type.startsWith('strategy.')) {
         tui.log(`Bus emitted: ${s.type} for ${s.pair}`);
       }
-    } catch (e: any) { 
+    } catch (e: any) {
       tui.log(`TUI observer error: ${e.message}`);
     }
     return _origBusEmit(s);
@@ -255,7 +255,7 @@ async function runApp(ctx: Context) {
     const book = state.orderBooks.get(symbol);
     const asks = Array.from(book?.asks.entries() || []).sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]));
     const bids = Array.from(book?.bids.entries() || []).sort((a, b) => parseFloat(b[0]) - parseFloat(a[0]));
-    
+
     return {
       symbol,
       price: info?.price || '0',
@@ -292,12 +292,22 @@ async function runApp(ctx: Context) {
 
       const pulse = getMarketPulse();
       const marketState = ctx.stateBuilder.build(htfCandles, ltfCandles, pulse.orderBook, pulse.positions);
-      
+
       if (marketState) {
         (marketState as any).symbol = symbol;
         tui.log(`{gray-fg}[AI] Sending ${symbol} snapshot to local brain...{/gray-fg}`);
         const analysis = await ctx.analyzer.analyze(marketState);
-        tui.updateAi(analysis);
+        tui.updateAi({
+          verdict: String(analysis?.verdict ?? ''),
+          signal: String(analysis?.signal ?? 'WAIT'),
+          confidence: Number(analysis?.confidence ?? 0),
+          no_trade_condition: analysis?.no_trade_condition ? String(analysis.no_trade_condition) : undefined,
+          entry: analysis?.setup?.entry ? String(analysis.setup.entry) : undefined,
+          stopLoss: analysis?.setup?.sl ? String(analysis.setup.sl) : undefined,
+          takeProfit: analysis?.setup?.tp ? String(analysis.setup.tp) : undefined,
+          rr: typeof analysis?.setup?.rr === 'number' ? analysis.setup.rr : undefined,
+          pair: rawPair,
+        });
         tui.log(`{green-fg}✓ [AI] Pulse updated for ${symbol}{/green-fg}`);
       } else {
         tui.log(`{yellow-fg}⚠ [AI] No candles for ${rawPair} (htf=${htfCandles.length} ltf=${ltfCandles.length}){/yellow-fg}`);
@@ -327,7 +337,7 @@ async function runApp(ctx: Context) {
     const focused = getFocusedCleanPair();
     const book = state.orderBooks.get(focused);
     const ticker = state.tickers.get(focused);
-    
+
     if (!book) {
        tui.updateOrderBook([], [], ticker?.price || '—');
        return;
@@ -453,10 +463,10 @@ async function runApp(ctx: Context) {
         const available = parseFloat(b.available || '0');
         const locked = parseFloat(b.locked || '0');
         const walletBalance = available + locked;
-        
+
         const isInrRow = currency === 'INR' || currency === 'USDTINR';
         const isUsdtRow = currency === 'USDT' || currency === 'USD';
-        
+
         let rowPnl = 0;
         if (isInrRow) rowPnl = totalPnlInr;
         else if (isUsdtRow) rowPnl = totalPnlUsdt;
@@ -500,9 +510,9 @@ async function runApp(ctx: Context) {
           ]);
         }
       });
-      
+
     tui.updateBalances(rows.length > 0 ? rows : [['No balances', '—', '—', '—', '—', '—']]);
-    
+
     // 3. Update Summary
     tui.updateSummary({
       equity: `₹${formatQty(totalEqInr)} (${formatQty(totalEqInr / state.usdtInrRate, 2)} USDT)`,
@@ -659,16 +669,16 @@ async function runApp(ctx: Context) {
     const data = safeParse(raw);
     if (!data || !data.s) return;
     const pair = cleanPair(data.s);
-    
+
     const asks = new Map<string, string>();
     const bids = new Map<string, string>();
-    
+
     const rawAsks = Array.isArray(data.asks) ? data.asks : (data.asks ? Object.entries(data.asks) : []);
     const rawBids = Array.isArray(data.bids) ? data.bids : (data.bids ? Object.entries(data.bids) : []);
 
     rawAsks.forEach(([p, q]: [any, any]) => asks.set(p.toString(), q.toString()));
     rawBids.forEach(([p, q]: [any, any]) => bids.set(p.toString(), q.toString()));
-    
+
     state.orderBooks.set(pair, { asks, bids });
     if (pair === getFocusedCleanPair()) refreshBookDisplay();
   });
@@ -679,12 +689,12 @@ async function runApp(ctx: Context) {
     if (!data || !data.s) return;
     const pair = cleanPair(data.s);
     let book = state.orderBooks.get(pair);
-    
+
     if (!book) {
        book = { asks: new Map(), bids: new Map() };
        state.orderBooks.set(pair, book);
     }
-    
+
     const rawAsks = Array.isArray(data.asks) ? data.asks : (data.asks ? Object.entries(data.asks) : []);
     const rawBids = Array.isArray(data.bids) ? data.bids : (data.bids ? Object.entries(data.bids) : []);
 
@@ -692,12 +702,12 @@ async function runApp(ctx: Context) {
       if (parseFloat(q) === 0) book!.asks.delete(p.toString());
       else book!.asks.set(p.toString(), q.toString());
     });
-    
+
     rawBids.forEach(([p, q]: [any, any]) => {
       if (parseFloat(q) === 0) book!.bids.delete(p.toString());
       else book!.bids.set(p.toString(), q.toString());
     });
-    
+
     if (pair === getFocusedCleanPair()) refreshBookDisplay();
   });
 

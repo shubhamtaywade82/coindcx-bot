@@ -1,7 +1,18 @@
 import * as blessed from 'blessed';
 import * as contrib from 'blessed-contrib';
 import { config } from '../config/config';
-import { cleanPair } from '../utils/format';
+import { cleanPair, formatPrice } from '../utils/format';
+
+interface AiPanelState {
+  verdict: string;
+  signal: string;
+  confidence: number;
+  no_trade_condition?: string;
+  entry?: string;
+  stopLoss?: string;
+  takeProfit?: string;
+  rr?: number;
+}
 
 export class TuiApp {
   private screen: any;
@@ -21,7 +32,7 @@ export class TuiApp {
   private recentSignals: Array<{ ts: number; type: string; pair: string; side?: string; conf?: number; reason?: string }> = [];
   private recentRisk: Array<{ ts: number; pair: string; side?: string; rules: string[] }> = [];
   private riskStats = { drawdownPeak: 0, drawdownPct: 0, liveCount: 0 };
-  private aiByPair = new Map<string, { verdict: string; signal: string; confidence: number; no_trade_condition?: string }>();
+  private aiByPair = new Map<string, AiPanelState>();
   private bookByPair = new Map<string, { asks: string[][]; bids: string[][]; lastPrice: string }>();
   private signalCountsByPair = new Map<string, { long: number; short: number; wait: number; err: number }>();
   private readonly SIGNAL_RING = 30;
@@ -150,7 +161,7 @@ export class TuiApp {
     });
 
     // ── Global Keyboard Handling ──
-    this.screen.on('keypress', (ch, key) => {
+    this.screen.on('keypress', (ch: string, key: { name?: string; full?: string; shift?: boolean } | undefined) => {
       if (!key) {
         // Handle cases where key is not present but ch is (e.g. some symbols)
         if (ch === '?') { this.toggleHelp(); return; }
@@ -194,7 +205,7 @@ export class TuiApp {
       }
 
       // 5. Direct Pair Selection (1-9)
-      if (/^[1-9]$/.test(keyName)) {
+      if (keyName && /^[1-9]$/.test(keyName)) {
         const i = parseInt(keyName);
         if (i <= this.pairs.length) {
           const newIdx = i - 1;
@@ -398,10 +409,15 @@ export class TuiApp {
     const target = pair ?? this.focusedPair;
     this.bookByPair.set(target, { asks, bids, lastPrice });
     if (target !== this.focusedPair) return;
+
+    // Equalize bids and asks count (max 5)
+    const count = Math.min(asks.length, bids.length, 5);
+    const bookWidth = 42; // Approximate width based on PRICE(12) + AMOUNT(15) + SUM(15)
+
     const header = ' {gray-fg}PRICE           AMOUNT            SUM{/gray-fg}\n';
 
     // Asks (Red)
-    const askRows = asks.slice(0, 10).map(row => {
+    const askRows = asks.slice(0, count).map(row => {
       const price = `{red-fg}${this.padRight(row[0], 12)}{/red-fg}`;
       const amount = this.padRight(row[1], 15);
       const sum = this.padRight(row[2], 15);
@@ -409,28 +425,44 @@ export class TuiApp {
     }).reverse();
 
     // Last Price Row
-    const ltpRow = `\n {bold}${this.padRight(lastPrice, 12)}{/bold}\n`;
+    const ltpRow = ` {bold}${this.padRight(lastPrice, 12)}{/bold}\n`;
 
     // Bids (Green)
-    const bidRows = bids.slice(0, 10).map(row => {
+    const bidRows = bids.slice(0, count).map(row => {
       const price = `{green-fg}${this.padRight(row[0], 12)}{/green-fg}`;
       const amount = this.padRight(row[1], 15);
       const sum = this.padRight(row[2], 15);
       return ` ${price}${amount}${sum}`;
     });
 
-    const asksHeader = ' {red-fg}---- ASKS ----{/red-fg}\n';
-    const bidsHeader = '\n {green-fg}---- BIDS ----{/green-fg}\n';
+    const asksLabel = "---- ASKS ----";
+    const bidsLabel = "---- BIDS ----";
+    const asksPadding = " ".repeat(Math.max(0, Math.floor((bookWidth - asksLabel.length) / 2)));
+    const bidsPadding = " ".repeat(Math.max(0, Math.floor((bookWidth - bidsLabel.length) / 2)));
+
+    const asksHeader = ` {red-fg}${asksPadding}${asksLabel}{/red-fg}\n`;
+    const bidsHeader = ` {green-fg}${bidsPadding}${bidsLabel}{/green-fg}\n`;
 
     this.tradeTable.setContent(header + asksHeader + askRows.join('\n') + ltpRow + bidsHeader + bidRows.join('\n'));
     this.render();
   }
 
-  updateAi(data: { verdict: string; signal: string; confidence: number; no_trade_condition?: string; pair?: string }) {
+  updateAi(data: {
+    verdict: string;
+    signal: string;
+    confidence: number;
+    no_trade_condition?: string;
+    pair?: string;
+    entry?: string;
+    stopLoss?: string;
+    takeProfit?: string;
+    rr?: number;
+  }) {
     const pair = data.pair ?? this.focusedPair;
     this.aiByPair.set(pair, {
       verdict: data.verdict, signal: data.signal,
       confidence: data.confidence, no_trade_condition: data.no_trade_condition,
+      entry: data.entry, stopLoss: data.stopLoss, takeProfit: data.takeProfit, rr: data.rr,
     });
     if (pair === this.focusedPair) this.renderAi();
   }
@@ -444,8 +476,17 @@ export class TuiApp {
     }
     const sig = data.signal || 'WAIT';
     const color = sig === 'LONG' ? 'green' : sig === 'SHORT' ? 'red' : 'yellow';
+    const setup =
+      sig === 'LONG' || sig === 'SHORT'
+        ? [
+            ` {white-fg}ENTRY:{/white-fg} ${formatPrice(data.entry)}`,
+            ` {white-fg}SL:{/white-fg} ${formatPrice(data.stopLoss)}`,
+            ` {white-fg}TP:{/white-fg} ${formatPrice(data.takeProfit)}`,
+            data.rr !== undefined && Number.isFinite(data.rr) ? ` {white-fg}R:R:{/white-fg} ${Number(data.rr).toFixed(2)}` : undefined,
+          ].filter(Boolean).join('\n')
+        : '';
     const reason = data.no_trade_condition ? `\n {gray-fg}REASON: ${data.no_trade_condition}{/gray-fg}` : '';
-    const content = `\n {bold}${data.verdict}{/bold}\n\n {${color}-fg}SIGNAL: ${sig}{/${color}-fg}\n {gray-fg}CONF: ${(data.confidence * 100).toFixed(0)}%{/gray-fg}${reason}`;
+    const content = `\n {bold}${data.verdict}{/bold}\n\n {${color}-fg}SIGNAL: ${sig}{/${color}-fg}\n {gray-fg}CONF: ${(data.confidence * 100).toFixed(0)}%{/gray-fg}${setup ? `\n${setup}` : ''}${reason}`;
     this.aiBox.setContent(content);
     this.render();
   }
