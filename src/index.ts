@@ -24,7 +24,9 @@ import { PerPairCooldownRule } from './strategy/risk/rules/cooldown';
 import { OpposingPairCorrelationRule } from './strategy/risk/rules/correlation';
 import { DrawdownGateRule } from './strategy/risk/rules/drawdown-gate';
 import type { RiskFilter } from './strategy/types';
-import type { Candle } from './ai/state-builder';
+import type { Candle, BookSnapshot } from './ai/state-builder';
+import { MultiTimeframeStore, DEFAULT_TF_CONFIGS } from './marketdata/candles/multi-timeframe-store';
+import type { OrderBook } from './marketdata/book/orderbook';
 import ntp from 'ntp-client';
 import axios from 'axios';
 
@@ -59,6 +61,63 @@ export const state = {
   usdtInrRate: 88.5, // Fallback rate
   selectedSymbol: 'SOLUSDT' // Initial focus
 };
+
+// ══════════════════════════════════════════════════════
+// ── Helpers ──
+// ══════════════════════════════════════════════════════
+
+/** Extract bid/ask metrics from an L2 OrderBook for strategy context. */
+function computeBookSnapshot(book: OrderBook): BookSnapshot {
+  const top = book.topN(20);
+  const bestBid = parseFloat(top.bids[0]?.price ?? '0');
+  const bestAsk = parseFloat(top.asks[0]?.price ?? '0');
+  const spread = bestAsk > 0 && bestBid > 0 ? bestAsk - bestBid : 0;
+
+  // Depth within 1% of best price
+  const bidDepth = top.bids
+    .filter(l => bestBid > 0 && parseFloat(l.price) >= bestBid * 0.99)
+    .reduce((s, l) => s + parseFloat(l.qty), 0);
+  const askDepth = top.asks
+    .filter(l => bestAsk > 0 && parseFloat(l.price) <= bestAsk * 1.01)
+    .reduce((s, l) => s + parseFloat(l.qty), 0);
+
+  // Largest single level (wall)
+  const bidWall = top.bids.reduce<{ price: string; qty: string } | undefined>(
+    (mx, l) => (!mx || parseFloat(l.qty) > parseFloat(mx.qty) ? l : mx), undefined,
+  );
+  const askWall = top.asks.reduce<{ price: string; qty: string } | undefined>(
+    (mx, l) => (!mx || parseFloat(l.qty) > parseFloat(mx.qty) ? l : mx), undefined,
+  );
+
+  const imbalance: BookSnapshot['imbalance'] =
+    bidDepth > askDepth * 1.2 ? 'bid-heavy' :
+    askDepth > bidDepth * 1.2 ? 'ask-heavy' :
+    'neutral';
+
+  return {
+    bestBid,
+    bestAsk,
+    spread,
+    bidDepth1pct: bidDepth,
+    askDepth1pct: askDepth,
+    imbalance,
+    bidWallPrice: bidWall ? parseFloat(bidWall.price) : null,
+    askWallPrice: askWall ? parseFloat(askWall.price) : null,
+  };
+}
+
+/** Determine simple trend from last N candles. */
+function candleTrend(candles: Candle[], n = 3): 'up' | 'down' | 'sideways' {
+  if (candles.length < n) return 'sideways';
+  const slice = candles.slice(-n);
+  const higherHighs = slice.every((c, i) => i === 0 || c.high >= slice[i - 1].high);
+  const higherLows  = slice.every((c, i) => i === 0 || c.low  >= slice[i - 1].low);
+  const lowerHighs  = slice.every((c, i) => i === 0 || c.high <= slice[i - 1].high);
+  const lowerLows   = slice.every((c, i) => i === 0 || c.low  <= slice[i - 1].low);
+  if (higherHighs && higherLows) return 'up';
+  if (lowerHighs  && lowerLows)  return 'down';
+  return 'sideways';
+}
 
 // ══════════════════════════════════════════════════════
 // ── Main ──
@@ -156,31 +215,60 @@ async function runApp(ctx: Context) {
   ws.on('currentPrices@futures#update', (raw: any) => integrity.ingest('currentPrices@futures#update', raw));
   ws.on('currentPrices@spot#update',    (raw: any) => integrity.ingest('currentPrices@spot#update',    raw));
 
+  // ── WS candlestick → MTF store ──
+  // CoinDCX fires `candlestick` with response.data = [{open,close,high,low,volume,open_time,pair,duration,...}]
+  ws.on('candlestick', (raw: any) => {
+    const candles = Array.isArray(raw) ? raw : [];
+    for (const c of candles) {
+      if (!c.pair || !c.duration) continue;
+      mtfStore.applyWsCandle(c.pair, c.duration as string, c);
+    }
+  });
+
   // ── F4 Strategy Framework ──
-  const candleStore = new Map<string, { ltf: Candle[]; htf: Candle[] }>();
-  const ensureCandles = (pair: string) => {
-    if (!candleStore.has(pair)) candleStore.set(pair, { ltf: [], htf: [] });
-    return candleStore.get(pair)!;
-  };
   const enabledIds = new Set(ctx.config.STRATEGY_ENABLED_IDS);
   const configuredPairs: string[] = ctx.config.COINDCX_PAIRS as unknown as string[];
 
-  const mapCandles = (raw: any) => (Array.isArray(raw) ? raw : []).map((c: any) => ({
-    timestamp: c[0], open: parseFloat(c[1]), high: parseFloat(c[2]),
-    low: parseFloat(c[3]), close: parseFloat(c[4]), volume: parseFloat(c[5])
-  }));
+  /** Fetch candles from REST, normalise to Candle[], oldest-first. */
+  async function fetchCandlesForStore(pair: string, tf: string, limit: number): Promise<Candle[]> {
+    const raw = await CoinDCXApi.getCandles(pair, tf, limit);
+    if (!Array.isArray(raw)) return [];
+    return raw.map((c: any) => ({
+      timestamp: c[0],
+      open: parseFloat(c[1]),
+      high: parseFloat(c[2]),
+      low: parseFloat(c[3]),
+      close: parseFloat(c[4]),
+      volume: parseFloat(c[5]),
+    }));
+  }
 
+  const mtfStore = new MultiTimeframeStore({
+    configs: DEFAULT_TF_CONFIGS,
+    fetchCandles: fetchCandlesForStore,
+    logger: ctx.logger,
+  });
+
+  // Seed all configured pairs in parallel
+  await Promise.all(
+    configuredPairs.map(async (rawPair) => {
+      try {
+        await mtfStore.seed(rawPair);
+        const ltfCount = mtfStore.get(rawPair, '15m').length;
+        const htfCount = mtfStore.get(rawPair, '1h').length;
+        tui.log(`{gray-fg}[MTF] Seeded ${cleanPair(rawPair)}: 1m=${mtfStore.get(rawPair, '1m').length} 15m=${ltfCount} 1h=${htfCount}{/gray-fg}`);
+      } catch (err: any) {
+        tui.log(`{red-fg}⚠ [MTF] Seed failed for ${rawPair}: ${err.message}{/red-fg}`, 'error');
+      }
+    }),
+  );
+
+  /** Compatibility shim for llm.pulse beforeEvaluate: reports current candle counts. */
   async function refreshPairCandles(rawPair: string): Promise<{ htf: number; ltf: number }> {
-    const [rawHtf, rawLtf] = await Promise.all([
-      CoinDCXApi.getCandles(rawPair, '1h', 50),
-      CoinDCXApi.getCandles(rawPair, '15m', 50)
-    ]);
-    const htfCandles = mapCandles(rawHtf);
-    const ltfCandles = mapCandles(rawLtf);
-    const store = ensureCandles(rawPair);
-    store.htf = htfCandles;
-    store.ltf = ltfCandles;
-    return { htf: htfCandles.length, ltf: ltfCandles.length };
+    return {
+      htf: mtfStore.get(rawPair, '1h').length,
+      ltf: mtfStore.get(rawPair, '15m').length,
+    };
   }
 
   const buildRiskFilter = (): RiskFilter => {
@@ -206,10 +294,14 @@ async function runApp(ctx: Context) {
     ws,
     signalBus: ctx.bus,
     riskFilter: buildRiskFilter(),
-    buildMarketState: (htf, ltf, pair) => ctx.stateBuilder.build(htf, ltf, null, [], pair),
+    buildMarketState: (htf, ltf, pair) => {
+      const book = integrity.books.get(pair);
+      const bookSnap = book && book.state() === 'live' ? computeBookSnapshot(book) : null;
+      return ctx.stateBuilder.build(htf, ltf, bookSnap, [], pair);
+    },
     candleProvider: {
-      ltf: pair => ensureCandles(pair).ltf,
-      htf: pair => ensureCandles(pair).htf,
+      ltf: pair => mtfStore.get(pair, '15m'),
+      htf: pair => mtfStore.get(pair, '1h'),
     },
     accountSnapshot: () => account.snapshot(),
     recentFills: (n = 20) => account.fills.recent(n),
@@ -265,8 +357,43 @@ async function runApp(ctx: Context) {
     tui.updateBookState(book ? book.state() : '—');
   }, 1000);
 
+  /** Push fresh MTF + book metrics into the TUI AI panel for the given pair. */
+  function pushMtfToTui(pair: string): void {
+    const c1m  = mtfStore.get(pair, '1m');
+    const c15m = mtfStore.get(pair, '15m');
+    const c1h  = mtfStore.get(pair, '1h');
+    const last1m  = c1m[c1m.length - 1];
+    const last15m = c15m[c15m.length - 1];
+    const last1h  = c1h[c1h.length - 1];
+
+    const book = integrity.books.get(pair);
+    const snap = book && book.state() === 'live' ? computeBookSnapshot(book) : undefined;
+
+    tui.updateMtf({
+      pair,
+      tf1m:  last1m  ? { close: last1m.close,  volume: last1m.volume,  trend: candleTrend(c1m) }  : undefined,
+      tf15m: last15m ? { close: last15m.close, volume: last15m.volume, trend: candleTrend(c15m) } : undefined,
+      tf1h:  last1h  ? { close: last1h.close,  volume: last1h.volume,  trend: candleTrend(c1h) }  : undefined,
+      bookImbalance: snap?.imbalance,
+      bestBid: snap?.bestBid,
+      bestAsk: snap?.bestAsk,
+      spread: snap?.spread,
+    });
+  }
+
+  // Push MTF panel updates whenever a candle bar arrives for the focused pair
+  mtfStore.on('update', ({ pair }: { pair: string }) => {
+    if (pair === tui.focusedPair) pushMtfToTui(pair);
+  });
+
+  // Also push on focus change so switching pairs immediately shows current data
+  tui.setOnFocusChange((pair: string) => {
+    refreshBookDisplay();
+    refreshHeader();
+    pushMtfToTui(pair);
+  });
+
   const MAX_TRADES = 50;
-  const CANDLE_REFRESH_MS = 60_000;
 
   function log(msg: any) {
     if (typeof msg === 'string') {
@@ -297,19 +424,16 @@ async function runApp(ctx: Context) {
     return tui.focusedPairClean;
   }
 
-  async function refreshStrategyCandles() {
+  function logCandleStatus(): void {
     for (const rawPair of configuredPairs) {
-      try {
-        const symbol = cleanPair(rawPair);
-        const candles = await refreshPairCandles(rawPair);
-        if (candles.htf > 0 && candles.ltf > 0) {
-          tui.log(`{gray-fg}[STRATEGY] Market state refreshed for ${symbol}{/gray-fg}`);
-        } else {
-          tui.log(`{red-fg}⚠ [STRATEGY] No candles for ${rawPair} (htf=${candles.htf} ltf=${candles.ltf}){/red-fg}`, 'error');
-        }
-      } catch (err: any) {
-        ctx.logger.error({ mod: 'strategy-data', err: err.message }, 'strategy market data refresh failed');
-        tui.log(`{red-fg}⚠ [STRATEGY] Candle refresh failed for ${rawPair}: ${err.message}{/red-fg}`, 'error');
+      const symbol = cleanPair(rawPair);
+      const c1m  = mtfStore.get(rawPair, '1m').length;
+      const c15m = mtfStore.get(rawPair, '15m').length;
+      const c1h  = mtfStore.get(rawPair, '1h').length;
+      if (c15m > 0 && c1h > 0) {
+        tui.log(`{gray-fg}[MTF] ${symbol}: 1m=${c1m} 15m=${c15m} 1h=${c1h}{/gray-fg}`);
+      } else {
+        tui.log(`{red-fg}⚠ [MTF] No candles for ${rawPair} (1m=${c1m} 15m=${c15m} 1h=${c1h}){/red-fg}`, 'error');
       }
     }
   }
@@ -329,8 +453,8 @@ async function runApp(ctx: Context) {
   }
 
   // ── Strategy Market Data Loop ──
-  void refreshStrategyCandles().then(() => seedInitialAiPulse());
-  setInterval(() => { void refreshStrategyCandles(); }, CANDLE_REFRESH_MS);
+  logCandleStatus();
+  void seedInitialAiPulse();
 
   // ── Institutional Signal Sink ──
   class TuiSink {
@@ -587,12 +711,6 @@ async function runApp(ctx: Context) {
       unrealUsdt: `${formatQty(totalPnlUsdt, 2)} USDT`
     });
   }
-
-  // ── On Focus Change: re-filter trades + update header ──
-  tui.setOnFocusChange(() => {
-    refreshBookDisplay();
-    refreshHeader();
-  });
 
   // ── Set initial placeholders ──
   tui.updateOrderBook([], [], 'Connecting...');
