@@ -4,6 +4,8 @@ import type { MarketState, MarketStateConfluence } from '../../src/ai/state-buil
 describe('MarketState type export', () => {
   it('compiles when MarketState is consumed at type level', () => {
     const m: MarketState = {
+      symbol: 'X',
+      current_price: 1,
       htf: { trend: 'uptrend', swing_high: 1, swing_low: 0 },
       ltf: {
         trend: 'uptrend', bos: false, swing_high: 1, swing_low: 0,

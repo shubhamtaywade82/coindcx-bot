@@ -151,16 +151,23 @@ export class IntegrityController {
     const pair: string | undefined = raw?.s ?? raw?.pair;
     if (pair) this.stale.touch(channel, pair);
 
+    // CoinDCX sends asks/bids as objects {"price":"qty"} — normalize to Array<[string, string]>
+    const toArr = (v: any): Array<[string, string]> => {
+      if (Array.isArray(v)) return v;
+      if (v && typeof v === 'object') return Object.entries(v).map(([p, q]) => [p, String(q)] as [string, string]);
+      return [];
+    };
+
     if (channel === 'depth-snapshot' && pair) {
       this.books.onDepthSnapshot(pair, {
-        asks: raw.asks ?? [],
-        bids: raw.bids ?? [],
+        asks: toArr(raw.asks),
+        bids: toArr(raw.bids),
         ts,
       });
     } else if (channel === 'depth-update' && pair) {
       this.books.onDepthDelta(pair, {
-        asks: raw.asks ?? [],
-        bids: raw.bids ?? [],
+        asks: toArr(raw.asks),
+        bids: toArr(raw.bids),
         ts,
       });
     }

@@ -1,6 +1,7 @@
 import type { Candle, MarketState } from '../ai/state-builder';
 import type { AccountSnapshot, Fill } from '../account/types';
 import type { StrategyContext, StrategyTrigger } from './types';
+import type { FusionSnapshot } from '../marketdata/coindcx-fusion';
 
 export interface CandleProvider {
   ltf: (pair: string) => Candle[];
@@ -12,6 +13,7 @@ export interface ContextBuilderOptions {
   candleProvider: CandleProvider;
   accountSnapshot: () => AccountSnapshot;
   recentFills: (n?: number) => Fill[];
+  fusionProvider: (pair: string) => FusionSnapshot | null;
   clock?: () => number;
 }
 
@@ -34,6 +36,7 @@ export class ContextBuilder {
       account: this.opts.accountSnapshot(),
       recentFills: this.opts.recentFills(20),
       trigger: args.trigger,
+      fusion: this.opts.fusionProvider(args.pair) ?? undefined,
     };
   }
 }

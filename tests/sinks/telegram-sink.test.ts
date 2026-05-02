@@ -17,7 +17,7 @@ describe('TelegramSink', () => {
     const sink = new TelegramSink({
       token, chatId: chat, ratePerMin: 60, retryDelaysMs: [1, 1, 1],
     });
-    await sink.emit({ id: '1', ts: 't', strategy: 's', type: 'x', severity: 'info', payload: {} });
+    await sink.emit({ id: '1', ts: 't', strategy: 's', type: 'strategy.long', severity: 'info', payload: {} });
     expect(scope.isDone()).toBe(true);
   });
 
@@ -28,7 +28,7 @@ describe('TelegramSink', () => {
     const sink = new TelegramSink({
       token, chatId: chat, ratePerMin: 60, retryDelaysMs: [1, 1, 1],
     });
-    await sink.emit({ id: '1', ts: 't', strategy: 's', type: 'x', severity: 'info', payload: {} });
+    await sink.emit({ id: '1', ts: 't', strategy: 's', type: 'strategy.long', severity: 'info', payload: {} });
     expect(ok.isDone()).toBe(true);
   });
 
@@ -38,7 +38,7 @@ describe('TelegramSink', () => {
     const sink = new TelegramSink({
       token, chatId: chat, ratePerMin: 60, retryDelaysMs: [1, 1, 1], onDrop,
     });
-    await sink.emit({ id: '1', ts: 't', strategy: 's', type: 'x', severity: 'info', payload: {} });
+    await sink.emit({ id: '1', ts: 't', strategy: 's', type: 'strategy.long', severity: 'info', payload: {} });
     expect(onDrop).toHaveBeenCalledOnce();
   });
 });

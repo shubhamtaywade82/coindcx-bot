@@ -1,5 +1,6 @@
 import type { AppLogger } from '../logging/logger';
 import type { Pool } from 'pg';
+import type { FusionSnapshot } from '../marketdata/coindcx-fusion';
 
 export interface Candle {
   timestamp: number;
@@ -59,12 +60,13 @@ export interface MarketState {
     size: number;
   };
   pine_signals?: any[];
+  fusion?: FusionSnapshot;
 }
 
 export class MarketStateBuilder {
   constructor(private logger: AppLogger, private pool?: Pool) {}
 
-  async build(htfCandles: Candle[], ltfCandles: Candle[], _orderBook: unknown, positions: any[], pair?: string): Promise<MarketState | null> {
+  async build(htfCandles: Candle[], ltfCandles: Candle[], fusion: FusionSnapshot | null, positions: any[], pair?: string): Promise<MarketState | null> {
     if (ltfCandles.length < 10) return null;
 
     const activePos = positions.find(p => p.pair === pair);
@@ -117,7 +119,8 @@ export class MarketStateBuilder {
         is_pre_expansion: smc.displacement.present && !smc.mitigation.status.includes('full')
       },
       position: positionData,
-      pine_signals
+      pine_signals,
+      fusion: fusion ?? undefined
     };
   }
 
