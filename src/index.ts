@@ -215,16 +215,6 @@ async function runApp(ctx: Context) {
   ws.on('currentPrices@futures#update', (raw: any) => integrity.ingest('currentPrices@futures#update', raw));
   ws.on('currentPrices@spot#update',    (raw: any) => integrity.ingest('currentPrices@spot#update',    raw));
 
-  // ── WS candlestick → MTF store ──
-  // CoinDCX fires `candlestick` with response.data = [{open,close,high,low,volume,open_time,pair,duration,...}]
-  ws.on('candlestick', (raw: any) => {
-    const candles = Array.isArray(raw) ? raw : [];
-    for (const c of candles) {
-      if (!c.pair || !c.duration) continue;
-      mtfStore.applyWsCandle(c.pair, c.duration as string, c);
-    }
-  });
-
   // ── F4 Strategy Framework ──
   const enabledIds = new Set(ctx.config.STRATEGY_ENABLED_IDS);
   const configuredPairs: string[] = ctx.config.COINDCX_PAIRS as unknown as string[];
@@ -381,6 +371,16 @@ async function runApp(ctx: Context) {
     });
   }
 
+  // ── WS candlestick → MTF store (registered here, after mtfStore is initialized) ──
+  // CoinDCX fires `candlestick` with response.data = [{open,close,high,low,volume,open_time,pair,duration,...}]
+  ws.on('candlestick', (raw: any) => {
+    const candles = Array.isArray(raw) ? raw : [];
+    for (const c of candles) {
+      if (!c.pair || !c.duration) continue;
+      mtfStore.applyWsCandle(c.pair, c.duration as string, c);
+    }
+  });
+
   // Push MTF panel updates whenever a candle bar arrives for the focused pair
   mtfStore.on('update', ({ pair }: { pair: string }) => {
     if (pair === tui.focusedPair) pushMtfToTui(pair);
@@ -392,6 +392,9 @@ async function runApp(ctx: Context) {
     refreshHeader();
     pushMtfToTui(pair);
   });
+
+  // Paint the MTF panel immediately with seeded data so it's not blank at startup
+  pushMtfToTui(tui.focusedPair);
 
   const MAX_TRADES = 50;
 
