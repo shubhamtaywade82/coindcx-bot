@@ -1,0 +1,384 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © shubhamtaywade82
+
+// @version=6
+indicator("HTF Volume Spike, Divergence & Conviction [LuxAlgo]", "LuxAlgo - Spike · Div · Conviction", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500)
+
+//─────────────────────────────────────────────────────────────────────────────
+// Settings
+//─────────────────────────────────────────────────────────────────────────────
+string HTF_GRP   = "Higher Timeframe (Anchor)"
+string SPIKE_GRP = "Volume Spike Detection"
+string DIV_GRP   = "Divergence & Conviction"
+string FEAT_GRP  = "Advanced Features"
+string VIS_GRP   = "Visuals"
+
+// ── Auto Timeframe Helpers ───────────────────────────────────────────────────
+getAutoHtf() =>
+    if timeframe.isintraday
+        if timeframe.multiplier < 5
+            "15"
+        else if timeframe.multiplier < 15
+            "60"
+        else if timeframe.multiplier < 60
+            "240"
+        else
+            "D"
+    else if timeframe.isdaily
+        "W"
+    else
+        "M"
+
+getAutoLtf() =>
+    if timeframe.isintraday
+        if timeframe.multiplier >= 60
+            "5"
+        else
+            "1"
+    else if timeframe.isdaily
+        "60"
+    else
+        "240"
+
+// ── Inputs ───────────────────────────────────────────────────────────────────
+string htfInput      = input.string("Auto", "HTF Anchor Timeframe",    group = HTF_GRP,   options = ["Auto","15","30","60","240","D","W","M"])
+string ltfInput      = input.string("Auto", "Spike Granularity",       group = SPIKE_GRP, options = ["Auto","1","3","5","15","60","240"])
+float  spikeMultInput= input.float(1.2,     "Volume Spike Multiplier", group = SPIKE_GRP, minval = 1.0, step = 0.1)
+int    maLenInput    = input.int(20,        "Volume MA Length",         group = SPIKE_GRP, minval = 5)
+
+int    rsiLenInput   = input.int(14,        "RSI Length",               group = DIV_GRP,   minval = 1,  tooltip = "RSI period for divergence detection.")
+int    lbRInput      = input.int(5,         "Pivot Right Lookback",     group = DIV_GRP,   tooltip = "Bars to the right to confirm a pivot.")
+int    lbLInput      = input.int(5,         "Pivot Left Lookback",      group = DIV_GRP,   tooltip = "Bars to the left to identify a pivot.")
+bool   useVolVal     = input.bool(true,     "Require Volume Conviction", group = DIV_GRP,  tooltip = "Only mark 'High Conviction' when HTF volume delta aligns with divergence direction.")
+
+bool   showGhostInput    = input.bool(true,  "Show Ghost (Previous) Bar",      group = FEAT_GRP)
+bool   showImbInput      = input.bool(true,  "Highlight Stacked Imbalances",    group = FEAT_GRP)
+bool   showHtfConnLines  = input.bool(true,  "Show Anchor Connection Lines",    group = FEAT_GRP)
+bool   showChartSpikes   = input.bool(true,  "Show Bubbles on Chart Candles",   group = FEAT_GRP)
+bool   showChartImb      = input.bool(true,  "Show Imbalances on Chart Candles",group = FEAT_GRP)
+bool   showHtfLevels     = input.bool(true,  "Show HTF OHLC Levels",            group = FEAT_GRP)
+bool   showHtfRibbon     = input.bool(true,  "Show HTF Bias Ribbon",            group = FEAT_GRP)
+bool   showPo3           = input.bool(true,  "Show HTF PO3 Projection",         group = FEAT_GRP, tooltip = "Projects current HTF candle (Power of 3) alongside VP panel.")
+
+int    projOffsetInput   = input.int(5,   "Projection X-Offset",    group = VIS_GRP, minval = 1)
+int    scatterWidthInput = input.int(25,  "Scatter Plot Width",      group = VIS_GRP, minval = 10)
+int    vpRowsInput       = input.int(40,  "VP Row Density",          group = VIS_GRP, minval = 10)
+int    vpWidthInput      = input.int(12,  "VP Max Width (Bars)",     group = VIS_GRP, minval = 5)
+
+color bullColorInput    = input.color(#089981,                    "Bullish Color",         inline = "col", group = VIS_GRP)
+color bearColorInput    = input.color(#f23645,                    "Bearish Color",         inline = "col", group = VIS_GRP)
+color projBgColorInput  = input.color(color.new(#2a2e39, 60),    "Projection Background",              group = VIS_GRP)
+color convBullColor     = input.color(#00e676,                    "Conviction Bull Color", inline = "cv",  group = VIS_GRP)
+color convBearColor     = input.color(#aa00ff,                    "Conviction Bear Color", inline = "cv",  group = VIS_GRP)
+
+// ── Resolve Timeframes ────────────────────────────────────────────────────────
+string tfHtf     = htfInput == "Auto" ? getAutoHtf() : htfInput
+string tfLtf     = ltfInput == "Auto" ? getAutoLtf() : ltfInput
+string displayTf = tfHtf == "D" ? "Daily" : tfHtf == "W" ? "Weekly" : tfHtf == "M" ? "Monthly" : tfHtf + "m"
+
+//─────────────────────────────────────────────────────────────────────────────
+// Data Retrieval & State
+//─────────────────────────────────────────────────────────────────────────────
+bool isNewHtf = ta.change(time(tfHtf)) != 0
+
+// Current HTF bar state
+var float htfOpen = na, var float htfHigh = na, var float htfLow = na, var float htfClose = na
+var int   htfOpenIdx = na, var int htfHighIdx = na, var int htfLowIdx = na
+
+// LTF spike arrays (current)
+var spikePriceArr = array.new<float>()
+var spikeTimeArr  = array.new<int>()
+var spikeVolArr   = array.new<float>()
+var spikeDeltaArr = array.new<float>()
+var htfCloseArr   = array.new<float>()
+var htfVolArr     = array.new<float>()
+
+// Ghost (previous) copies
+var float pOpen = na, var float pHigh = na, var float pLow = na, var float pClose = na
+var int   pHtfOpenIdx = na
+var pSPriceArr = array.new<float>(), var pSTimeArr = array.new<int>()
+var pSVolArr   = array.new<float>(), var pSDeltaArr= array.new<float>()
+var pHCloseArr = array.new<float>(), var pHVolArr  = array.new<float>()
+
+// HTF OHLC via request.security (for levels + divergence HTF context)
+[hOpen, hHigh, hLow, hClose] = request.security(syminfo.tickerid, tfHtf, [open, high, low, close], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+
+// Running HTF volume delta (for conviction filter)
+var float runningDelta = 0.0
+if isNewHtf
+    runningDelta := (close > open ? volume : close < open ? -volume : 0.0)
+else
+    runningDelta += (close > open ? volume : close < open ? -volume : 0.0)
+
+// HTF bar transition: archive current → previous
+if isNewHtf
+    pOpen := htfOpen, pHigh := htfHigh, pLow := htfLow, pClose := htfClose
+    pHtfOpenIdx := htfOpenIdx
+    pSPriceArr  := spikePriceArr.copy(), pSTimeArr := spikeTimeArr.copy()
+    pSVolArr    := spikeVolArr.copy(),   pSDeltaArr := spikeDeltaArr.copy()
+    pHCloseArr  := htfCloseArr.copy(),   pHVolArr   := htfVolArr.copy()
+
+    htfOpen := open, htfHigh := high, htfLow := low, htfClose := close
+    htfOpenIdx := bar_index, htfHighIdx := bar_index, htfLowIdx := bar_index
+    spikePriceArr.clear(), spikeTimeArr.clear(), spikeVolArr.clear(), spikeDeltaArr.clear()
+    htfCloseArr.clear(), htfVolArr.clear()
+else
+    if high >= nz(htfHigh, -1.0e10)
+        htfHigh    := high
+        htfHighIdx := bar_index
+    if low <= nz(htfLow, 1.0e10)
+        htfLow    := low
+        htfLowIdx := bar_index
+    htfClose := close
+
+// LTF spike ingestion
+[ltfO, ltfC, ltfV, ltfVma] = request.security_lower_tf(syminfo.tickerid, tfLtf, [open, close, volume, ta.sma(volume, maLenInput)])
+
+if not na(ltfO) and ltfO.size() > 0
+    for i = 0 to ltfO.size() - 1
+        float o   = ltfO.get(i), float c = ltfC.get(i)
+        float v   = ltfV.get(i), float vma = ltfVma.get(i)
+        if htfCloseArr.size() < 450
+            htfCloseArr.push(c), htfVolArr.push(v)
+            if not na(vma) and v > vma * spikeMultInput
+                spikePriceArr.push(c), spikeTimeArr.push(bar_index)
+                spikeVolArr.push(v),   spikeDeltaArr.push(c >= o ? 1.0 : -1.0)
+
+//─────────────────────────────────────────────────────────────────────────────
+// Divergence Engine (ChartPrime logic, LuxAlgo visual output)
+//─────────────────────────────────────────────────────────────────────────────
+float rsiValue = ta.rsi(close, rsiLenInput)
+float phRsi    = ta.pivothigh(rsiValue, lbLInput, lbRInput)
+float plRsi    = ta.pivotlow(rsiValue,  lbLInput, lbRInput)
+
+var float plPriceMem = na, var float plRsiMem = na, var float plDeltaMem = na, var int plIndexMem = na
+var float phPriceMem = na, var float phRsiMem = na, var float phDeltaMem = na, var int phIndexMem = na
+
+bool bullDiv   = false, bool bearDiv   = false
+bool bullPrime = false, bool bearPrime = false
+
+if not na(plRsi)
+    if not na(plPriceMem) and rsiValue[lbRInput] > plRsiMem and low[lbRInput] < plPriceMem
+        bullDiv  := true
+        if useVolVal and runningDelta > plDeltaMem
+            bullPrime := true
+    plPriceMem := low[lbRInput],      plRsiMem   := rsiValue[lbRInput]
+    plDeltaMem := runningDelta,       plIndexMem := bar_index - lbRInput
+
+if not na(phRsi)
+    if not na(phPriceMem) and rsiValue[lbRInput] < phRsiMem and high[lbRInput] > phPriceMem
+        bearDiv  := true
+        if useVolVal and runningDelta < phDeltaMem
+            bearPrime := true
+    phPriceMem := high[lbRInput],     phRsiMem   := rsiValue[lbRInput]
+    phDeltaMem := runningDelta,       phIndexMem := bar_index - lbRInput
+
+//─────────────────────────────────────────────────────────────────────────────
+// Drawing Management
+//─────────────────────────────────────────────────────────────────────────────
+var boxArr        = array.new<box>()
+var lineArr       = array.new<line>()
+var labelArr      = array.new<label>()
+var chartSpikeArr = array.new<label>()
+var chartImbArr   = array.new<box>()
+// HTF level lines (updated every bar, so stored as vars not in managed arrays)
+var line htfOLine = na, var line htfHLine = na, var line htfLLine = na, var line htfCLine = na
+var label htfOLbl = na, var label htfHLbl = na, var label htfLLbl = na, var label htfCLbl = na
+var int   htfLevelStart = na
+
+clearDrawings() =>
+    for b in boxArr
+        b.delete()
+    for l in lineArr
+        l.delete()
+    for lb in labelArr
+        lb.delete()
+    for lb in chartSpikeArr
+        lb.delete()
+    for b  in chartImbArr
+        b.delete()
+    boxArr.clear(), lineArr.clear(), labelArr.clear()
+    chartSpikeArr.clear(), chartImbArr.clear()
+
+//─────────────────────────────────────────────────────────────────────────────
+// HTF OHLC Level Lines (live-updated, LuxAlgo style)
+//─────────────────────────────────────────────────────────────────────────────
+if showHtfLevels
+    if isNewHtf
+        // Delete old level drawings
+        line.delete(htfOLine), line.delete(htfHLine), line.delete(htfLLine), line.delete(htfCLine)
+        label.delete(htfOLbl), label.delete(htfHLbl), label.delete(htfLLbl), label.delete(htfCLbl)
+        htfLevelStart := bar_index
+        htfOLine := line.new(htfLevelStart, hOpen,  bar_index, hOpen,  color = color.new(chart.fg_color, 65),    style = line.style_dashed)
+        htfHLine := line.new(htfLevelStart, hHigh,  bar_index, hHigh,  color = color.new(bullColorInput, 65),    style = line.style_dotted)
+        htfLLine := line.new(htfLevelStart, hLow,   bar_index, hLow,   color = color.new(bearColorInput, 65),    style = line.style_dotted)
+        htfCLine := line.new(htfLevelStart, hClose, bar_index, hClose, color = color.new(chart.fg_color, 50),    style = line.style_solid)
+        htfOLbl  := label.new(htfLevelStart, hOpen,  "H-O", color = #00000000, textcolor = color.new(chart.fg_color, 40), style = label.style_label_right, size = size.tiny, text_font_family = font.family_monospace)
+        htfHLbl  := label.new(htfLevelStart, hHigh,  "H-H", color = #00000000, textcolor = color.new(bullColorInput, 30), style = label.style_label_right, size = size.tiny, text_font_family = font.family_monospace)
+        htfLLbl  := label.new(htfLevelStart, hLow,   "H-L", color = #00000000, textcolor = color.new(bearColorInput, 30), style = label.style_label_right, size = size.tiny, text_font_family = font.family_monospace)
+        htfCLbl  := label.new(htfLevelStart, hClose, "H-C", color = #00000000, textcolor = color.new(chart.fg_color, 30), style = label.style_label_right, size = size.tiny, text_font_family = font.family_monospace)
+    else
+        if not na(htfHLine)
+            line.set_x2(htfOLine, bar_index), line.set_x2(htfHLine, bar_index)
+            line.set_x2(htfLLine, bar_index), line.set_x2(htfCLine, bar_index)
+            line.set_y1(htfHLine, hHigh),  line.set_y2(htfHLine, hHigh)
+            line.set_y1(htfLLine, hLow),   line.set_y2(htfLLine, hLow)
+            line.set_y1(htfCLine, hClose), line.set_y2(htfCLine, hClose)
+            label.set_y(htfHLbl, hHigh), label.set_y(htfLLbl, hLow), label.set_y(htfCLbl, hClose)
+
+//─────────────────────────────────────────────────────────────────────────────
+// Divergence Visuals (plotshape + prime labels — persistent per-bar)
+//─────────────────────────────────────────────────────────────────────────────
+plotshape(bullDiv and not bullPrime, "Bull Div",      shape.triangleup,   location.belowbar, color.new(bullColorInput, 20), size = size.tiny)
+plotshape(bearDiv and not bearPrime, "Bear Div",      shape.triangledown, location.abovebar, color.new(bearColorInput, 20), size = size.tiny)
+plotshape(bullPrime,                 "Bull Conviction",shape.triangleup,  location.belowbar, convBullColor, size = size.small)
+plotshape(bearPrime,                 "Bear Conviction",shape.triangledown,location.abovebar, convBearColor, size = size.small)
+
+// HTF bias ribbon
+bool htfIsBullish = hClose > hOpen
+plotshape(showHtfRibbon, "HTF Bias", shape.square, location.bottom, color.new(htfIsBullish ? bullColorInput : bearColorInput, 50), size = size.tiny, display = display.all - display.status_line)
+
+// Conviction connector lines + labels (drawn once per signal, persist)
+if bullPrime
+    label.new(bar_index, low, "High Conviction", yloc = yloc.belowbar, color = #00000000, textcolor = convBullColor, style = label.style_label_up, size = size.small, text_font_family = font.family_monospace)
+    line.new(plIndexMem, plPriceMem, bar_index, low, color = convBullColor, width = 2, style = line.style_solid)
+
+if bearPrime
+    label.new(bar_index, high, "High Conviction", yloc = yloc.abovebar, color = #00000000, textcolor = convBearColor, style = label.style_label_down, size = size.small, text_font_family = font.family_monospace)
+    line.new(phIndexMem, phPriceMem, bar_index, high, color = convBearColor, width = 2, style = line.style_solid)
+
+//─────────────────────────────────────────────────────────────────────────────
+// Render Helpers
+//─────────────────────────────────────────────────────────────────────────────
+renderChartBubbles(array<float> sP, array<int> sT, array<float> sV, array<float> sD, int transp) =>
+    if sP.size() > 0
+        float maxV = sV.max(), float minV = sV.min()
+        for i = 0 to sP.size() - 1
+            float p = sP.get(i), float v = sV.get(i)
+            int   t = sT.get(i), float d = sD.get(i)
+            float relV = maxV != minV ? (v - minV) / (maxV - minV) : 1.0
+            string bSz = relV < 0.25 ? size.tiny : relV < 0.5 ? size.small : relV < 0.8 ? size.normal : size.large
+            color baseC = d > 0 ? bullColorInput : bearColorInput
+            color bCol  = color.from_gradient(relV, 0, 1.0, color.new(baseC, 65 + transp/2), color.new(baseC, 5 + transp/2))
+            chartSpikeArr.push(label.new(t, p, "●", color = #00000000, textcolor = bCol, style = label.style_label_center, size = bSz))
+
+renderChartImbalances(float h, float l, int startIdx, int endIdx, array<float> sP, array<float> sD, int transp) =>
+    if sP.size() > 0 and showChartImb and h > l
+        float step = (h - l) / vpRowsInput
+        for r = 0 to vpRowsInput - 1
+            float bL = l + (r * step), float bH = bL + step
+            int buyCount = 0, int sellCount = 0
+            for i = 0 to sP.size() - 1
+                if sP.get(i) >= bL and sP.get(i) < bH
+                    if sD.get(i) > 0
+                        buyCount += 1
+                    else
+                        sellCount += 1
+            if buyCount >= 3 or sellCount >= 3
+                color imbC = buyCount >= 3 ? color.new(bullColorInput, 80 + transp/4) : color.new(bearColorInput, 80 + transp/4)
+                chartImbArr.push(box.new(startIdx, bL, endIdx, bH, border_color = na, bgcolor = imbC))
+
+// Returns finalX (right edge of VP panel)
+renderBlock(float o, float h, float l, float c, array<float> sP, array<float> sV, array<float> sD, array<float> hC, array<float> hV, int startX, int transp, string title) =>
+    int   candleWidth = 6
+    int   htfRight    = startX + candleWidth
+    color hColor      = c >= o ? bullColorInput : bearColorInput
+    color hColorT     = color.new(hColor, transp)
+
+    labelArr.push(label.new(int(math.avg(startX, htfRight)), h, title,
+         style = label.style_none, textcolor = color.new(chart.fg_color, transp),
+         size = size.small, text_font_family = font.family_monospace, textalign = text.align_center))
+
+    boxArr.push(box.new(startX, o, htfRight, c, border_color = hColorT, bgcolor = color.new(hColorT, 80)))
+    lineArr.push(line.new(int(math.avg(startX, htfRight)), h,          int(math.avg(startX, htfRight)), math.max(o, c), color = hColorT))
+    lineArr.push(line.new(int(math.avg(startX, htfRight)), l,          int(math.avg(startX, htfRight)), math.min(o, c), color = hColorT))
+
+    int sStartX = htfRight + 8, int sEndX = sStartX + scatterWidthInput
+
+    if hC.size() > 0 and h > l
+        boxArr.push(box.new(sStartX, h, sEndX, l, border_color = na, bgcolor = color.new(projBgColorInput, transp)))
+        lineArr.push(line.new(htfRight, h, sStartX, h, color = color.new(chart.fg_color, 85 + transp/2), style = line.style_dotted))
+        lineArr.push(line.new(htfRight, l, sStartX, l, color = color.new(chart.fg_color, 85 + transp/2), style = line.style_dotted))
+
+        // Imbalance zones
+        if showImbInput and sP.size() > 0
+            float step = (h - l) / vpRowsInput
+            for r = 0 to vpRowsInput - 1
+                float bL = l + (r * step), float bH = bL + step
+                int buyCount = 0, int sellCount = 0
+                for i = 0 to sP.size() - 1
+                    if sP.get(i) >= bL and sP.get(i) < bH
+                        if sD.get(i) > 0
+                            buyCount += 1
+                        else
+                            sellCount += 1
+                if buyCount >= 3 or sellCount >= 3
+                    color imbC = buyCount >= 3 ? color.new(bullColorInput, 75 + transp/2) : color.new(bearColorInput, 75 + transp/2)
+                    boxArr.push(box.new(sStartX, bL, sEndX, bH, border_color = na, bgcolor = imbC))
+
+        // Scatter bubbles
+        if sP.size() > 0
+            float maxV = sV.max(), float minV = sV.min()
+            for i = 0 to sP.size() - 1
+                float p = sP.get(i), float v = sV.get(i)
+                int   scX  = sStartX + int((float(i) / math.max(1, hC.size() - 1)) * scatterWidthInput)
+                float relV = maxV != minV ? (v - minV) / (maxV - minV) : 1.0
+                string bSz = relV < 0.25 ? size.tiny : relV < 0.5 ? size.small : relV < 0.8 ? size.normal : size.large
+                color baseC = sD.get(i) > 0 ? bullColorInput : bearColorInput
+                color bCol  = color.from_gradient(relV, 0, 1.0, color.new(baseC, 65 + transp/2), color.new(baseC, 5 + transp/2))
+                labelArr.push(label.new(scX, p, "●", color = #00000000, textcolor = bCol, style = label.style_label_center, size = bSz))
+
+    // Volume Profile
+    float bStep = (h - l) / vpRowsInput
+    array<float> bins = array.new<float>(vpRowsInput, 0.0)
+    int finalX = sEndX
+    if bStep > 0 and hC.size() > 0
+        for i = 0 to hC.size() - 1
+            int bIdx = math.max(0, math.min(vpRowsInput - 1, int(math.floor((hC.get(i) - l) / bStep))))
+            bins.set(bIdx, bins.get(bIdx) + hV.get(i))
+        float maxV = bins.size() > 0 ? bins.max() : 0.0
+        if maxV > 0
+            int vpX = sEndX + 3
+            finalX  := vpX + vpWidthInput
+            for i = 0 to vpRowsInput - 1
+                float vol = bins.get(i)
+                if vol > 0
+                    int   rW  = int((vol / maxV) * vpWidthInput)
+                    color vC  = vol == maxV ? color.new(hColor, 10 + transp/4) : color.from_gradient(vol, 0, maxV, color.new(hColor, 90 + transp/4), color.new(hColor, 40 + transp/4))
+                    boxArr.push(box.new(vpX, l + (i * bStep), vpX + rW, l + (i * bStep) + bStep, border_color = na, bgcolor = vC))
+    finalX
+
+// PO3 mini-candle appended after VP panel
+renderPo3(float o, float h, float l, float c, int startX, int transp) =>
+    int   midX  = startX + 3
+    int   endX  = startX + 6
+    color col   = c >= o ? bullColorInput : bearColorInput
+    color colT  = color.new(col, transp)
+    lineArr.push(line.new(midX, h, midX, l, color = colT, width = 2))
+    boxArr.push(box.new(startX, math.max(o,c), endX, math.min(o,c), bgcolor = color.new(colT, 0), border_color = colT))
+    labelArr.push(label.new(midX, h, "PO3 " + displayTf, yloc = yloc.abovebar, color = #00000000,
+         textcolor = color.new(chart.fg_color, transp + 10), style = label.style_label_down,
+         size = size.tiny, text_font_family = font.family_monospace))
+
+//─────────────────────────────────────────────────────────────────────────────
+// Main — barstate.islast render pass
+//─────────────────────────────────────────────────────────────────────────────
+if barstate.islast
+    clearDrawings()
+    int nextX = bar_index + projOffsetInput
+
+    // Ghost bar
+    if showGhostInput and not na(pOpen)
+        nextX := renderBlock(pOpen, pHigh, pLow, pClose, pSPriceArr, pSVolArr, pSDeltaArr, pHCloseArr, pHVolArr, nextX, 75, displayTf + " (Prev)") + 12
+        if showChartSpikes
+            renderChartBubbles(pSPriceArr, pSTimeArr, pSVolArr, pSDeltaArr, 75)
+        renderChartImbalances(pHigh, pLow, pHtfOpenIdx, htfOpenIdx - 1, pSPriceArr, pSDeltaArr, 75)
+
+    // Current bar
+    int currStartX = nextX
+    int currEndX   = renderBlock(htfOpen, htfHigh, htfLow, htfClose, spikePriceArr, spikeVolArr, spikeDeltaArr, htfCloseArr, htfVolArr, currStartX, 0, displayTf)
+    if showChartSpikes
+        renderChartBubbles(spikePriceArr, spikeTimeArr, spikeVolArr, spikeDeltaArr, 0)
+    renderChartImbalances(htfHigh, htfLow, htfOpenIdx, bar_index, spikePriceArr, spikeDeltaArr, 0)
+
+    // Anchor connection lines

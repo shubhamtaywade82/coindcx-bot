@@ -40,6 +40,7 @@ export interface StrategySignal {
   takeProfit?: string;
   reason: string;
   noTradeCondition?: string;
+  management?: string;
   ttlMs?: number;
   meta?: Record<string, unknown>;
 }

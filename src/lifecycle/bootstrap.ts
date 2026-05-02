@@ -84,7 +84,7 @@ export async function bootstrap(): Promise<Context> {
   const { AiAnalyzer } = await import('../ai/analyzer');
   const { MarketStateBuilder } = await import('../ai/state-builder');
   const analyzer = new AiAnalyzer(config, logger);
-  const stateBuilder = new MarketStateBuilder(logger);
+  const stateBuilder = new MarketStateBuilder(logger, pool);
 
   logger.info({ mod: 'boot', sinks: config.SIGNAL_SINKS }, 'boot complete');
 

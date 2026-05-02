@@ -6,7 +6,7 @@ interface AnalyzerLike {
 
 const MANIFEST: StrategyManifest = {
   id: 'llm.pulse.v1', version: '1.0.0', mode: 'bar_close', barTimeframes: ['15m'],
-  evaluationTimeoutMs: 45_000,
+  evaluationTimeoutMs: 90000,
   pairs: ['*'], warmupCandles: 50,
   description: 'LLM-driven SMC pulse via Ollama on 15m candle close',
 };
@@ -30,19 +30,43 @@ export class LlmPulse implements Strategy {
   clone(): Strategy { return new LlmPulse(this.analyzer); }
 
   async evaluate(ctx: StrategyContext): Promise<StrategySignal> {
-    const stateInput = { symbol: ctx.pair, ...ctx.marketState };
+    const stateInput = { 
+      ...ctx.marketState,
+      account: {
+        totals: ctx.account.totals,
+        balances: ctx.account.balances.filter(b => parseFloat(b.available) > 0 || parseFloat(b.locked) > 0)
+      }
+    };
     const resp = await this.analyzer.analyze(stateInput);
     const side = normSide(resp?.signal);
+
+    const entry = resp?.setup?.entry ? parseFloat(String(resp.setup.entry)) : undefined;
+    const sl = resp?.setup?.sl ? parseFloat(String(resp.setup.sl)) : undefined;
+    const tp = resp?.setup?.tp ? parseFloat(String(resp.setup.tp)) : undefined;
+
+    let rr = resp?.setup?.rr;
+    if (entry && sl && tp && entry !== sl) {
+      const risk = Math.abs(entry - sl);
+      const reward = Math.abs(tp - entry);
+      rr = reward / risk;
+    }
+
     return {
       side,
       confidence: clamp(Number(resp?.confidence ?? 0)),
-      entry: resp?.setup?.entry ? String(resp.setup.entry) : undefined,
-      stopLoss: resp?.setup?.sl ? String(resp.setup.sl) : undefined,
-      takeProfit: resp?.setup?.tp ? String(resp.setup.tp) : undefined,
+      entry: entry ? String(entry) : undefined,
+      stopLoss: sl ? String(sl) : undefined,
+      takeProfit: tp ? String(tp) : undefined,
       reason: String(resp?.verdict ?? ''),
+      management: resp?.management_advice ? String(resp.management_advice) : undefined,
       noTradeCondition: resp?.no_trade_condition ? String(resp.no_trade_condition) : undefined,
       ttlMs: 5 * 60_000,
-      meta: { rr: resp?.setup?.rr, alternate: resp?.alternate_scenario, levels: resp?.levels },
+      meta: { 
+        rr, 
+        alternate: resp?.alternate_scenario, 
+        levels: resp?.levels,
+        management: resp?.management_advice
+      },
     };
   }
 }

@@ -59,6 +59,77 @@ Audit + Metrics + TUI + Alerts
 
 Live mode must require explicit configuration flags and startup checks. It must never be enabled implicitly.
 
+## Regression-Safe Delivery Plan
+
+All future work on this roadmap should happen outside the current working branch. The current read-only system is the regression baseline and must remain deployable throughout the execution buildout.
+
+Recommended branch:
+
+```bash
+git switch feat/f6-tui-v2
+git pull --ff-only
+git switch -c institutional-retail-trading
+```
+
+If the team prefers the existing naming convention:
+
+```bash
+git switch -c feat/institutional-retail-trading
+```
+
+The branch should be developed as a sequence of small, reviewable slices:
+
+- Slice 1: `TradeIntent` model and validation only.
+- Slice 2: `RiskSizer` and risk budget only.
+- Slice 3: paper execution engine only.
+- Slice 4: execution persistence only.
+- Slice 5: TUI execution panels only.
+- Slice 6: backtest execution upgrade only.
+- Slice 7: live adapter behind disabled flags only.
+- Slice 8: live canary controls only.
+
+Regression rules:
+
+- Keep `READ_ONLY=true` as the default in every commit.
+- Existing signal generation must continue to work without execution modules enabled.
+- Existing TUI panels must continue to render if execution modules are disabled.
+- Existing backtest CLI must continue to run before the upgraded simulator replaces it.
+- Execution code must be behind config flags until paper mode is complete.
+- Live CoinDCX write endpoints must not be callable until the live adapter phase.
+- Any new write endpoint wrapper must be blocked by startup safety checks unless `LIVE_TRADING=true`.
+- Every slice must pass `npm run typecheck`.
+- Every slice must pass the relevant focused tests.
+- Before merging the branch, run `npm run check`.
+
+Compatibility strategy:
+
+- Add new modules under `src/execution/` instead of changing strategies to place orders.
+- Keep `StrategySignal` backward-compatible while introducing `TradeIntent`.
+- Convert signals to intents in a dedicated adapter.
+- Keep risk alerts separate from pre-trade risk sizing until the sizing layer is stable.
+- Keep paper execution and live execution behind the same `ExecutionEngine` interface.
+- Add database migrations append-only; do not rewrite existing migrations.
+- Do not remove the `ReadOnlyGuard`; live trading should use a separate guarded trading API wrapper.
+
+Rollback strategy:
+
+- If a new execution slice misbehaves, disable it with config and keep read-only signals running.
+- If paper execution corrupts its own state, truncate only the new execution tables.
+- If live canary misbehaves, trigger kill switch, stop new orders, reconcile account state, and return to `READ_ONLY=true`.
+- Never require execution modules for monitoring, account reconciliation, market integrity, or TUI startup.
+
+## Implementation Progress
+
+- `[done]` Slice 1 foundation: added `TradeIntent`, signal-to-intent mapping, and deterministic intent validation under `src/execution/`.
+- `[pending]` Slice 1 runtime wiring: convert strategy signals to intents behind a disabled-by-default execution flag.
+- `[pending]` Slice 2: add `RiskSizer` and risk budget.
+- `[pending]` Slice 3: add `PaperExecutionEngine`.
+- `[pending]` Slice 4: add order lifecycle persistence.
+- `[pending]` Slice 5: add TUI execution panels.
+- `[pending]` Slice 6: upgrade backtest execution model.
+- `[pending]` Slice 7: add live adapter behind strict safety gates.
+- `[pending]` Slice 8: add live canary controls.
+
 ## When Can This Go Live?
 
 The bot should not trade live in its current state. Today it is a read-only signal and monitoring system. That is intentional and should remain the default until the execution and risk-management layers exist.

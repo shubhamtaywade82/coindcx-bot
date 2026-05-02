@@ -21,7 +21,7 @@ export interface RunBacktestArgs {
   strategy: Strategy;
   pair: string;
   dataSource: DataSource;
-  buildMarketState: (htf: Candle[], ltf: Candle[]) => MarketState | null;
+  buildMarketState: (htf: Candle[], ltf: Candle[], pair: string) => Promise<MarketState | null> | MarketState | null;
   pessimistic: boolean;
   outCsv: string;
   warmupCandles?: Candle[];
@@ -37,7 +37,7 @@ export async function runBacktest(args: RunBacktestArgs): Promise<BacktestSummar
     events++;
     sim.advanceClock(e.ts);
     if (e.kind === 'gap') continue;
-    const market = args.buildMarketState([], []);
+    const market = await args.buildMarketState([], [], args.pair);
     if (!market) continue;
     const ctx: StrategyContext = {
       ts: e.ts, pair: args.pair, marketState: market,

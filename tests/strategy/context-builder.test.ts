@@ -4,6 +4,8 @@ import type { Candle, MarketState } from '../../src/ai/state-builder';
 import type { AccountSnapshot } from '../../src/account/types';
 
 const fakeMarket: MarketState = {
+  symbol: 'BTCUSDT',
+  current_price: 1,
   htf: { trend: 'uptrend', swing_high: 1, swing_low: 0 },
   ltf: { trend: 'uptrend', bos: false, swing_high: 1, swing_low: 0,
     displacement: { present: false, strength: 'weak' }, fvg: [],
@@ -19,8 +21,8 @@ const fakeAccount: AccountSnapshot = {
 };
 
 describe('ContextBuilder', () => {
-  it('composes context from sources', () => {
-    const buildState = vi.fn().mockReturnValue(fakeMarket);
+  it('composes context from sources', async () => {
+    const buildState = vi.fn().mockResolvedValue(fakeMarket);
     const accountSnap = vi.fn().mockReturnValue(fakeAccount);
     const fillsRecent = vi.fn().mockReturnValue([]);
     const cb = new ContextBuilder({
@@ -30,7 +32,7 @@ describe('ContextBuilder', () => {
       recentFills: fillsRecent,
       clock: () => 12345,
     });
-    const ctx = cb.build({ pair: 'B-BTC_USDT', trigger: { kind: 'interval' } });
+    const ctx = await cb.build({ pair: 'B-BTC_USDT', trigger: { kind: 'interval' } });
     expect(ctx?.ts).toBe(12345);
     expect(ctx?.pair).toBe('B-BTC_USDT');
     expect(ctx?.marketState).toBe(fakeMarket);
@@ -38,7 +40,7 @@ describe('ContextBuilder', () => {
     expect(ctx?.trigger.kind).toBe('interval');
   });
 
-  it('returns null when market state cannot be built', () => {
+  it('returns null when market state cannot be built', async () => {
     const cb = new ContextBuilder({
       buildMarketState: () => null,
       candleProvider: { ltf: () => [] as Candle[], htf: () => [] as Candle[] },
@@ -46,6 +48,6 @@ describe('ContextBuilder', () => {
       recentFills: () => [],
       clock: () => 1,
     });
-    expect(cb.build({ pair: 'X', trigger: { kind: 'interval' } })).toBeNull();
+    expect(await cb.build({ pair: 'X', trigger: { kind: 'interval' } })).toBeNull();
   });
 });

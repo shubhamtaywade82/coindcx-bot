@@ -4,6 +4,7 @@ import { CoinDCXApi } from './gateways/coindcx-api';
 import { config } from './config/config';
 import { formatPrice, formatPnl, formatChange, cleanPair, formatQty, formatTime } from './utils/format';
 import { bootstrap } from './lifecycle/bootstrap';
+import { WebhookGateway } from './gateways/webhook';
 import { installSignalHandlers } from './lifecycle/shutdown';
 import type { Context } from './lifecycle/context';
 import { IntegrityController } from './marketdata/integrity-controller';
@@ -205,7 +206,7 @@ async function runApp(ctx: Context) {
     ws,
     signalBus: ctx.bus,
     riskFilter: buildRiskFilter(),
-    buildMarketState: (htf, ltf) => ctx.stateBuilder.build(htf, ltf, null, []),
+    buildMarketState: (htf, ltf, pair) => ctx.stateBuilder.build(htf, ltf, null, [], pair),
     candleProvider: {
       ltf: pair => ensureCandles(pair).ltf,
       htf: pair => ensureCandles(pair).htf,
@@ -268,28 +269,21 @@ async function runApp(ctx: Context) {
   const CANDLE_REFRESH_MS = 60_000;
 
   function log(msg: any) {
-    if (typeof msg === 'string' && msg.startsWith('{')) {
-      try {
-        const data = JSON.parse(msg);
-        if (data.type === 'clock_skew') {
-          const skew = data.payload?.localVsNtp || 0;
-          tui.log(`{red-fg}{bold}[CRITICAL]{/bold} Clock Skew: ${skew}ms. Run 'sudo chronyc -a makestep' to sync.{/red-fg}`, 'error');
-          return;
-        }
-        if (data.strategy === 'integrity') {
-          if (data.severity === 'critical' || data.severity === 'warn') {
-            tui.log(`{red-fg}[INTEGRITY] ${data.type}: ${data.payload?.reason || 'check failed'}{/red-fg}`, 'error');
+    if (typeof msg === 'string') {
+      if (msg.startsWith('{') && msg.includes('"type"')) {
+        try {
+          const data = JSON.parse(msg);
+          // Legacy/Fallback parsing for non-sink JSON logs
+          if (data.type === 'clock_skew') {
+             tui.log(`{yellow-fg}[TIME] Sync Alert: ${data.payload?.reason || 'unstable'}{/yellow-fg}`, 'warn');
+             return;
           }
-          return;
-        }
-        if (typeof data.type === 'string' && (data.type.includes('error') || data.severity === 'critical')) {
-          const reason = data.payload?.error ?? data.payload?.reason ?? 'check failed';
-          tui.log(`{red-fg}[${data.strategy ?? 'signal'}] ${data.type}: ${reason}{/red-fg}`, 'error');
-          return;
-        }
-      } catch { /* fallback to raw */ }
+        } catch { /* ignore and log raw */ }
+      }
+      tui.log(msg);
+    } else {
+      tui.log(JSON.stringify(msg));
     }
-    tui.log(msg);
   }
 
   function safeParse(data: any) {
@@ -342,7 +336,60 @@ async function runApp(ctx: Context) {
   class TuiSink {
     readonly name = 'tui';
     async emit(signal: any) {
-      log(JSON.stringify(signal));
+      const type = signal.type || 'unknown';
+      const payload = signal.payload || {};
+      const pair = cleanPair(signal.pair || '—');
+      const side = (type.split('.')[1] || 'WAIT').toUpperCase();
+
+      // 1. Filter out WAIT signals to reduce noise
+      if (side === 'WAIT' && !type.includes('error')) return;
+
+      // 2. Format based on type
+      let icon = '⚪';
+      let color = 'white';
+      let msg = '';
+
+      if (type.startsWith('strategy.')) {
+        if (type.includes('error')) {
+          icon = '🔴';
+          color = 'red';
+          msg = `[${signal.strategy}] ERROR: ${payload.error || payload.reason || 'Unknown error'}`;
+        } else {
+          icon = side === 'LONG' ? '🟢' : '🔴';
+          color = side === 'LONG' ? 'green' : 'red';
+          const entry = payload.entry ? ` @ ${formatPrice(payload.entry)}` : '';
+          const conf = payload.confidence ? ` (Conf: ${(payload.confidence * 100).toFixed(0)}%)` : '';
+          const mgmt = payload.meta?.management ? ` | [MGMT: ${payload.meta.management}]` : '';
+          msg = `[${signal.strategy}] ${side} ${pair}${entry}${conf}${mgmt} - ${payload.reason || ''}`;
+        }
+      } else if (type === 'risk.blocked') {
+        icon = '🟡';
+        color = 'yellow';
+        const rules = Array.isArray(payload.rules) ? payload.rules.map((r: any) => r.id).join(', ') : 'unknown';
+        msg = `[RISK] BLOCKED ${side} ${pair} - Reason: ${rules}`;
+      } else if (type.includes('reconcile')) {
+        // Internal technical events - typically unhelpful for traders unless critical
+        if (payload.severity === 'critical') {
+          icon = '🔴';
+          color = 'red';
+          msg = `[ACCOUNT] ALERT: ${payload.reason || ''}`;
+        } else {
+          return; // Suppress info/warn reconciler noise
+        }
+      } else if (signal.strategy === 'integrity' || type === 'clock_skew') {
+        // Only show clock skew if it is critical (will break authentication)
+        if (payload.severity !== 'critical') return;
+        
+        icon = '🔴';
+        color = 'red';
+        const reason = payload.reason || payload.error || 'Skew exceeded';
+        msg = `[INTEGRITY] ${type.toUpperCase()}: ${reason}`;
+      } else {
+        // Fallback for other signals
+        return; 
+      }
+
+      log(`{${color}-fg}${icon} ${msg}{/${color}-fg}`);
     }
   }
 
