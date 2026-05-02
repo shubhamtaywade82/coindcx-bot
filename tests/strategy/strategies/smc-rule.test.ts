@@ -15,6 +15,8 @@ function ctx(market: MarketState): StrategyContext {
 }
 
 const baseUp: MarketState = {
+  symbol: 'B-BTC_USDT',
+  current_price: 50000,
   htf: { trend: 'uptrend', swing_high: 50000, swing_low: 48000 },
   ltf: { trend: 'uptrend', bos: true, swing_high: 50500, swing_low: 49500,
     displacement: { present: true, strength: 'strong' },

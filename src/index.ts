@@ -8,6 +8,8 @@ import { WebhookGateway } from './gateways/webhook';
 import { installSignalHandlers } from './lifecycle/shutdown';
 import type { Context } from './lifecycle/context';
 import { IntegrityController } from './marketdata/integrity-controller';
+import { MultiTimeframeStore as MtfFusionStore } from './marketdata/multi-timeframe-store';
+import { CoinDcxFusion } from './marketdata/coindcx-fusion';
 import { AccountReconcileController } from './account/reconcile-controller';
 import { AccountPersistence } from './account/persistence';
 import { RestBudget } from './marketdata/rate-limit/rest-budget';
@@ -26,7 +28,7 @@ import { OpposingPairCorrelationRule } from './strategy/risk/rules/correlation';
 import { DrawdownGateRule } from './strategy/risk/rules/drawdown-gate';
 import type { RiskFilter } from './strategy/types';
 import type { Candle, BookSnapshot } from './ai/state-builder';
-import { MultiTimeframeStore, DEFAULT_TF_CONFIGS } from './marketdata/candles/multi-timeframe-store';
+import { MultiTimeframeStore as CandleMtfStore, DEFAULT_TF_CONFIGS } from './marketdata/candles/multi-timeframe-store';
 import type { OrderBook } from './marketdata/book/orderbook';
 import ntp from 'ntp-client';
 import axios from 'axios';
@@ -176,6 +178,19 @@ async function runApp(ctx: Context) {
   });
   integrity.start();
 
+  const mtf = new MtfFusionStore(ctx.logger.child({ mod: 'mtf' }));
+  const fusion = new CoinDcxFusion(ctx.logger.child({ mod: 'fusion' }), ws as any, mtf, integrity.books);
+  
+  for (const pair of ctx.config.COINDCX_PAIRS) {
+    void mtf.subscribe(pair);
+  }
+
+  fusion.on('fusion', (snap) => {
+    if (snap.pair === getFocusedCleanPair() || snap.pair === tui.focusedPair) {
+      refreshBookDisplay();
+    }
+  });
+
   // ── F3 Account Reconciler ──
   const accountPersistence = new AccountPersistence({ pool: ctx.pool, retryMax: 1000 });
   const accountBudget = new RestBudget({ globalPerMin: 60, pairPerMin: 60, timeoutMs: 1000 });
@@ -210,11 +225,11 @@ async function runApp(ctx: Context) {
     },
   });
 
-  ws.on('depth-snapshot', (raw: any) => integrity.ingest('depth-snapshot', raw));
-  ws.on('depth-update',   (raw: any) => integrity.ingest('depth-update',   raw));
-  ws.on('new-trade',      (raw: any) => integrity.ingest('new-trade',      raw));
-  ws.on('currentPrices@futures#update', (raw: any) => integrity.ingest('currentPrices@futures#update', raw));
-  ws.on('currentPrices@spot#update',    (raw: any) => integrity.ingest('currentPrices@spot#update',    raw));
+  ws.on('depth-snapshot', (raw: any) => integrity.ingest('depth-snapshot', safeParse(raw)));
+  ws.on('depth-update',   (raw: any) => integrity.ingest('depth-update',   safeParse(raw)));
+  ws.on('new-trade',      (raw: any) => integrity.ingest('new-trade',      safeParse(raw)));
+  ws.on('currentPrices@futures#update', (raw: any) => integrity.ingest('currentPrices@futures#update', safeParse(raw)));
+  ws.on('currentPrices@spot#update',    (raw: any) => integrity.ingest('currentPrices@spot#update',    safeParse(raw)));
 
   // ── F4 Strategy Framework ──
   const enabledIds = new Set(ctx.config.STRATEGY_ENABLED_IDS);
@@ -234,7 +249,7 @@ async function runApp(ctx: Context) {
     }));
   }
 
-  const mtfStore = new MultiTimeframeStore({
+  const mtfStore = new CandleMtfStore({
     configs: DEFAULT_TF_CONFIGS,
     fetchCandles: fetchCandlesForStore,
     logger: ctx.logger,
@@ -288,12 +303,13 @@ async function runApp(ctx: Context) {
     buildMarketState: (htf, ltf, pair) => {
       const book = integrity.books.get(pair);
       const bookSnap = book && book.state() === 'live' ? computeBookSnapshot(book) : null;
-      return ctx.stateBuilder.build(htf, ltf, bookSnap, [], pair);
+      return ctx.stateBuilder.build(htf, ltf, bookSnap, fusion.getLatest(pair), [], pair);
     },
     candleProvider: {
       ltf: pair => mtfStore.get(pair, '15m'),
       htf: pair => mtfStore.get(pair, '1h'),
     },
+    fusionProvider: pair => fusion.getLatest(pair),
     accountSnapshot: () => account.snapshot(),
     recentFills: (n = 20) => account.fills.recent(n),
     extractPair: (raw: any) => raw?.pair ?? raw?.s,
@@ -305,9 +321,6 @@ async function runApp(ctx: Context) {
           confidence: 0,
           pair,
         });
-      }
-      if (id === 'llm.pulse.v1' && trigger.kind === 'bar_close') {
-        await refreshPairCandles(pair);
       }
     },
     onEvaluatedSignal: (signal, manifest, pair) => {
@@ -530,11 +543,13 @@ async function runApp(ctx: Context) {
 
   function refreshBookDisplay() {
     const focused = getFocusedCleanPair();
-    const book = state.orderBooks.get(focused);
+    const rawPair = tui.focusedPair; 
+    const book = integrity.books.get(rawPair);
     const ticker = state.tickers.get(focused);
+    const snap = fusion.getLatest(rawPair);
 
     if (!book) {
-       tui.updateOrderBook([], [], ticker?.price || '—');
+       tui.updateOrderBook([], [], ticker?.price || '—', rawPair);
        return;
     }
 
@@ -545,24 +560,24 @@ async function runApp(ctx: Context) {
     ];
 
     let askCumulative = 0;
-    const asks = Array.from(book.asks.entries())
-      .sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]))
-      .slice(0, 10)
-      .map(([p, q]) => {
+    const asks = Array.from(book.topN(10).asks)
+      .map(l => {
+         const p = l.price;
+         const q = l.qty;
          askCumulative += parseFloat(p) * parseFloat(q);
          return formatBookRow(p, q, askCumulative);
       });
 
     let bidCumulative = 0;
-    const bids = Array.from(book.bids.entries())
-      .sort((a, b) => parseFloat(b[0]) - parseFloat(a[0]))
-      .slice(0, 10)
-      .map(([p, q]) => {
+    const bids = Array.from(book.topN(10).bids)
+      .map(l => {
+         const p = l.price;
+         const q = l.qty;
          bidCumulative += parseFloat(p) * parseFloat(q);
          return formatBookRow(p, q, bidCumulative);
       });
 
-    tui.updateOrderBook(asks, bids, ticker?.price || '—');
+    tui.updateOrderBook(asks, bids, ticker?.price || '—', rawPair, snap?.bookMetrics);
     tui.updateStatus({ lastUpdate: Date.now() });
   }
 
@@ -771,7 +786,8 @@ async function runApp(ctx: Context) {
 
       refreshPositionsDisplay();
       refreshBalanceDisplay(); // Because PnL depends on positions
-      log(`✓ Loaded ${state.positions.size} active positions`);
+      const activeCount = posArr.filter((p: any) => Number(p.active_pos ?? p.activePos ?? 0) !== 0).length;
+      log(`✓ Loaded ${activeCount} active positions (${state.positions.size} total)`);
     } catch (err: any) {
       tui.log(`{red-fg}⚠ Position fetch failed: ${err.message}{/red-fg}`, 'error');
       tui.updatePositions([['API error', '—', '—', '—', '—', '—']]);
@@ -1050,7 +1066,11 @@ async function runApp(ctx: Context) {
       await account.seed();
       account.start();
       accountStarted = true;
-      log(`✓ Account reconciler started (positions=${account.snapshot().positions.length}, balances=${account.snapshot().balances.length})`);
+      const snap = account.snapshot();
+      log(`✓ Account reconciler started (positions=${snap.positions.length}, balances=${snap.balances.length}, orders=${snap.orders.filter(o => o.status === 'open' || o.status === 'partially_filled').length})`);
+      refreshPositionsDisplay();
+      refreshOrdersDisplay();
+      refreshBalanceDisplay();
     } catch (err: any) {
       tui.log(`{red-fg}⚠ Account reconciler seed failed: ${err.message}{/red-fg}`, 'error');
     }
