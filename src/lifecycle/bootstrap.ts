@@ -5,7 +5,6 @@ import { runMigrations } from '../db/migrate';
 import { Audit } from '../audit/audit';
 import { SignalBus } from '../signals/bus';
 import { Cursors } from '../resume/cursors';
-import { StdoutSink } from '../sinks/stdout-sink';
 import { FileSink } from '../sinks/file-sink';
 import { TelegramSink } from '../sinks/telegram-sink';
 import type { Sink } from '../sinks/types';

@@ -4,7 +4,6 @@ import { CoinDCXApi } from './gateways/coindcx-api';
 import { config } from './config/config';
 import { formatPrice, formatPnl, formatChange, cleanPair, formatQty, formatTime } from './utils/format';
 import { bootstrap } from './lifecycle/bootstrap';
-import { WebhookGateway } from './gateways/webhook';
 import { installSignalHandlers } from './lifecycle/shutdown';
 import type { Context } from './lifecycle/context';
 import { IntegrityController } from './marketdata/integrity-controller';
@@ -59,7 +58,6 @@ export const state = {
   positions: new Map<string, any>(),
   orders: new Map<string, any>(),
   balanceMap: new Map<string, { balance: string; locked: string }>(),
-  orderBooks: new Map<string, { asks: Map<string, string>, bids: Map<string, string> }>(),
   hasValidAuth: true,
   usdtInrRate: 88.5, // Fallback rate
   selectedSymbol: 'SOLUSDT' // Initial focus
@@ -225,8 +223,14 @@ async function runApp(ctx: Context) {
     },
   });
 
-  ws.on('depth-snapshot', (raw: any) => integrity.ingest('depth-snapshot', safeParse(raw)));
-  ws.on('depth-update',   (raw: any) => integrity.ingest('depth-update',   safeParse(raw)));
+  ws.on('depth-snapshot', (raw: any) => {
+    integrity.ingest('depth-snapshot', safeParse(raw));
+    refreshBookDisplay();
+  });
+  ws.on('depth-update', (raw: any) => {
+    integrity.ingest('depth-update', safeParse(raw));
+    refreshBookDisplay();
+  });
   ws.on('new-trade',      (raw: any) => integrity.ingest('new-trade',      safeParse(raw)));
   ws.on('currentPrices@futures#update', (raw: any) => integrity.ingest('currentPrices@futures#update', safeParse(raw)));
   ws.on('currentPrices@spot#update',    (raw: any) => integrity.ingest('currentPrices@spot#update',    safeParse(raw)));
@@ -269,14 +273,6 @@ async function runApp(ctx: Context) {
     }),
   );
 
-  /** Compatibility shim for llm.pulse beforeEvaluate: reports current candle counts. */
-  async function refreshPairCandles(rawPair: string): Promise<{ htf: number; ltf: number }> {
-    return {
-      htf: mtfStore.get(rawPair, '1h').length,
-      ltf: mtfStore.get(rawPair, '15m').length,
-    };
-  }
-
   const buildRiskFilter = (): RiskFilter => {
     if (ctx.config.RISK_FILTER_MODE === 'passthrough') return new PassthroughRiskFilter();
     const cooldown = new PerPairCooldownRule(ctx.config.RISK_PER_PAIR_COOLDOWN_MS);
@@ -313,7 +309,7 @@ async function runApp(ctx: Context) {
     accountSnapshot: () => account.snapshot(),
     recentFills: (n = 20) => account.fills.recent(n),
     extractPair: (raw: any) => raw?.pair ?? raw?.s,
-    beforeEvaluate: async (id, pair, trigger) => {
+    beforeEvaluate: async (id, pair, _trigger) => {
       if (id === 'llm.pulse.v1') {
         tui.updateAi({
           verdict: ' {yellow-fg}Analyzing market pulse...{/yellow-fg}',
@@ -868,52 +864,6 @@ async function runApp(ctx: Context) {
     if (clean === getFocusedCleanPair()) {
       refreshBookDisplay();
     }
-  });
-  // ── depth-snapshot ──
-  ws.on('depth-snapshot', (raw) => {
-    const data = safeParse(raw);
-    if (!data || !data.s) return;
-    const pair = cleanPair(data.s);
-
-    const asks = new Map<string, string>();
-    const bids = new Map<string, string>();
-
-    const rawAsks = Array.isArray(data.asks) ? data.asks : (data.asks ? Object.entries(data.asks) : []);
-    const rawBids = Array.isArray(data.bids) ? data.bids : (data.bids ? Object.entries(data.bids) : []);
-
-    rawAsks.forEach(([p, q]: [any, any]) => asks.set(p.toString(), q.toString()));
-    rawBids.forEach(([p, q]: [any, any]) => bids.set(p.toString(), q.toString()));
-
-    state.orderBooks.set(pair, { asks, bids });
-    if (pair === getFocusedCleanPair()) refreshBookDisplay();
-  });
-
-  // ── depth-update ──
-  ws.on('depth-update', (raw) => {
-    const data = safeParse(raw);
-    if (!data || !data.s) return;
-    const pair = cleanPair(data.s);
-    let book = state.orderBooks.get(pair);
-
-    if (!book) {
-       book = { asks: new Map(), bids: new Map() };
-       state.orderBooks.set(pair, book);
-    }
-
-    const rawAsks = Array.isArray(data.asks) ? data.asks : (data.asks ? Object.entries(data.asks) : []);
-    const rawBids = Array.isArray(data.bids) ? data.bids : (data.bids ? Object.entries(data.bids) : []);
-
-    rawAsks.forEach(([p, q]: [any, any]) => {
-      if (parseFloat(q) === 0) book!.asks.delete(p.toString());
-      else book!.asks.set(p.toString(), q.toString());
-    });
-
-    rawBids.forEach(([p, q]: [any, any]) => {
-      if (parseFloat(q) === 0) book!.bids.delete(p.toString());
-      else book!.bids.set(p.toString(), q.toString());
-    });
-
-    if (pair === getFocusedCleanPair()) refreshBookDisplay();
   });
 
   // ── currentPrices@spot#update: { prices: { "ATOMUSDT": "2.01", ... } } ──

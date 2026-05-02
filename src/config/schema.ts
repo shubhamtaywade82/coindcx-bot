@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { toCoinDcxFuturesInstrument } from '../utils/format';
 
 const SinkName = z.enum(['stdout', 'file', 'telegram']);
 
@@ -21,7 +22,9 @@ export const ConfigSchema = z.object({
   SHUTDOWN_GRACE_MS: z.coerce.number().int().positive().default(5000),
   AUDIT_BUFFER_MAX: z.coerce.number().int().positive().default(10000),
   TELEGRAM_RATE_PER_MIN: z.coerce.number().int().positive().default(20),
-  COINDCX_PAIRS: z.string().default('B-BTC_USDT,B-ETH_USDT').transform(s => s.split(',').map(x => x.trim()).filter(Boolean)),
+  COINDCX_PAIRS: z.string()
+    .default('B-BTC_USDT,B-ETH_USDT')
+    .transform(s => s.split(',').map(x => x.trim()).filter(Boolean).map(toCoinDcxFuturesInstrument)),
   READ_ONLY: z.string().default('true').transform(s => s !== 'false'),
   API_BASE_URL: z.string().url().default('https://api.coindcx.com'),
   PUBLIC_BASE_URL: z.string().url().default('https://public.coindcx.com'),

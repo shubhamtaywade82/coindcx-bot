@@ -45,7 +45,7 @@ export class IntervalDriver {
     for (const pair of e.pairs) {
       if (e.pending.has(pair)) continue;
       e.pending.add(pair);
-      this.opts.runEvaluation(e.id, pair, { kind: 'interval' }).finally(() => {
+      void this.opts.runEvaluation(e.id, pair, { kind: 'interval' }).finally(() => {
         e.pending.delete(pair);
       });
     }

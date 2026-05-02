@@ -61,7 +61,7 @@ export class TickDriver {
       return;
     }
     e.pending.add(pair);
-    this.opts.runEvaluation(e.id, pair, { kind: 'tick', channel: ch, raw }).finally(() => {
+    void this.opts.runEvaluation(e.id, pair, { kind: 'tick', channel: ch, raw }).finally(() => {
       e.pending.delete(pair);
     });
   }

@@ -452,9 +452,7 @@ export class TuiApp {
     if (metrics) this.fusionByPair.set(target, metrics);
     if (target !== this.focusedPair) return;
 
-    // Equalize bids and asks count (max 10)
-    const count = Math.min(asks.length, bids.length, 10);
-    if (count === 0) {
+    if (asks.length === 0 && bids.length === 0) {
       this.tradeTable.setContent(' {gray-fg}Waiting for book data...{/gray-fg}');
       this.render();
       return;
@@ -464,8 +462,8 @@ export class TuiApp {
 
     // ── Compute max amount across all visible levels for bar scaling ──
     const parseAmt = (s: string) => parseFloat(s.replace(/,/g, '')) || 0;
-    const askSlice = asks.slice(0, count);
-    const bidSlice = bids.slice(0, count);
+    const askSlice = asks.slice(0, Math.min(10, asks.length));
+    const bidSlice = bids.slice(0, Math.min(10, bids.length));
     const allAmounts = [
       ...askSlice.map(r => parseAmt(r[1])),
       ...bidSlice.map(r => parseAmt(r[1])),

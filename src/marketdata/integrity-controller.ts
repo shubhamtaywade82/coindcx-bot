@@ -12,6 +12,7 @@ import { LatencyTracker } from './health/latency';
 import { StaleWatcher } from './health/stale-watcher';
 import { TimeSync } from './health/time-sync';
 import { TailBuffer } from './probe/tail-buffer';
+import { toCoinDcxFuturesInstrument } from '../utils/format';
 
 export interface IntegrityDeps {
   config: Config;
@@ -148,7 +149,8 @@ export class IntegrityController {
     if (typeof raw === 'object' && raw && typeof raw.T === 'number') {
       this.latency.record(channel, 'tickAge', ts - raw.T);
     }
-    const pair: string | undefined = raw?.s ?? raw?.pair;
+    const rawPair: string | undefined = raw?.s ?? raw?.pair;
+    const pair: string | undefined = rawPair ? toCoinDcxFuturesInstrument(rawPair) : undefined;
     if (pair) this.stale.touch(channel, pair);
 
     // CoinDCX sends asks/bids as objects {"price":"qty"} — normalize to Array<[string, string]>
