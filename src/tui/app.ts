@@ -427,26 +427,63 @@ export class TuiApp {
     }
   }
 
-  updateOrderBook(asks: string[][], bids: string[][], lastPrice: string, pair?: string) {
+  private fusionByPair = new Map<string, any>();
+
+  updateOrderBook(asks: string[][], bids: string[][], lastPrice: string, pair?: string, metrics?: any) {
     const target = pair ?? this.focusedPair;
     this.bookByPair.set(target, { asks, bids, lastPrice });
+    if (metrics) this.fusionByPair.set(target, metrics);
     if (target !== this.focusedPair) return;
 
-    // Equalize bids and asks count (max 7)
-    const count = Math.min(asks.length, bids.length, 7);
-    const bookWidth = 42; 
+    // Equalize bids and asks count (max 10)
+    const count = Math.min(asks.length, bids.length, 10);
+    if (count === 0) {
+      this.tradeTable.setContent(' {gray-fg}Waiting for book data...{/gray-fg}');
+      this.render();
+      return;
+    }
 
-    const header = ` {gray-fg}${this.padRight('PRICE', 12)}${this.padRight('AMOUNT', 15)}${this.padRight('SUM', 15)}{/gray-fg}\n`;
+    const fusion = this.fusionByPair.get(target);
 
-    // Asks (Red)
-    const askRows = asks.slice(0, count).map(row => {
-      const price = `{red-fg}${this.padRight(formatPrice(row[0]), 12)}{/red-fg}`;
-      const amount = this.padRight(row[1], 15);
-      const sum = this.padRight(row[2], 15);
-      return ` ${price}${amount}${sum}`;
+    // ── Compute max amount across all visible levels for bar scaling ──
+    const parseAmt = (s: string) => parseFloat(s.replace(/,/g, '')) || 0;
+    const askSlice = asks.slice(0, count);
+    const bidSlice = bids.slice(0, count);
+    const allAmounts = [
+      ...askSlice.map(r => parseAmt(r[1])),
+      ...bidSlice.map(r => parseAmt(r[1])),
+    ];
+    const maxAmt = Math.max(...allAmounts, 1);
+
+    // ── Bar renderer: proportional block bar ──
+    const BAR_MAX_WIDTH = 12;
+    const renderBar = (amount: number, color: string): string => {
+      const ratio = Math.min(amount / maxAmt, 1);
+      const fullBlocks = Math.floor(ratio * BAR_MAX_WIDTH);
+      const remainder = (ratio * BAR_MAX_WIDTH) - fullBlocks;
+      // Unicode fractional blocks: ▏▎▍▌▋▊▉█
+      const fractions = [' ', '▏', '▎', '▍', '▌', '▋', '▊', '▉'];
+      const fracChar = fractions[Math.floor(remainder * 8)] || '';
+      const bar = '█'.repeat(fullBlocks) + fracChar;
+      return `{${color}-fg}${bar}{/${color}-fg}`;
+    };
+
+    // ── Header ──
+    const header = ` {gray-fg}  ${this.padLeft('PRICE', 10)}${this.padRight('AMOUNT', 12)} DEPTH{/gray-fg}\n`;
+
+    // ── Asks (Red) ──
+    const askRows = askSlice.map(row => {
+      const priceVal = parseFloat(row[0].replace(/,/g, ''));
+      const isWall = fusion?.askWallPrice === priceVal;
+      const amt = parseAmt(row[1]);
+      const bar = renderBar(amt, 'red');
+      const wallMarker = isWall ? '{bold}W{/bold}' : ' ';
+      const price = `{red-fg}${this.padLeft(formatPrice(row[0]), 10)}{/red-fg}`;
+      const amount = this.padRight(row[1], 12);
+      return ` {red-fg}A{/red-fg}${wallMarker}${price}${amount} ${bar}`;
     }).reverse();
 
-    // Last Price Row
+    // ── Last Price (spread) Row ──
     const currentPrice = parseFloat(lastPrice);
     const prevPrice = this.lastLtpByPair.get(target);
     
@@ -455,20 +492,32 @@ export class TuiApp {
       const arrow = currentPrice > prevPrice ? '▲' : '▼';
       this.trendByPair.set(target, `{${color}-fg}${arrow}{/${color}-fg}`);
     }
+
+    const bestAsk = parseFloat(askSlice[0]?.[0]?.replace(/,/g, '') || '0');
+    const bestBid = parseFloat(bidSlice[0]?.[0]?.replace(/,/g, '') || '0');
+    const spread = bestAsk > 0 && bestBid > 0 ? (bestAsk - bestBid).toFixed(2) : '—';
     
     const trend = this.trendByPair.get(target) || '';
-    const ltpRow = ` {yellow-fg}{bold}${this.padRight(formatPrice(lastPrice), 12)}{/bold}{/yellow-fg} ${trend}\n`;
+    const ltpRow = ` {yellow-fg}{bold}${this.padLeft(formatPrice(lastPrice), 12)}{/bold}{/yellow-fg} ${trend}  {gray-fg}SPR: ${spread}{/gray-fg}\n`;
     if (!isNaN(currentPrice)) this.lastLtpByPair.set(target, currentPrice);
 
-    // Bids (Green)
-    const bidRows = bids.slice(0, count).map(row => {
-      const price = `{green-fg}${this.padRight(formatPrice(row[0]), 12)}{/green-fg}`;
-      const amount = this.padRight(row[1], 15);
-      const sum = this.padRight(row[2], 15);
-      return ` ${price}${amount}${sum}`;
+    // ── Bids (Green) ──
+    const bidRows = bidSlice.map(row => {
+      const priceVal = parseFloat(row[0].replace(/,/g, ''));
+      const isWall = fusion?.bidWallPrice === priceVal;
+      const amt = parseAmt(row[1]);
+      const bar = renderBar(amt, 'green');
+      const wallMarker = isWall ? '{bold}W{/bold}' : ' ';
+      const price = `{green-fg}${this.padLeft(formatPrice(row[0]), 10)}{/green-fg}`;
+      const amount = this.padRight(row[1], 12);
+      return ` {green-fg}B{/green-fg}${wallMarker}${price}${amount} ${bar}`;
     });
 
-    this.tradeTable.setContent(header + askRows.join('\n') + '\n' + ltpRow + bidRows.join('\n'));
+    const imb = fusion?.imbalance ?? 'neutral';
+    const imbColor = imb === 'bid-heavy' ? 'green' : imb === 'ask-heavy' ? 'red' : 'gray';
+    const footer = `\n {gray-fg}IMB: {/gray-fg}{${imbColor}-fg}${imb.toUpperCase()}{/${imbColor}-fg}`;
+
+    this.tradeTable.setContent(header + askRows.join('\n') + '\n' + ltpRow + bidRows.join('\n') + footer);
     this.render();
   }
 

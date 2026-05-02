@@ -12,6 +12,8 @@ import { TickDriver } from './scheduler/tick-driver';
 import { BarDriver } from './scheduler/bar-driver';
 import type { RiskFilter, Strategy, StrategyManifest, StrategySignal, StrategyTrigger, Side } from './types';
 
+import type { FusionSnapshot } from '../marketdata/coindcx-fusion';
+
 const VALID_SIDES: ReadonlySet<Side> = new Set<Side>(['LONG', 'SHORT', 'WAIT']);
 
 interface ControllerConfig {
@@ -27,6 +29,7 @@ export interface StrategyControllerOptions {
   riskFilter?: RiskFilter;
   buildMarketState: (htf: Candle[], ltf: Candle[], pair: string) => Promise<MarketState | null> | MarketState | null;
   candleProvider: CandleProvider;
+  fusionProvider: (pair: string) => FusionSnapshot | null;
   accountSnapshot: () => AccountSnapshot;
   recentFills: (n?: number) => Fill[];
   extractPair: (raw: unknown) => string | undefined;
@@ -52,6 +55,7 @@ export class StrategyController {
     this.contextBuilder = new ContextBuilder({
       buildMarketState: opts.buildMarketState,
       candleProvider: opts.candleProvider,
+      fusionProvider: opts.fusionProvider,
       accountSnapshot: opts.accountSnapshot,
       recentFills: opts.recentFills,
       clock: this.clock,

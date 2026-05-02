@@ -1,5 +1,6 @@
 import type { MarketState, Candle } from '../ai/state-builder';
 import type { AccountSnapshot, Fill } from '../account/types';
+import type { FusionSnapshot } from '../marketdata/coindcx-fusion';
 
 export type StrategyMode = 'interval' | 'tick' | 'bar_close';
 export type Side = 'LONG' | 'SHORT' | 'WAIT';
@@ -30,6 +31,7 @@ export interface StrategyContext {
   account: AccountSnapshot;
   recentFills: Fill[];
   trigger: StrategyTrigger;
+  fusion?: FusionSnapshot;
 }
 
 export interface StrategySignal {

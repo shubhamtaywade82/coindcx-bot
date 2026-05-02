@@ -32,6 +32,7 @@ const baseDeps = () => {
     riskFilter: new PassthroughRiskFilter(),
     buildMarketState: () => fakeMarket,
     candleProvider: { ltf: () => [], htf: () => [] },
+    fusionProvider: () => null,
     accountSnapshot: () => fakeAccount,
     recentFills: () => [],
     extractPair: (raw: any) => raw?.pair,

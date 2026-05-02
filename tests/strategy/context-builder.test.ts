@@ -28,6 +28,7 @@ describe('ContextBuilder', () => {
     const cb = new ContextBuilder({
       buildMarketState: buildState,
       candleProvider: { ltf: () => [] as Candle[], htf: () => [] as Candle[] },
+      fusionProvider: () => null,
       accountSnapshot: accountSnap,
       recentFills: fillsRecent,
       clock: () => 12345,
@@ -44,6 +45,7 @@ describe('ContextBuilder', () => {
     const cb = new ContextBuilder({
       buildMarketState: () => null,
       candleProvider: { ltf: () => [] as Candle[], htf: () => [] as Candle[] },
+      fusionProvider: () => null,
       accountSnapshot: () => fakeAccount,
       recentFills: () => [],
       clock: () => 1,
