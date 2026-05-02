@@ -15,6 +15,7 @@ import { StrategyController } from './strategy/controller';
 import { SmcRule } from './strategy/strategies/smc-rule';
 import { MaCross } from './strategy/strategies/ma-cross';
 import { LlmPulse } from './strategy/strategies/llm-pulse';
+import { BearishSmc } from './strategy/strategies/bearish-smc';
 import { PassthroughRiskFilter } from './strategy/risk/risk-filter';
 import { CompositeRiskFilter } from './strategy/risk/composite-filter';
 import { MinConfidenceRule } from './strategy/risk/rules/min-confidence';
@@ -335,9 +336,10 @@ async function runApp(ctx: Context) {
   // Override star expansion to use configured pairs.
   (strategyController as any).expandStarPairs = () => configuredPairs;
 
-  if (enabledIds.has('smc.rule.v1')) strategyController.register(new SmcRule());
-  if (enabledIds.has('ma.cross.v1')) strategyController.register(new MaCross());
-  if (enabledIds.has('llm.pulse.v1')) strategyController.register(new LlmPulse(ctx.analyzer));
+  if (enabledIds.has('smc.rule.v1'))    strategyController.register(new SmcRule());
+  if (enabledIds.has('ma.cross.v1'))    strategyController.register(new MaCross());
+  if (enabledIds.has('llm.pulse.v1'))   strategyController.register(new LlmPulse(ctx.analyzer));
+  if (enabledIds.has('bearish.smc.v1')) strategyController.register(new BearishSmc());
   strategyController.start();
 
   setInterval(() => {
