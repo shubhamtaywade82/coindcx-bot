@@ -165,11 +165,11 @@ async function runApp(ctx: Context) {
     },
   });
 
-  ws.on('depth-snapshot', (raw: any) => integrity.ingest('depth-snapshot', raw));
-  ws.on('depth-update',   (raw: any) => integrity.ingest('depth-update',   raw));
-  ws.on('new-trade',      (raw: any) => integrity.ingest('new-trade',      raw));
-  ws.on('currentPrices@futures#update', (raw: any) => integrity.ingest('currentPrices@futures#update', raw));
-  ws.on('currentPrices@spot#update',    (raw: any) => integrity.ingest('currentPrices@spot#update',    raw));
+  ws.on('depth-snapshot', (raw: any) => integrity.ingest('depth-snapshot', safeParse(raw)));
+  ws.on('depth-update',   (raw: any) => integrity.ingest('depth-update',   safeParse(raw)));
+  ws.on('new-trade',      (raw: any) => integrity.ingest('new-trade',      safeParse(raw)));
+  ws.on('currentPrices@futures#update', (raw: any) => integrity.ingest('currentPrices@futures#update', safeParse(raw)));
+  ws.on('currentPrices@spot#update',    (raw: any) => integrity.ingest('currentPrices@spot#update',    safeParse(raw)));
 
   // ── F4 Strategy Framework ──
   const candleStore = new Map<string, { ltf: Candle[]; htf: Candle[] }>();
