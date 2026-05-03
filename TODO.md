@@ -133,8 +133,8 @@ Use this file as the single source of truth for execution tracking.
 
 - [ ] Futures websocket coverage
   - [ ] Confirm exact futures channel strings in authenticated docs body
-  - [ ] Implement account/position/order/balance/candlestick/orderbook/current prices/new trade/LTP handlers
-  - [ ] Add channel mapping docs with examples
+  - [x] Implement account/position/order/balance/candlestick/orderbook/current prices/new trade/LTP handlers
+  - [x] Add channel mapping docs with examples (`docs/futures-websocket-channel-mapping.md`)
 
 - [ ] Explicit data-gap strategy for missing public endpoints/streams
   - [ ] No dedicated mark-price endpoint: use last price policy

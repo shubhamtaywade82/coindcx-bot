@@ -146,4 +146,71 @@ describe('CoinDCXWs handshake and event receipt', () => {
     expect(leaveCalls).toContain('B-ETH_USDT@priceStats');
     expect(leaveCalls).toContain('B-ETH_USDT@orderbook@20-futures');
   });
+
+  it('emits derived futures aliases including LTP updates', () => {
+    const ws = new CoinDCXWs();
+    ws.connect();
+
+    const futuresOrderbookUpdates: unknown[] = [];
+    const futuresPriceStats: unknown[] = [];
+    const futuresCurrentPrices: unknown[] = [];
+    const futuresTrades: unknown[] = [];
+    const futuresBalances: unknown[] = [];
+    const futuresPositionUpdates: unknown[] = [];
+    const futuresOrderUpdates: unknown[] = [];
+    const futuresTradeUpdates: unknown[] = [];
+    const ltpUpdates: unknown[] = [];
+
+    ws.on('futures-orderbook-update', (data) => futuresOrderbookUpdates.push(data));
+    ws.on('futures-price-stats', (data) => futuresPriceStats.push(data));
+    ws.on('futures-current-prices', (data) => futuresCurrentPrices.push(data));
+    ws.on('futures-new-trade', (data) => futuresTrades.push(data));
+    ws.on('futures-balance-update', (data) => futuresBalances.push(data));
+    ws.on('futures-position-update', (data) => futuresPositionUpdates.push(data));
+    ws.on('futures-order-update', (data) => futuresOrderUpdates.push(data));
+    ws.on('futures-trade-update', (data) => futuresTradeUpdates.push(data));
+    ws.on('futures-ltp-update', (data) => ltpUpdates.push(data));
+
+    mockedSocketIo.socket.trigger('depth-update', {
+      channel: 'B-BTC_USDT@orderbook@20-futures',
+      data: { bids: [['1', '2']], asks: [['3', '4']] },
+    });
+    mockedSocketIo.socket.trigger('price-change', {
+      channel: 'B-BTC_USDT@prices-futures',
+      data: { pair: 'B-BTC_USDT', change: 0.42 },
+    });
+    mockedSocketIo.socket.trigger('new-trade', {
+      channel: 'B-BTC_USDT@trades-futures',
+      data: { pair: 'B-BTC_USDT', price: '123.4' },
+    });
+    mockedSocketIo.socket.trigger('currentPrices@futures#update', {
+      data: {
+        prices: {
+          B_BTC_USDT: { ls: 101.2, mp: 101.0 },
+        },
+      },
+    });
+
+    mockedSocketIo.socket.trigger('balance-update', { data: { currency: 'USDT', balance: '10' } });
+    mockedSocketIo.socket.trigger('position-update', { data: { pair: 'B-BTC_USDT', active_pos: '1' } });
+    mockedSocketIo.socket.trigger('order-update', { data: { id: 'ord-1', status: 'open' } });
+    mockedSocketIo.socket.trigger('trade-update', { data: { id: 'fill-1', pair: 'B-BTC_USDT' } });
+
+    expect(futuresOrderbookUpdates).toHaveLength(1);
+    expect(futuresPriceStats).toEqual([{ pair: 'B-BTC_USDT', change: 0.42 }]);
+    expect(futuresCurrentPrices).toHaveLength(1);
+    expect(futuresTrades).toEqual([{ pair: 'B-BTC_USDT', price: '123.4' }]);
+    expect(futuresBalances).toEqual([{ currency: 'USDT', balance: '10' }]);
+    expect(futuresPositionUpdates).toEqual([{ pair: 'B-BTC_USDT', active_pos: '1' }]);
+    expect(futuresOrderUpdates).toEqual([{ id: 'ord-1', status: 'open' }]);
+    expect(futuresTradeUpdates).toEqual([{ id: 'fill-1', pair: 'B-BTC_USDT' }]);
+    expect(ltpUpdates).toEqual([
+      {
+        pair: 'B_BTC_USDT',
+        ltp: 101.2,
+        markPrice: 101,
+        raw: { ls: 101.2, mp: 101.0 },
+      },
+    ]);
+  });
 });

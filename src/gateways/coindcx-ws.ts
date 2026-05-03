@@ -144,6 +144,113 @@ export class CoinDCXWs extends EventEmitter {
     return out;
   }
 
+  private resolveEnvelopeChannel(response: any, inner: any): string | undefined {
+    const channelName =
+      (typeof response === 'object' && response && (response as any).channelName) ||
+      (typeof response === 'object' && response && (response as any).channel) ||
+      (inner && typeof inner === 'object' && (inner as any).channelName) ||
+      (inner && typeof inner === 'object' && (inner as any).channel);
+    if (typeof channelName !== 'string' || !channelName.trim()) {
+      return undefined;
+    }
+    return channelName;
+  }
+
+  private inferProduct(event: string, response: any, inner: any): 'futures' | 'spot' | 'unknown' {
+    if (event.includes('@futures')) return 'futures';
+    if (event.includes('@spot')) return 'spot';
+    const hint = String(
+      (inner && typeof inner === 'object' && ((inner as any).pr ?? (inner as any).product ?? (inner as any).pcode)) ??
+      '',
+    ).toLowerCase();
+    if (hint === 'f' || hint === 'futures') return 'futures';
+    if (hint === 's' || hint === 'spot') return 'spot';
+
+    const channelName = this.resolveEnvelopeChannel(response, inner);
+    if (!channelName) return 'unknown';
+    if (channelName.includes('-futures') || channelName.includes('@futures')) return 'futures';
+    if (channelName.includes('@spot')) return 'spot';
+    return 'unknown';
+  }
+
+  private emitFuturesLtpUpdates(inner: any): void {
+    const prices = inner?.prices;
+    if (!prices || typeof prices !== 'object') return;
+    Object.entries(prices as Record<string, unknown>).forEach(([pair, row]) => {
+      const rowObj = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
+      const candidate = rowObj.ls ?? rowObj.ltp ?? rowObj.lp ?? rowObj.last_price ?? row;
+      const ltp = typeof candidate === 'number' ? candidate : Number(candidate);
+      if (!Number.isFinite(ltp)) return;
+      const markCandidate = rowObj.mp ?? rowObj.mark_price;
+      const markPrice =
+        typeof markCandidate === 'number' ? markCandidate : Number(markCandidate ?? ltp);
+      const payload = {
+        pair,
+        ltp,
+        markPrice: Number.isFinite(markPrice) ? markPrice : ltp,
+        raw: row,
+      };
+      this.emit('futures-ltp-update', payload);
+      this.emit('ltp-update', payload);
+    });
+  }
+
+  private emitDerivedPublicAliases(event: string, response: any, inner: any): void {
+    const product = this.inferProduct(event, response, inner);
+    if (product !== 'futures') return;
+
+    switch (event) {
+      case 'candlestick':
+        this.emit('futures-candlestick', inner);
+        return;
+      case 'depth-snapshot':
+        this.emit('futures-orderbook-snapshot', inner);
+        return;
+      case 'depth-update':
+        this.emit('futures-orderbook-update', inner);
+        return;
+      case 'new-trade':
+        this.emit('futures-new-trade', inner);
+        return;
+      case 'price-change':
+      case 'priceStats':
+        this.emit('futures-price-stats', inner);
+        return;
+      case 'currentPrices':
+      case 'currentPrices@futures#update':
+        this.emit('futures-current-prices', inner);
+        this.emitFuturesLtpUpdates(inner);
+        return;
+      case 'ltp-update':
+        this.emit('futures-ltp-update', inner);
+        return;
+      default:
+        return;
+    }
+  }
+
+  private emitDerivedPrivateAliases(event: string, data: any): void {
+    switch (event) {
+      case 'balance-update':
+        this.emit('futures-balance-update', data);
+        return;
+      case 'position-update':
+      case 'df-position-update':
+        this.emit('futures-position-update', data);
+        return;
+      case 'order-update':
+      case 'df-order-update':
+        this.emit('futures-order-update', data);
+        return;
+      case 'trade-update':
+      case 'df-trade-update':
+        this.emit('futures-trade-update', data);
+        return;
+      default:
+        return;
+    }
+  }
+
   private setupSocketListeners() {
     // ── Public Events ──
     const publicEvents = [
@@ -153,6 +260,7 @@ export class CoinDCXWs extends EventEmitter {
       'new-trade',
       'price-change',
       'priceStats',
+      'ltp-update',
       'currentPrices',
       'currentPrices@spot#update',
       'currentPrices@futures#update',
@@ -169,6 +277,7 @@ export class CoinDCXWs extends EventEmitter {
         if (event === 'price-change') {
           this.emit('priceStats', data);
         }
+        this.emitDerivedPublicAliases(event, response, data);
         if (!['depth-update', 'depth-snapshot'].includes(event)) {
           this.emit('debug', `${event}: ${JSON.stringify(data).substring(0, 100)}`);
         }
@@ -193,6 +302,7 @@ export class CoinDCXWs extends EventEmitter {
         for (const alias of privateEventAliases[event] ?? [event]) {
           this.emit(alias, data);
         }
+        this.emitDerivedPrivateAliases(event, data);
       });
     });
   }
