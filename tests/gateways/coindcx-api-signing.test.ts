@@ -43,17 +43,19 @@ describe('CoinDCXApi auth signing', () => {
   });
 
   it('applies same canonical signature contract for signed wallet details requests', async () => {
-    const postSpy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: [] });
+    const requestSpy = vi.spyOn(__httpForTests, 'request').mockResolvedValue({ data: [] });
     await CoinDCXApi.getBalances();
 
-    expect(postSpy).toHaveBeenCalledTimes(1);
-    const [, body, requestConfig] = postSpy.mock.calls[0] ?? [];
-    const requestBody = body as Record<string, unknown>;
-    const configArg = requestConfig as
-      | { headers?: RequestHeaders }
-      | undefined;
-    const headers = configArg?.headers ?? {};
+    expect(requestSpy).toHaveBeenCalledTimes(1);
+    const cfg = requestSpy.mock.calls[0]?.[0] as {
+      method?: string;
+      data?: Record<string, unknown>;
+      headers?: RequestHeaders;
+    };
+    const requestBody = cfg?.data ?? {};
+    const headers = cfg?.headers ?? {};
 
+    expect(cfg?.method?.toUpperCase()).toBe('GET');
     expect(requestBody).toMatchObject({ timestamp: 1_710_000_000_000 });
     expect(headers['X-AUTH-SIGNATURE']).toBe(canonicalSignature(requestBody));
   });

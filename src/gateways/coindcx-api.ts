@@ -142,11 +142,14 @@ export class CoinDCXApi {
       'Balances',
       (timestamp) => ({ timestamp }),
       async ({ body, headers }) => {
-        const response = await http.post(
-          this.futuresPath('wallet_details', '/exchange/v1/derivatives/futures/wallets'),
-          body,
-          { headers },
-        );
+        const path = this.futuresPath('wallet_details', '/exchange/v1/derivatives/futures/wallets');
+        // CoinDCX docs: GET with JSON body + HMAC(JSON.stringify(body)) (POST returns 404 on some routes).
+        const response = await http.request({
+          method: 'GET',
+          url: path,
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          data: body,
+        });
         return response.data;
       },
     );

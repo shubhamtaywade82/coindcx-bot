@@ -308,13 +308,14 @@ describe('CoinDCXApi new endpoints', () => {
     });
   });
 
-  it('getBalances posts futures wallet details endpoint with signed body', async () => {
-    const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: [{ currency: 'USDT' }] });
+  it('getBalances GETs futures wallet details with signed JSON body', async () => {
+    const spy = vi.spyOn(__httpForTests, 'request').mockResolvedValue({ data: [{ currency: 'USDT' }] });
     const data = await CoinDCXApi.getBalances();
     expect(spy).toHaveBeenCalledWith(
-      '/exchange/v1/derivatives/futures/wallets',
-      expect.objectContaining({ timestamp: expect.any(Number) }),
       expect.objectContaining({
+        method: 'GET',
+        url: '/exchange/v1/derivatives/futures/wallets',
+        data: expect.objectContaining({ timestamp: expect.any(Number) }),
         headers: expect.objectContaining({
           'X-AUTH-APIKEY': expect.any(String),
           'X-AUTH-SIGNATURE': expect.any(String),
