@@ -14,6 +14,8 @@ export const DENY_PATHS: readonly string[] = [
   '/exchange/v1/orders/cancel_all',
   '/exchange/v1/orders/cancel_by_ids',
   '/exchange/v1/funds/transfer',
+  '/exchange/v1/wallets/transfer',
+  '/exchange/v1/wallets/sub_account_transfer',
   '/exchange/v1/derivatives/futures/orders/create',
   '/exchange/v1/derivatives/futures/orders/cancel',
   '/exchange/v1/derivatives/futures/orders/edit',

@@ -100,7 +100,10 @@ Use this file as the single source of truth for execution tracking.
   - [ ] Account/trading (write endpoint remains blocked by ReadOnlyGuard): create
   - [x] History (read-only subset): trade_history
   - [ ] Cancel/edit (write endpoints remain blocked by ReadOnlyGuard): cancel, cancel_all, cancel_by_ids, edit
-  - [ ] Wallet: transfer, sub_account_transfer
+- [ ] Wallet:
+  - [ ] transfer implementation remains blocked by ReadOnlyGuard
+  - [ ] sub_account_transfer implementation remains blocked by ReadOnlyGuard
+  - [x] deny-list policy tests cover wallet transfer write routes
   - [ ] Optional product surfaces: margin endpoints, lend endpoints
   - [ ] Enforce documented rate limits (especially `cancel_all` 30/60s)
 
