@@ -113,9 +113,9 @@ Use this file as the single source of truth for execution tracking.
 - [x] Save verbatim paths + params to `config/coindcx_futures_endpoints.yml` (scaffold + validator in place; awaiting manual endpoint fill)
   - [ ] Reject third-party gists as source of truth
   - [ ] Implement wrappers for all named futures sections:
-    - [ ] instruments active/details/realtime trades/orderbook/candles
-    - [ ] orders list/create/cancel/edit
-    - [ ] positions list/get/update leverage
+    - [x] instruments active/details/realtime trades/orderbook/candles (resolver + loader scaffold in place; read-only methods now mapped with fallback)
+    - [x] orders list/create/cancel/edit (list/read path wired via resolver; write paths remain blocked by ReadOnlyGuard)
+    - [x] positions list/get/update leverage (list/get read path wired via resolver; update remains blocked)
     - [ ] add/remove margin
     - [ ] cancel-all variants + exit position
     - [ ] TP/SL order create (`untriggered` status support)

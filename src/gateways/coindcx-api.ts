@@ -2,6 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import crypto from 'crypto';
 import { config } from '../config/config';
 import { applyReadOnlyGuard } from '../safety/read-only-guard';
+import { resolveFuturesPath } from './futures-endpoint-resolver';
 
 const http: AxiosInstance = axios.create({ baseURL: config.apiBaseUrl, timeout: 10_000 });
 const publicHttp: AxiosInstance = axios.create({ baseURL: config.publicBaseUrl, timeout: 10_000 });
@@ -23,6 +24,14 @@ export const __httpForTests = http;
 export const __publicHttpForTests = publicHttp;
 
 export class CoinDCXApi {
+  private static futuresPath(
+    endpointKey: string,
+    fallbackPath: string,
+    requireCaptured = false,
+  ): string {
+    return resolveFuturesPath(endpointKey, fallbackPath, { requireCaptured });
+  }
+
   private static readonly clockSkewRetryStatuses = new Set([400, 401, 403]);
 
   private static sign(payload: string): string {
@@ -113,10 +122,10 @@ export class CoinDCXApi {
       'Balances',
       (timestamp) => ({ timestamp }),
       async ({ body, headers }) => {
-        const response = await http.get('/exchange/v1/derivatives/futures/wallets', {
-        data: body,
-        headers,
-      });
+        const response = await http.get(this.futuresPath('wallet_details', '/exchange/v1/derivatives/futures/wallets'), {
+          data: body,
+          headers,
+        });
         return response.data;
       },
     );
@@ -158,11 +167,12 @@ export class CoinDCXApi {
         margin_currency_short_name: ['USDT', 'INR'],
       }),
       async ({ body, headers }) => {
+        const path = this.futuresPath('list_positions', '/exchange/v1/derivatives/futures/positions');
         const response = await http.post(
-        '/exchange/v1/derivatives/futures/positions',
-        body,
-        { headers },
-      );
+          path,
+          body,
+          { headers },
+        );
         return response.data;
       },
     );
@@ -179,11 +189,12 @@ export class CoinDCXApi {
         margin_currency_short_name: ['USDT', 'INR'],
       }),
       async ({ body, headers }) => {
+        const path = this.futuresPath('list_orders', '/exchange/v1/derivatives/futures/orders');
         const response = await http.post(
-        '/exchange/v1/derivatives/futures/orders',
-        body,
-        { headers },
-      );
+          path,
+          body,
+          { headers },
+        );
         return response.data;
       },
     );
@@ -355,11 +366,12 @@ export class CoinDCXApi {
         margin_currency_short_name: ['USDT', 'INR'],
       }),
       async ({ body, headers }) => {
+        const path = this.futuresPath('get_trades', '/exchange/v1/derivatives/futures/trade_history');
         const response = await http.post(
-        '/exchange/v1/derivatives/futures/trade_history',
-        body,
-        { headers },
-      );
+          path,
+          body,
+          { headers },
+        );
         return response.data;
       },
     );
