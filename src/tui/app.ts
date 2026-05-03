@@ -181,8 +181,8 @@ export class TuiApp {
       scrollbar: { ch: ' ' },
     });
 
-    // Grid rows 7–8: Balances / Orders / Risk (2 grid rows — INR + USD rows need vertical space)
-    this.balanceTable = this.grid.set(7, 0, 2, 4, blessed.box, {
+    // Grid rows 7–8: Balances / Orders / Risk (2 grid rows — INR + USD rows need vertical space). Balances 6 cols, Orders/Risk 3 each.
+    this.balanceTable = this.grid.set(7, 0, 2, 6, blessed.box, {
       label: ' Balances ',
       border: { type: 'line', fg: 'green' },
       tags: true,
@@ -191,7 +191,7 @@ export class TuiApp {
       scrollbar: { ch: ' ' },
     });
 
-    this.orderTable = this.grid.set(7, 4, 2, 4, blessed.box, {
+    this.orderTable = this.grid.set(7, 6, 2, 3, blessed.box, {
       label: ' Orders ',
       border: { type: 'line', fg: 'magenta' },
       tags: true,
@@ -200,7 +200,7 @@ export class TuiApp {
       scrollbar: { ch: ' ' },
     });
 
-    this.riskBox = this.grid.set(7, 8, 2, 4, blessed.box, {
+    this.riskBox = this.grid.set(7, 9, 2, 3, blessed.box, {
       label: ' Risk ',
       border: { type: 'line', fg: 'gray' },
       tags: true,
@@ -217,7 +217,7 @@ export class TuiApp {
         if (ch === '?') { this.toggleHelp(); return; }
         return;
       }
-      
+
       const keyName = key.name;
       const fullKey = key.full || key.name;
 
@@ -313,10 +313,10 @@ export class TuiApp {
 
     this.updateStatus({});
     this.emitFocusChange();
-    
+
     // Default focus
     this.logPanel.focus();
-    
+
     // Finalize render
     this.render();
   }
@@ -337,7 +337,7 @@ export class TuiApp {
     let newIndex = this.focusIndex + direction;
     if (newIndex < 0) newIndex = this.pairs.length - 1;
     if (newIndex >= this.pairs.length) newIndex = 0;
-    
+
     if (this.focusIndex !== newIndex) {
       this.focusIndex = newIndex;
       this.emitFocusChange();
@@ -389,10 +389,10 @@ export class TuiApp {
 
     const wsStatus = this.isConnected ? '{green-fg}●{/green-fg}' : '{red-fg}○{/red-fg}';
     const time = new Date().toLocaleTimeString();
-    
+
     const modeStr = config.isReadOnly ? '{yellow-fg}MONITOR{/yellow-fg}' : '{green-fg}LIVE{/green-fg}';
     const orderStr = config.isReadOnly ? '{red-fg}OFF{/red-fg}' : '{green-fg}ON{/green-fg}';
-    
+
     const content = ` {bold}ENGINE: {green-fg}RUN{/green-fg}{/bold}  │  MODE: ${modeStr}  │  ORDER: ${orderStr}  │  WS: ${wsStatus}  │  FEED: {green-fg}OK{/green-fg}  │  FOCUS: ${this.focusedPairClean}  │  TIME: ${time}`;
     this.statusBar.setContent(content);
     this.render();
@@ -438,13 +438,13 @@ export class TuiApp {
       if (stats.ltp) {
         const currentLtp = parseFloat(stats.ltp);
         const lastLtp = this.lastLtpByPair.get(this.focusedPair);
-        
+
         if (lastLtp !== undefined && !isNaN(currentLtp) && currentLtp !== lastLtp) {
           const color = currentLtp > lastLtp ? 'green' : 'red';
           const arrow = currentLtp > lastLtp ? '▲' : '▼';
           this.trendByPair.set(this.focusedPair, `{${color}-fg}${arrow}{/${color}-fg}`);
         }
-        
+
         const trend = this.trendByPair.get(this.focusedPair) || '';
         s.push(`LTP: {white-fg}${stats.ltp}{/white-fg} ${trend}`);
         if (!isNaN(currentLtp)) this.lastLtpByPair.set(this.focusedPair, currentLtp);
@@ -469,7 +469,7 @@ export class TuiApp {
   log(message: string, level: SystemLogLevel = 'info') {
     // We allow info, warn, and error to be visible to the user
     if (level === 'debug' && config.LOG_LEVEL !== 'debug') return;
-    
+
     if (this.logPanel) {
       this.logPanel.log(`[${new Date().toLocaleTimeString()}] ${message}`);
     }
@@ -532,7 +532,7 @@ export class TuiApp {
     // ── Last Price (spread) Row ──
     const currentPrice = parseFloat(lastPrice);
     const prevPrice = this.lastLtpByPair.get(target);
-    
+
     if (prevPrice !== undefined && !isNaN(currentPrice) && currentPrice !== prevPrice) {
       const color = currentPrice > prevPrice ? 'green' : 'red';
       const arrow = currentPrice > prevPrice ? '▲' : '▼';
@@ -542,7 +542,7 @@ export class TuiApp {
     const bestAsk = parseFloat(askSlice[0]?.[0]?.replace(/,/g, '') || '0');
     const bestBid = parseFloat(bidSlice[0]?.[0]?.replace(/,/g, '') || '0');
     const spread = bestAsk > 0 && bestBid > 0 ? (bestAsk - bestBid).toFixed(2) : '—';
-    
+
     const trend = this.trendByPair.get(target) || '';
     const ltpRow =
       ` {yellow-fg}{bold}${this.padLeft(formatPrice(lastPrice), 12)}{/bold}{/yellow-fg} ${trend}\n` +
@@ -634,8 +634,8 @@ export class TuiApp {
         : '';
     const reason = data.no_trade_condition && data.no_trade_condition !== 'None' ? `\n {gray-fg}REASON: ${data.no_trade_condition}{/gray-fg}` : '';
     const mgmt = data.management ? `\n\n {yellow-fg}🛡️ MANAGEMENT:{/yellow-fg} {bold}${data.management}{/bold}` : '';
-    const levelsStr = Array.isArray(data.levels) && data.levels.length > 0 
-      ? `\n\n {white-fg}LEVELS TO MONITOR:{/white-fg}\n${data.levels.map((l: string) => ` • ${l}`).join('\n')}` 
+    const levelsStr = Array.isArray(data.levels) && data.levels.length > 0
+      ? `\n\n {white-fg}LEVELS TO MONITOR:{/white-fg}\n${data.levels.map((l: string) => ` • ${l}`).join('\n')}`
       : '';
     const mtfSection = this.buildMtfSection(this.focusedPair);
     const content = `\n {bold}${data.verdict}{/bold}\n\n {${color}-fg}SIGNAL: ${sig}{/${color}-fg}\n {gray-fg}CONF: ${(data.confidence * 100).toFixed(0)}%{/gray-fg}${setup ? `\n${setup}` : ''}${mgmt}${levelsStr}${reason}${mtfSection}`;
@@ -739,7 +739,7 @@ export class TuiApp {
   }
 
   updateBalances(rows: string[][]) {
-    const c = { asset: 9, num: 10, pct: 7, util: 8 };
+    const c = { asset: 10, num: 12, pct: 8, util: 9 };
     const header =
       ` {green-fg}${this.padLeft('ASSET', c.asset)} ${this.padRight('VALUE', c.num)} ${this.padRight('WALLET', c.num)} ` +
       `${this.padRight('PNL', c.num)} ${this.padRight('%', c.pct)} ${this.padRight('AVAIL', c.num)} ${this.padRight('LOCK', c.num)} ${this.padRight('UTIL%', c.util)}{/green-fg}\n`;
