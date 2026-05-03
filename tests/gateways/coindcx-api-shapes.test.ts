@@ -122,7 +122,7 @@ describe('CoinDCXApi new endpoints', () => {
     const data = await CoinDCXApi.getSpotTradeHistory({ market: 'BTCUSDT', page: 2, limit: 50 });
     expect(spy).toHaveBeenCalledWith(
       '/exchange/v1/orders/trade_history',
-      expect.objectContaining({ market: 'BTCUSDT', page: 2, limit: 100, timestamp: expect.any(Number) }),
+      expect.objectContaining({ market: 'BTCUSDT', page: 2, limit: 50, timestamp: expect.any(Number) }),
       expect.any(Object),
     );
     expect(data).toEqual([{ id: 't1' }]);
