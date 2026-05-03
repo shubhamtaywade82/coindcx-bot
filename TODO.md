@@ -149,13 +149,13 @@ Use this file as the single source of truth for execution tracking.
   - [x] Publish to Redis Streams (`market.*`, `account.*`)
   - [x] Reconnect and resubscribe all channels on disconnect
 
-- [ ] Core runtime modules present and wired
-  - [ ] SignalEngine
-  - [ ] RegimeClassifier
-  - [ ] ConfluenceScorer
-  - [ ] RiskManager
-  - [ ] OrderRouter
-  - [ ] PositionStateMachine
+- [x] Core runtime modules present and wired
+  - [x] SignalEngine
+  - [x] RegimeClassifier
+  - [x] ConfluenceScorer
+  - [x] RiskManager
+  - [x] OrderRouter
+  - [x] PositionStateMachine
 
 - [ ] Worker/scheduler responsibilities
   - [ ] Candle-close jobs
