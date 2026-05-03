@@ -1,3 +1,210 @@
+catalogVersion: 1
+source:
+  docsHost: docs.coindcx.com
+  requiresAuthenticatedCapture: true
+  captureStatus: pending
+  capturedAt: null
+  capturedBy: null
+  notes: >
+    Scaffold created from public docs section names. Replace each placeholder
+    with verbatim method/path/params captured from authenticated CoinDCX docs.
+
+endpoints:
+  - key: get_active_instruments
+    label: Get active instruments
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: get_instrument_details
+    label: Get instrument details
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: get_instrument_trade_history
+    label: Get instrument real-time trade history
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: get_instrument_orderbook
+    label: Get instrument orderbook
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: get_instrument_candlesticks
+    label: Get instrument candlesticks
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: list_orders
+    label: List orders
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: create_order
+    label: Create order
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: cancel_order
+    label: Cancel order
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: edit_order
+    label: Edit order
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: list_positions
+    label: List positions
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: get_positions_by_pair_or_position_id
+    label: Get positions by pairs or position id
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: update_position_leverage
+    label: Update position leverage
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: add_margin
+    label: Add margin
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: remove_margin
+    label: Remove margin
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: cancel_all_open_orders
+    label: Cancel all open orders
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: cancel_all_open_orders_for_position
+    label: Cancel all open orders for position
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: exit_position
+    label: Exit position
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: create_take_profit_stop_loss_orders
+    label: Create take profit and stop loss orders
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: get_transactions
+    label: Get transactions
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: get_trades
+    label: Get trades
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: get_current_prices_rt
+    label: Get current prices RT
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: get_pair_stats
+    label: Get pair stats
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: get_cross_margin_details
+    label: Get cross margin details
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: wallet_transfer
+    label: Wallet transfer
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: wallet_details
+    label: Wallet details
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: wallet_transactions
+    label: Wallet transactions
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: change_position_margin_type
+    label: Change position margin type
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
+
+  - key: get_currency_conversion
+    label: Get currency conversion
+    method: UNKNOWN
+    path: TBD
+    paramsSpec: TBD
+    status: pending
 version: 1
 source: authenticated_docs_capture_pending
 updated_at: "2026-05-03T10:10:00.000Z"

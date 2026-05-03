@@ -56,6 +56,7 @@ function asBoolean(value: unknown, field: string): boolean {
 
 function asStatus(value: unknown, field: string): EndpointCaptureStatus {
   const status = asString(value, field);
+  if (status === 'placeholder') return 'pending';
   if (status !== 'pending' && status !== 'captured') {
     throw new Error(`Invalid futures endpoint spec: "${field}" must be "pending" or "captured"`);
   }
@@ -75,6 +76,14 @@ function asNullableString(value: unknown, field: string): string | null {
   return asString(value, field);
 }
 
+function labelFromKey(key: string): string {
+  return key
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
 function parseEndpoint(entry: unknown, idx: number): FuturesEndpointEntry {
   const row = asObject(entry, `endpoints[${idx}]`);
   const method = asMethod(row.method, `endpoints[${idx}].method`);
@@ -89,10 +98,16 @@ function parseEndpoint(entry: unknown, idx: number): FuturesEndpointEntry {
   }
   return {
     key: asString(row.key, `endpoints[${idx}].key`),
-    label: asString(row.label, `endpoints[${idx}].label`),
+    label:
+      typeof row.label === 'string' && row.label.trim().length > 0
+        ? row.label.trim()
+        : labelFromKey(asString(row.key, `endpoints[${idx}].key`)),
     method,
     path,
-    paramsSpec: asString(row.paramsSpec, `endpoints[${idx}].paramsSpec`),
+    paramsSpec:
+      typeof row.paramsSpec === 'string' && row.paramsSpec.trim().length > 0
+        ? row.paramsSpec.trim()
+        : 'TBD',
     status: asStatus(row.status, `endpoints[${idx}].status`),
   };
 }
@@ -102,23 +117,36 @@ export function loadFuturesEndpointSpec(specPath: string = SPEC_PATH): FuturesEn
   const parsed = yaml.load(raw);
   const root = asObject(parsed, 'root');
 
-  const catalogVersion = Number(root.catalogVersion);
+  const catalogVersion = Number(root.catalogVersion ?? root.version);
   if (!Number.isInteger(catalogVersion) || catalogVersion <= 0) {
-    throw new Error('Invalid futures endpoint spec: "catalogVersion" must be a positive integer');
+    throw new Error('Invalid futures endpoint spec: "catalogVersion" (or "version") must be a positive integer');
   }
 
-  const sourceRaw = asObject(root.source, 'source');
-  const source: FuturesSourceSection = {
-    docsHost: asString(sourceRaw.docsHost, 'source.docsHost'),
-    requiresAuthenticatedCapture: asBoolean(
-      sourceRaw.requiresAuthenticatedCapture,
-      'source.requiresAuthenticatedCapture',
-    ),
-    captureStatus: asStatus(sourceRaw.captureStatus, 'source.captureStatus'),
-    capturedAt: asNullableString(sourceRaw.capturedAt, 'source.capturedAt'),
-    capturedBy: asNullableString(sourceRaw.capturedBy, 'source.capturedBy'),
-    notes: typeof sourceRaw.notes === 'string' ? sourceRaw.notes.trim() : undefined,
-  };
+  const source: FuturesSourceSection = (() => {
+    if (typeof root.source === 'string') {
+      return {
+        docsHost: 'docs.coindcx.com',
+        requiresAuthenticatedCapture: true,
+        captureStatus: root.source.includes('captured') ? 'captured' : 'pending',
+        capturedAt: asNullableString(root.updated_at, 'updated_at'),
+        capturedBy: null,
+        notes: root.source,
+      };
+    }
+
+    const sourceRaw = asObject(root.source, 'source');
+    return {
+      docsHost: asString(sourceRaw.docsHost, 'source.docsHost'),
+      requiresAuthenticatedCapture: asBoolean(
+        sourceRaw.requiresAuthenticatedCapture,
+        'source.requiresAuthenticatedCapture',
+      ),
+      captureStatus: asStatus(sourceRaw.captureStatus, 'source.captureStatus'),
+      capturedAt: asNullableString(sourceRaw.capturedAt, 'source.capturedAt'),
+      capturedBy: asNullableString(sourceRaw.capturedBy, 'source.capturedBy'),
+      notes: typeof sourceRaw.notes === 'string' ? sourceRaw.notes.trim() : undefined,
+    };
+  })();
 
   const endpointsRaw = root.endpoints;
   if (!Array.isArray(endpointsRaw) || endpointsRaw.length === 0) {
