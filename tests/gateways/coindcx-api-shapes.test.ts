@@ -127,4 +127,26 @@ describe('CoinDCXApi new endpoints', () => {
     );
     expect(data).toEqual([{ id: 't1' }]);
   });
+
+  it('getMarginOrders posts to margin/fetch_orders', async () => {
+    const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: [{ id: 'm1' }] });
+    const data = await CoinDCXApi.getMarginOrders('BTCUSDT');
+    expect(spy).toHaveBeenCalledWith(
+      '/exchange/v1/margin/fetch_orders',
+      expect.objectContaining({ market: 'BTCUSDT', timestamp: expect.any(Number) }),
+      expect.any(Object),
+    );
+    expect(data).toEqual([{ id: 'm1' }]);
+  });
+
+  it('getLendOrders posts to funding/fetch_orders', async () => {
+    const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: [{ id: 'l1' }] });
+    const data = await CoinDCXApi.getLendOrders();
+    expect(spy).toHaveBeenCalledWith(
+      '/exchange/v1/funding/fetch_orders',
+      expect.objectContaining({ timestamp: expect.any(Number) }),
+      expect.any(Object),
+    );
+    expect(data).toEqual([{ id: 'l1' }]);
+  });
 });

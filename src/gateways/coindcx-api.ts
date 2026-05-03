@@ -291,6 +291,56 @@ export class CoinDCXApi {
     );
   }
 
+  static async getMarginOrders(opts: { market?: string; id?: string } = {}) {
+    return this.withClockSkewRetry(
+      'MarginFetchOrders',
+      (timestamp) => ({
+        timestamp,
+        ...(opts.market ? { market: opts.market } : {}),
+        ...(opts.id ? { id: opts.id } : {}),
+      }),
+      async ({ body, headers }) => {
+        const response = await http.post('/exchange/v1/margin/fetch_orders', body, { headers });
+        return response.data;
+      },
+    );
+  }
+
+  static async getMarginOrderStatus(opts: { id?: string; clientOrderId?: string } = {}) {
+    const id = opts.id?.trim();
+    const clientOrderId = opts.clientOrderId?.trim();
+    if (!id && !clientOrderId) {
+      throw new Error('getMarginOrderStatus requires id or clientOrderId');
+    }
+    return this.withClockSkewRetry(
+      'MarginOrderStatus',
+      (timestamp) => ({
+        timestamp,
+        ...(id ? { id } : {}),
+        ...(clientOrderId ? { client_order_id: clientOrderId } : {}),
+      }),
+      async ({ body, headers }) => {
+        const response = await http.post('/exchange/v1/margin/order', body, { headers });
+        return response.data;
+      },
+    );
+  }
+
+  static async getFundingOrders(opts: { page?: number; limit?: number } = {}) {
+    return this.withClockSkewRetry(
+      'FundingFetchOrders',
+      (timestamp) => ({
+        timestamp,
+        page: opts.page ?? 1,
+        limit: opts.limit ?? 100,
+      }),
+      async ({ body, headers }) => {
+        const response = await http.post('/exchange/v1/funding/fetch_orders', body, { headers });
+        return response.data;
+      },
+    );
+  }
+
   static async getFuturesTradeHistory(opts: { fromTimestamp?: number; size?: number } = {}) {
     return this.withClockSkewRetry(
       'TradeHistory',

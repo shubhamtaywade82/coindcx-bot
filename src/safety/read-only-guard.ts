@@ -40,6 +40,8 @@ const SIGNED_READ_POST_PATHS: readonly string[] = [
   '/exchange/v1/derivatives/futures/trade_history',
   '/exchange/v1/derivatives/futures/orders/status',
   '/exchange/v1/derivatives/futures/wallets',
+  '/exchange/v1/margin/fetch_orders',
+  '/exchange/v1/funding/fetch_orders',
   '/exchange/v1/users/balances',
   '/exchange/v1/users/info',
   '/exchange/v1/orders/active_orders',

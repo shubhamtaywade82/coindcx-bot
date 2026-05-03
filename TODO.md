@@ -104,7 +104,8 @@ Use this file as the single source of truth for execution tracking.
   - [ ] transfer implementation remains blocked by ReadOnlyGuard
   - [ ] sub_account_transfer implementation remains blocked by ReadOnlyGuard
   - [x] deny-list policy tests cover wallet transfer write routes
-  - [ ] Optional product surfaces: margin endpoints, lend endpoints
+  - [x] Optional product surfaces (read-only fetch subset): margin/funding fetch endpoints
+  - [ ] Optional product surfaces (write subset remains blocked): margin create/exit/edit, lend/settle
   - [ ] Enforce documented rate limits (especially `cancel_all` 30/60s)
 
 - [ ] Futures REST endpoint capture and hardening
