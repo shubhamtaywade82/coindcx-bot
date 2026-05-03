@@ -34,6 +34,8 @@ describe.skipIf(!dockerAvailable)('migrations', () => {
         'audit_events',
         'seq_cursor',
         'signal_log',
+        'markets',
+        'candles',
         'account_event_dedup',
         'signals',
         'risk_events',
@@ -50,6 +52,7 @@ describe.skipIf(!dockerAvailable)('migrations', () => {
     const viewNames = views.rows.map((row: { table_name: string }) => row.table_name);
     expect(viewNames).toEqual(
       expect.arrayContaining([
+        'order_book_snapshots',
         'probability_of_profit_by_regime_score',
       ]),
     );
@@ -64,11 +67,16 @@ describe.skipIf(!dockerAvailable)('migrations', () => {
   it('rolls back latest migration step', async () => {
     await runMigrations({ direction: 'down', databaseUrl: url, count: 1 });
     const pool = new Pool({ connectionString: url });
+    const b7View = await pool.query(
+      `SELECT count(*)::int AS n FROM information_schema.views
+       WHERE table_schema='public' AND table_name='order_book_snapshots'`,
+    );
+    expect(b7View.rows[0].n).toBe(0);
     const probabilityView = await pool.query(
       `SELECT count(*)::int AS n FROM information_schema.views
        WHERE table_schema='public' AND table_name='probability_of_profit_by_regime_score'`,
     );
-    expect(probabilityView.rows[0].n).toBe(0);
+    expect(probabilityView.rows[0].n).toBe(1);
     const runtimeTable = await pool.query(
       `SELECT count(*)::int AS n FROM information_schema.tables
        WHERE table_schema='public' AND table_name='orderbook_snapshots'`,

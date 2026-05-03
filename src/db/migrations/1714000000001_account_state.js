@@ -77,11 +77,22 @@ exports.up = (pgm) => {
     CREATE INDEX changelog_entity_idx   ON account_changelog(entity, entity_id);
     CREATE INDEX changelog_recorded_idx ON account_changelog(recorded_at);
 
+    CREATE TABLE account_event_dedup (
+      id              BIGSERIAL PRIMARY KEY,
+      client_order_id TEXT NOT NULL,
+      event_id        TEXT NOT NULL,
+      entity          TEXT NOT NULL,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (client_order_id, event_id)
+    );
+    CREATE INDEX account_event_dedup_entity_idx ON account_event_dedup(entity);
+
   `);
 };
 
 exports.down = (pgm) => {
   pgm.sql(`
+    DROP TABLE IF EXISTS account_event_dedup;
     DROP TABLE IF EXISTS account_changelog;
     DROP TABLE IF EXISTS fills_ledger;
     DROP TABLE IF EXISTS orders;

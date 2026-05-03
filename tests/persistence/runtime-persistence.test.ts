@@ -70,4 +70,41 @@ describe('RuntimePersistence', () => {
     ).toBe(true);
     expect(persistence.isRiskEventEligible(signal({ type: 'strategy.long' }))).toBe(false);
   });
+
+  it('upserts positions from risk.time_stop_kill snapshots', async () => {
+    const query = vi.fn(async (_sql: string, _params: unknown[]) => ({ rows: [] }));
+    const persistence = new RuntimePersistence({ query } as any);
+    await persistence.persistPositionSnapshot(
+      signal({
+        id: 'risk-tsk-1',
+        type: 'risk.time_stop_kill',
+        strategy: 'risk.policy',
+        payload: {
+          positionId: 'pos-1',
+          pair: 'B-BTC_USDT',
+          side: 'LONG',
+          activePos: '0.25',
+          avgPrice: '100',
+          markPrice: '98',
+          unrealizedPnl: '-2',
+          openedAt: '2026-05-03T12:00:00.000Z',
+        },
+      }),
+    );
+    expect(query).toHaveBeenCalledTimes(1);
+    const firstCall = query.mock.calls.at(0);
+    expect(firstCall).toBeDefined();
+    if (!firstCall) return;
+    const [sql, params] = firstCall;
+    expect(sql).toMatch(/INSERT INTO positions/);
+    expect(params).toEqual(expect.arrayContaining([
+      'pos-1',
+      'B-BTC_USDT',
+      'long',
+      '0.25',
+      '100',
+      '98',
+      '-2',
+    ]));
+  });
 });

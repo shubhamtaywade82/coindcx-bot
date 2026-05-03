@@ -35,6 +35,23 @@ const UPSERT_MARKET_SQL = `
     refreshed_at = EXCLUDED.refreshed_at
 `;
 
+const UPSERT_MARKETS_SQL = `
+  INSERT INTO markets (
+    pair, symbol, ecode, precision_base, precision_quote, step, min_notional, max_leverage, payload, refreshed_at
+  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::timestamptz)
+  ON CONFLICT (pair) DO UPDATE SET
+    symbol = EXCLUDED.symbol,
+    ecode = EXCLUDED.ecode,
+    precision_base = EXCLUDED.precision_base,
+    precision_quote = EXCLUDED.precision_quote,
+    step = EXCLUDED.step,
+    min_notional = EXCLUDED.min_notional,
+    max_leverage = EXCLUDED.max_leverage,
+    payload = EXCLUDED.payload,
+    refreshed_at = EXCLUDED.refreshed_at,
+    payload = EXCLUDED.payload
+`;
+
 const READ_CATALOG_SQL = `
   SELECT pair, symbol, ecode, precision_base, precision_quote, step, min_notional, max_leverage, payload, refreshed_at
   FROM market_catalog
@@ -183,6 +200,18 @@ export class MarketCatalog {
       const row = toRow(raw, refreshedAt);
       if (!row) continue;
       await this.opts.pool.query(UPSERT_MARKET_SQL, [
+        row.pair,
+        row.symbol,
+        row.ecode,
+        row.precision_base,
+        row.precision_quote,
+        row.step,
+        row.min_notional,
+        row.max_leverage,
+        JSON.stringify(row.payload),
+        row.refreshed_at,
+      ]);
+      await this.opts.pool.query(UPSERT_MARKETS_SQL, [
         row.pair,
         row.symbol,
         row.ecode,

@@ -340,6 +340,7 @@ async function runApp(ctx: Context) {
         await runtimePersistence.persistSignal(s);
       } else if (s?.type && runtimePersistence.isRiskEventEligible(s)) {
         await runtimePersistence.persistRiskEvent(s);
+        await runtimePersistence.persistPositionSnapshot(s);
       }
       if (s && s.type && s.type.startsWith('strategy.')) {
         tui.log(`Bus emitted: ${s.type} for ${s.pair}`);

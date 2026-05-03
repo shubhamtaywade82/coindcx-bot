@@ -250,18 +250,18 @@ Use this file as the single source of truth for execution tracking.
 
 ### B7. Database and Data Contracts
 
-- [ ] Schema coverage from document essentials
-  - [ ] `markets`
-  - [ ] `candles`
-  - [ ] `signals`
-  - [ ] `trades`
-  - [ ] `positions`
-  - [ ] `risk_events`
-  - [ ] `order_book_snapshots`
+- [x] Schema coverage from document essentials
+  - [x] `markets`
+  - [x] `candles`
+  - [x] `signals`
+  - [x] `trades`
+  - [x] `positions`
+  - [x] `risk_events`
+  - [x] `order_book_snapshots`
 
-- [ ] Add indexes and constraints needed for replay/idempotency
-- [ ] Keep payload columns JSONB where dynamic shape is expected
-- [ ] Add migration and rollback verification tests
+- [x] Add indexes and constraints needed for replay/idempotency
+- [x] Keep payload columns JSONB where dynamic shape is expected
+- [x] Add migration and rollback verification tests
 
 ### B8. Backtesting and Validation
 
