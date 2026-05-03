@@ -10,7 +10,7 @@ import { HeartbeatWatcher } from './heartbeat-watcher';
 import { DriftSweeper } from './drift-sweeper';
 import type { AccountPersistence } from './persistence';
 import { normalizePosition, normalizeBalance, normalizeOrder, normalizeFill } from './normalizers';
-import type { AccountSnapshot, Entity, Position, Source } from './types';
+import type { AccountSnapshot, Entity, Order, Position, Source } from './types';
 
 export interface ReconcileConfig {
   driftSweepMs: number;
