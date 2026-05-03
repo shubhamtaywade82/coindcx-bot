@@ -8,6 +8,7 @@ import type { AiAnalyzer } from '../ai/analyzer';
 import type { MarketStateBuilder } from '../ai/state-builder';
 import type { WebhookGateway } from '../gateways/webhook';
 import type { MarketCatalog } from '../marketdata/market-catalog';
+import type { CoreRuntimePipeline } from '../runtime/runtime-pipeline';
 
 export interface Context {
   config: Config;
@@ -19,5 +20,6 @@ export interface Context {
   analyzer: AiAnalyzer;
   stateBuilder: MarketStateBuilder;
   marketCatalog: MarketCatalog;
+  runtime: CoreRuntimePipeline;
   webhook?: WebhookGateway;
 }

@@ -28,6 +28,8 @@ import type { RiskFilter } from './strategy/types';
 import type { Candle, BookSnapshot } from './ai/state-builder';
 import { MultiTimeframeStore as CandleMtfStore, DEFAULT_TF_CONFIGS } from './marketdata/candles/multi-timeframe-store';
 import type { OrderBook } from './marketdata/book/orderbook';
+import type { IntentMarketContext } from './execution/intent-validator';
+import type { RegimeFeatures } from './runtime/regime-classifier';
 import ntp from 'ntp-client';
 import axios from 'axios';
 import { estimateSyntheticFundingRate, resolveMarkPrice, resolveOpenInterest } from './marketdata/data-gap-policy';
@@ -123,6 +125,43 @@ function candleTrend(candles: Candle[], n = 3): 'up' | 'down' | 'sideways' {
   return 'sideways';
 }
 
+function parseFiniteNumber(value: unknown): number | undefined {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function buildRuntimeMarketContext(pair: string): IntentMarketContext {
+  const ticker = state.tickers.get(pair) ?? state.tickers.get(cleanPair(pair));
+  const markPrice = ticker?.markPrice || ticker?.price;
+  const marketDataFresh =
+    state.lastPriceUpdate > 0
+      ? (Date.now() - state.lastPriceUpdate) <= 30_000
+      : undefined;
+  return {
+    ...(markPrice ? { markPrice } : {}),
+    marketDataFresh,
+    accountStateFresh: state.hasValidAuth,
+    accountDivergent: false,
+  };
+}
+
+function buildRuntimeRegimeFeatures(payload: unknown): RegimeFeatures {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return {};
+  const metaUnknown = (payload as Record<string, unknown>).meta;
+  if (!metaUnknown || typeof metaUnknown !== 'object' || Array.isArray(metaUnknown)) return {};
+  const meta = metaUnknown as Record<string, unknown>;
+  const adx4h = parseFiniteNumber(meta.adx4h);
+  const atrPercentile = parseFiniteNumber(meta.atrPercentile);
+  const bbWidthPercentile = parseFiniteNumber(meta.bbWidthPercentile);
+  const hasMarketStructureShift = meta.marketStructureShift === true;
+  return {
+    ...(adx4h !== undefined ? { adx4h } : {}),
+    ...(atrPercentile !== undefined ? { atrPercentile } : {}),
+    ...(bbWidthPercentile !== undefined ? { bbWidthPercentile } : {}),
+    hasMarketStructureShift,
+  };
+}
+
 // ══════════════════════════════════════════════════════
 // ── Main ──
 // ══════════════════════════════════════════════════════
@@ -136,6 +175,35 @@ async function runApp(ctx: Context) {
   (ctx.bus as any).emit = async (s: any) => {
     try {
       tui.observeSignal(s);
+      if (s?.pair && (s?.type === 'strategy.long' || s?.type === 'strategy.short')) {
+        const decision = ctx.runtime.process(s, {
+          market: buildRuntimeMarketContext(s.pair),
+          regimeFeatures: buildRuntimeRegimeFeatures(s.payload),
+          defaultEntryType: 'limit',
+        });
+        if (decision?.status === 'blocked' && !decision.riskDecision.approved) {
+          ctx.logger.debug(
+            {
+              mod: 'runtime',
+              pair: decision.pair,
+              status: decision.status,
+              rejections: decision.riskDecision.rejections.map((rejection) => rejection.code),
+            },
+            'runtime pipeline blocked intent',
+          );
+        }
+        if (decision?.status === 'routed') {
+          ctx.logger.debug(
+            {
+              mod: 'runtime',
+              pair: decision.pair,
+              status: decision.status,
+              route: decision.routedOrder.route,
+            },
+            'runtime pipeline routed intent',
+          );
+        }
+      }
       if (s && s.type && s.type.startsWith('strategy.')) {
         tui.log(`Bus emitted: ${s.type} for ${s.pair}`);
       }
@@ -869,6 +937,7 @@ async function runApp(ctx: Context) {
     if (clean === getFocusedCleanPair()) {
       refreshBookDisplay();
     }
+    state.lastPriceUpdate = Date.now();
   });
 
   // ── currentPrices@spot#update: { prices: { "ATOMUSDT": "2.01", ... } } ──
@@ -898,6 +967,7 @@ async function runApp(ctx: Context) {
     refreshHeader();
     refreshPositionsDisplay(); // Reactive PnL update
     refreshBalanceDisplay();   // Reactive Equity update
+    state.lastPriceUpdate = Date.now();
   });
 
   // ── currentPrices@futures#update: { prices: { "B-SOL_USDT": { mp, ls, pc, ... } } } ──
@@ -959,6 +1029,7 @@ async function runApp(ctx: Context) {
       refreshBalanceDisplay();
     }
     refreshHeader();
+    state.lastPriceUpdate = Date.now();
   });
 
   // ── df-position-update: [{ pair, active_pos, avg_price, leverage, mark_price, ... }] ──
