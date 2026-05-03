@@ -168,13 +168,13 @@ Use this file as the single source of truth for execution tracking.
 
 ### B3. Signal Component Catalog (all layers)
 
-- [ ] Layer 1 Microstructure indicators
-  - [ ] Top-N book imbalance
-  - [ ] CVD (using maker/aggressor semantics)
-  - [ ] Tape-speed acceleration
-  - [ ] Aggressor ratio
-  - [ ] Sweep detection (`<= 200ms` burst cluster)
-  - [ ] Iceberg/spoof persistence heuristics
+- [x] Layer 1 Microstructure indicators
+  - [x] Top-N book imbalance
+  - [x] CVD (using maker/aggressor semantics)
+  - [x] Tape-speed acceleration
+  - [x] Aggressor ratio
+  - [x] Sweep detection (`<= 200ms` burst cluster)
+  - [x] Iceberg/spoof persistence heuristics
 
 - [ ] Layer 2 Intraday indicators (1m-15m)
   - [ ] Anchored VWAP contexts (session/daily/swing)

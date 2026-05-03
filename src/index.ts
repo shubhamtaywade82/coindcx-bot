@@ -759,7 +759,18 @@ async function runApp(ctx: Context) {
          return formatBookRow(p, q, bidCumulative);
       });
 
-    tui.updateOrderBook(asks, bids, ticker?.price || '—', rawPair, snap?.bookMetrics);
+    tui.updateOrderBook(
+      asks,
+      bids,
+      ticker?.price || '—',
+      rawPair,
+      snap
+        ? {
+            ...snap.bookMetrics,
+            microstructure: snap.microstructure,
+          }
+        : undefined,
+    );
     tui.updateStatus({ lastUpdate: Date.now() });
   }
 

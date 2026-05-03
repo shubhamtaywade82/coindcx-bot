@@ -548,7 +548,8 @@ export class TuiApp {
     const bestBid = parseFloat(bidSlice[0]?.[0]?.replace(/,/g, '') || '0');
     const spread = bestAsk > 0 && bestBid > 0 ? (bestAsk - bestBid).toFixed(2) : '—';
 
-    const imb = fusion?.imbalance ?? 'neutral';
+    const microImbalance = fusion?.microstructure?.topNImbalance?.imbalance;
+    const imb = microImbalance ?? 'neutral';
     const imbColor = imb === 'bid-heavy' ? 'green' : imb === 'ask-heavy' ? 'red' : 'gray';
 
     const trend = this.trendByPair.get(target) || '';

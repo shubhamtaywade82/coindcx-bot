@@ -10,6 +10,7 @@ import {
   resolveMarkPrice,
   resolveOpenInterest,
 } from './data-gap-policy';
+import { computeMicrostructureMetrics, type MicrostructureMetrics } from './microstructure';
 
 export interface L2Snapshot {
   pair: string;
@@ -50,7 +51,13 @@ export interface FusionSnapshot {
     volumeProfile: 'increasing' | 'decreasing' | 'flat';
   };
   tradeMetrics?: TradeMetrics;
+  microstructure: MicrostructureMetrics;
   generatedAt: number;
+}
+
+function parseLevelNumber(value: string | number): number {
+  const parsed = typeof value === 'number' ? value : Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 export class CoinDcxFusion extends EventEmitter {
@@ -155,8 +162,18 @@ export class CoinDcxFusion extends EventEmitter {
       .reduce((sum, a) => sum + parseFloat(a.qty), 0);
 
     // Walls
-    const bidWall = top.bids.reduce((max, b) => parseFloat(b.qty) > parseFloat(max.qty) ? b : max, top.bids[0] || { price: '0', qty: '0' });
-    const askWall = top.asks.reduce((max, a) => parseFloat(a.qty) > parseFloat(max.qty) ? a : max, top.asks[0] || { price: '0', qty: '0' });
+    const bidWall = top.bids.reduce(
+      (max, bid) => (parseLevelNumber(bid.qty) > parseLevelNumber(max.qty) ? bid : max),
+      top.bids[0] || { price: '0', qty: '0' },
+    );
+    const askWall = top.asks.reduce(
+      (max, ask) => (parseLevelNumber(ask.qty) > parseLevelNumber(max.qty) ? ask : max),
+      top.asks[0] || { price: '0', qty: '0' },
+    );
+    const bidWallPrice = parseLevelNumber(bidWall.price);
+    const askWallPrice = parseLevelNumber(askWall.price);
+    const bidWallSize = parseLevelNumber(bidWall.qty);
+    const askWallSize = parseLevelNumber(askWall.qty);
 
     const trend = (candles: Candle[]): 'up' | 'down' | 'sideways' => {
       if (candles.length < 3) return 'sideways';
@@ -194,10 +211,10 @@ export class CoinDcxFusion extends EventEmitter {
       candles: mtf.timeframes,
       bookMetrics: {
         bidAskRatio: bidDepth1pct / (askDepth1pct || 1),
-        bidWallPrice: parseFloat(bidWall.price),
-        bidWallSize: parseFloat(bidWall.qty),
-        askWallPrice: parseFloat(askWall.price),
-        askWallSize: parseFloat(askWall.qty),
+        bidWallPrice,
+        bidWallSize,
+        askWallPrice,
+        askWallSize,
         imbalance: bidDepth1pct > askDepth1pct * 1.5 
           ? 'bid-heavy' 
           : askDepth1pct > bidDepth1pct * 1.5 
@@ -210,6 +227,12 @@ export class CoinDcxFusion extends EventEmitter {
         volumeProfile: volProfile(mtf.timeframes['1m'] || []),
       },
       tradeMetrics: this.trades?.metrics(pair) ?? undefined,
+      microstructure: computeMicrostructureMetrics({
+        pair,
+        top,
+        tradeFlow: this.trades,
+        nowMs: Date.now(),
+      }),
       generatedAt: Date.now(),
     };
   }
