@@ -2,6 +2,7 @@ import io from 'socket.io-client';
 import crypto from 'crypto';
 import { config } from '../config/config';
 import { EventEmitter } from 'events';
+import { assertSocketIoClientVersion } from './socketio-version-guard';
 
 export class CoinDCXWs extends EventEmitter {
   private socket: any;
@@ -9,6 +10,7 @@ export class CoinDCXWs extends EventEmitter {
 
   constructor() {
     super();
+    assertSocketIoClientVersion();
   }
 
   connect() {

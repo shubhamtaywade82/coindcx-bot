@@ -79,8 +79,8 @@ Use this file as the single source of truth for execution tracking.
 ### B1. Exchange Surface and Protocol Requirements
 
 - [ ] Pin websocket client implementation to `socket.io-client@2.4.0` only
-  - [ ] Add lock in package manifest
-  - [ ] Add startup assertion that fails if version drifts
+  - [x] Add lock in package manifest
+  - [x] Add startup assertion that fails if version drifts
   - [ ] Add regression test for handshake + event receipt
 
 - [ ] Enforce CoinDCX auth contract for all private REST/private WS joins
