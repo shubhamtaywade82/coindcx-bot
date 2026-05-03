@@ -29,7 +29,7 @@ describe('CoinDCXApi new endpoints', () => {
   it('getMarkets fetches spot markets list', async () => {
     const spy = vi.spyOn(__publicHttpForTests, 'get').mockResolvedValue({ data: ['BTCUSDT'] });
     const data = await CoinDCXApi.getMarkets();
-    expect(spy).toHaveBeenCalledWith('/exchange/v1/markets');
+    expect(spy).toHaveBeenCalledWith('/exchange/v1/markets', undefined);
     expect(data).toEqual(['BTCUSDT']);
   });
 
@@ -44,7 +44,7 @@ describe('CoinDCXApi new endpoints', () => {
 
   it('getPublicOrderbook calls public orderbook endpoint', async () => {
     const spy = vi.spyOn(__publicHttpForTests, 'get').mockResolvedValue({ data: { bids: [], asks: [] } });
-    const data = await CoinDCXApi.getPublicOrderbook('B-ETH_USDT');
+    const data = await CoinDCXApi.getPublicOrderBook('B-ETH_USDT');
     expect(spy).toHaveBeenCalledWith('/market_data/orderbook', {
       params: { pair: 'B-ETH_USDT' },
     });

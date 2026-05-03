@@ -188,7 +188,7 @@ export class CoinDCXApi {
   }
 
   static async getMarkets() {
-    return this.fetchPublic('markets', '/exchange/v1/markets');
+    return this.fetchPublic('markets', '/exchange/v1/markets', {});
   }
 
   static async getMarketDetails() {
@@ -201,6 +201,10 @@ export class CoinDCXApi {
 
   static async getPublicOrderBook(pair: string) {
     return this.fetchPublic('public orderbook', '/market_data/orderbook', { pair });
+  }
+
+  static async getPublicOrderbook(pair: string) {
+    return this.getPublicOrderBook(pair);
   }
 
   private static async fetchPublic(label: string, path: string, params?: Record<string, unknown>) {
