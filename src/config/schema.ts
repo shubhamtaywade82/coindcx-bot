@@ -108,6 +108,19 @@ export const ConfigSchema = z.object({
   WORKER_FUNDING_CHECK_INTERVAL_MS: z.coerce.number().int().positive().default(30_000),
   WORKER_FUNDING_LEAD_MS: z.coerce.number().int().positive().default(300_000),
   WORKER_FUNDING_WINDOWS_UTC: z.string().default('04:00,12:00,20:00'),
+
+  // B5 TradePlan / position risk
+  TRADEPLAN_ACCOUNT_EQUITY: z.coerce.number().positive().default(10_000),
+  TRADEPLAN_RISK_CAPITAL_FRACTION: z.coerce.number().positive().max(1).default(0.01),
+  TRADEPLAN_ATR_BUFFER_MULTIPLIER: z.coerce.number().positive().default(1),
+  TRADEPLAN_HARD_MAX_LEVERAGE: z.coerce.number().positive().default(10),
+  TRADEPLAN_LIQUIDATION_BUFFER_MULTIPLIER: z.coerce.number().positive().default(2),
+  TRADEPLAN_FEE_RATE: z.coerce.number().nonnegative().default(0.001),
+  TRADEPLAN_FUNDING_RATE_BUFFER: z.coerce.number().nonnegative().default(0.0005),
+
+  // B5 No-close-negative-PnL policy
+  NEGATIVE_CLOSE_HC_MIN_SCORE: z.coerce.number().int().min(0).max(100).default(85),
+  NEGATIVE_CLOSE_TIME_STOP_MS: z.coerce.number().int().positive().default(3_600_000),
 }).superRefine((data, _ctx) => {
   // If telegram is requested but credentials are missing, silently filter it out
   // to prevent startup crashes.

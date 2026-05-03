@@ -16,6 +16,7 @@ import {
   type RegimeFeatures,
   type RegimeSnapshot,
 } from './regime-classifier';
+import { TradePlanEngine, type TradePlan } from './trade-plan';
 import { RiskManager, type RiskEvaluation } from './risk-manager';
 import { SignalEngine } from './signal-engine';
 
@@ -26,6 +27,14 @@ export interface RuntimeSignalContext {
   defaultEntryType?: EntryType;
   confluenceComponents?: Record<string, number>;
   microstructureContribution?: number;
+  tradePlanOverrides?: Partial<{
+    accountEquity: number;
+    riskCapitalFraction: number;
+    atrPercent: number;
+    feeRate: number;
+    fundingRate: number;
+    maxVenueLeverage: number;
+  }>;
 }
 
 export interface RoutedRuntimeDecision {
@@ -39,6 +48,7 @@ export interface RoutedRuntimeDecision {
   routedOrder: RoutedOrder;
   positionState: PositionStateSnapshot;
   pendingEntriesCancelled: boolean;
+  tradePlan: TradePlan;
 }
 
 export interface BlockedRuntimeDecision {
@@ -53,6 +63,7 @@ export interface BlockedRuntimeDecision {
     | 'confluence_gate'
     | 'risk_gate';
   pendingEntriesCancelled: boolean;
+  tradePlan?: TradePlan;
 }
 
 export type RuntimeDecision = RoutedRuntimeDecision | BlockedRuntimeDecision;
@@ -79,6 +90,7 @@ export class CoreRuntimePipeline {
   readonly signalEngine: SignalEngine;
   readonly regimeClassifier: RegimeClassifier;
   readonly confluenceScorer: ConfluenceScorer;
+  readonly tradePlanEngine: TradePlanEngine;
   readonly riskManager: RiskManager;
   readonly orderRouter: OrderRouter;
   readonly positionStateMachine: PositionStateMachine;
@@ -89,6 +101,7 @@ export class CoreRuntimePipeline {
       signalEngine: SignalEngine;
       regimeClassifier: RegimeClassifier;
       confluenceScorer: ConfluenceScorer;
+      tradePlanEngine: TradePlanEngine;
       riskManager: RiskManager;
       orderRouter: OrderRouter;
       positionStateMachine: PositionStateMachine;
@@ -97,6 +110,7 @@ export class CoreRuntimePipeline {
     this.signalEngine = modules.signalEngine ?? new SignalEngine();
     this.regimeClassifier = modules.regimeClassifier ?? new RegimeClassifier();
     this.confluenceScorer = modules.confluenceScorer ?? new ConfluenceScorer();
+    this.tradePlanEngine = modules.tradePlanEngine ?? new TradePlanEngine();
     this.riskManager = modules.riskManager ?? new RiskManager();
     this.orderRouter = modules.orderRouter ?? new OrderRouter();
     this.positionStateMachine = modules.positionStateMachine ?? new PositionStateMachine();
@@ -122,6 +136,18 @@ export class CoreRuntimePipeline {
         : {}),
     });
     const confluenceDecision = this.confluenceScorer.decision(intent.pair);
+    const tradePlan = this.tradePlanEngine.compute({
+      intent,
+      confluence,
+      market: context.market,
+      regime: regime.regime,
+      atrPercent: context.tradePlanOverrides?.atrPercent,
+      accountEquity: context.tradePlanOverrides?.accountEquity,
+      riskCapitalFraction: context.tradePlanOverrides?.riskCapitalFraction,
+      feeRate: context.tradePlanOverrides?.feeRate,
+      fundingRate: context.tradePlanOverrides?.fundingRate,
+      maxVenueLeverage: context.tradePlanOverrides?.maxVenueLeverage,
+    });
     if (!confluenceDecision?.shouldFire || confluenceDecision.dominantSide === 'NONE') {
       this.pendingIntentByPair.set(intent.pair, intent);
       const riskDecision = confluenceBlockedDecision('blocked by confluence gate');
@@ -135,6 +161,7 @@ export class CoreRuntimePipeline {
         confluence,
         reason: 'confluence_gate',
         pendingEntriesCancelled,
+        tradePlan,
       };
     }
     if (intent.side !== confluenceDecision.dominantSide) {
@@ -150,6 +177,7 @@ export class CoreRuntimePipeline {
         confluence,
         reason: 'confluence_gate',
         pendingEntriesCancelled,
+        tradePlan,
       };
     }
     const riskEvaluation = this.riskManager.evaluate({
@@ -170,6 +198,7 @@ export class CoreRuntimePipeline {
         confluence,
         reason: 'risk_gate',
         pendingEntriesCancelled,
+        tradePlan,
       };
     }
 
@@ -190,6 +219,7 @@ export class CoreRuntimePipeline {
       routedOrder,
       positionState,
       pendingEntriesCancelled,
+      tradePlan,
     };
   }
 

@@ -35,6 +35,10 @@ import { RuntimePersistence } from './persistence/runtime-persistence';
 import { TradePersistence } from './persistence/trade-persistence';
 import { OrderbookPersistence } from './persistence/orderbook-persistence';
 import { ProbabilityAnalyticsRepository } from './runtime/probability-analytics';
+import {
+  shouldAllowNegativeClose,
+  type NegativeCloseContext,
+} from './runtime/negative-close-policy';
 import ntp from 'ntp-client';
 import axios from 'axios';
 import { estimateSyntheticFundingRate, resolveMarkPrice, resolveOpenInterest } from './marketdata/data-gap-policy';
@@ -153,12 +157,20 @@ function pickFirstFinite(meta: Record<string, unknown>, keys: readonly string[])
 function buildRuntimeMarketContext(pair: string): IntentMarketContext {
   const ticker = state.tickers.get(pair) ?? state.tickers.get(cleanPair(pair));
   const markPrice = ticker?.markPrice || ticker?.price;
+  const accountSnapshot = Array.from(state.positions.values()).find(
+    (position: any) => cleanPair(position?.pair) === cleanPair(pair) && Number(position?.active_pos ?? 0) !== 0,
+  );
+  const liquidationPrice = accountSnapshot?.liquidation_price;
+  const leverage = accountSnapshot?.leverage;
   const marketDataFresh =
     state.lastPriceUpdate > 0
       ? (Date.now() - state.lastPriceUpdate) <= 30_000
       : undefined;
   return {
     ...(markPrice ? { markPrice } : {}),
+    ...(liquidationPrice ? { liquidationPrice } : {}),
+    ...(leverage ? { leverage } : {}),
+    ...(ticker?.openInterest ? { maxLeverage: ticker.openInterest } : {}),
     marketDataFresh,
     accountStateFresh: state.hasValidAuth,
     accountDivergent: false,
@@ -233,6 +245,7 @@ async function runApp(ctx: Context) {
   const tradePersistence = new TradePersistence(ctx.pool);
   const orderbookPersistence = new OrderbookPersistence(ctx.pool);
   const probabilityAnalytics = new ProbabilityAnalyticsRepository(ctx.pool);
+  const trackOpenedAtByPair = new Map<string, string>();
   ctx.logger.info({ mod: 'app' }, 'app start');
 
   // F6: Tap SignalBus emissions into TUI signals + risk panels
@@ -247,6 +260,15 @@ async function runApp(ctx: Context) {
           defaultEntryType: 'limit',
           confluenceComponents: buildRuntimeConfluenceComponents(s.payload),
           microstructureContribution: inferRuntimeMicrostructureContribution(s.payload),
+          tradePlanOverrides: {
+            accountEquity: ctx.config.TRADEPLAN_ACCOUNT_EQUITY,
+            riskCapitalFraction: ctx.config.TRADEPLAN_RISK_CAPITAL_FRACTION,
+            atrPercent: ctx.config.TRADEPLAN_ATR_BUFFER_MULTIPLIER * 0.01,
+            feeRate: ctx.config.TRADEPLAN_FEE_RATE,
+            fundingRate: ctx.config.TRADEPLAN_FUNDING_RATE_BUFFER,
+            maxVenueLeverage: ctx.config.TRADEPLAN_HARD_MAX_LEVERAGE,
+            liquidationBufferMultiplier: ctx.config.TRADEPLAN_LIQUIDATION_BUFFER_MULTIPLIER,
+          },
         });
         if (decision) {
           const probability = decision.confluence.fireGatePassed
@@ -272,6 +294,22 @@ async function runApp(ctx: Context) {
               previousRegime: decision.regime.previousRegime,
               classifiedAt: decision.regime.classifiedAt,
             },
+            ...(decision.tradePlan
+              ? {
+                tradePlan: {
+                  side: decision.tradePlan.side,
+                  entry: decision.tradePlan.entry,
+                  stopLoss: decision.tradePlan.stopLoss,
+                  leverage: decision.tradePlan.leverage,
+                  quantity: decision.tradePlan.quantity,
+                  riskCapital: decision.tradePlan.riskCapital,
+                  targets: decision.tradePlan.targets,
+                  breakevenPlus: decision.tradePlan.breakevenPlus,
+                  liquidationBufferSatisfied: decision.tradePlan.liquidationBufferSatisfied,
+                  metadata: decision.tradePlan.metadata,
+                },
+              }
+              : {}),
           };
           s.payload = payload;
         }
@@ -1265,6 +1303,55 @@ async function runApp(ctx: Context) {
         state.positions.set(p.id, p);
       }
       void account.ingest('position', p);
+      const key = cleanPair(p.pair ?? '');
+      const activePos = Number(p.active_pos ?? 0);
+      if (key && activePos !== 0 && !trackOpenedAtByPair.has(key)) {
+        trackOpenedAtByPair.set(key, new Date().toISOString());
+      }
+      if (key && activePos === 0) {
+        trackOpenedAtByPair.delete(key);
+      }
+      const context: NegativeCloseContext = {
+        side: activePos >= 0 ? 'LONG' : 'SHORT',
+        unrealizedPnl: Number(p.unrealized_pnl ?? 0),
+        maxConfluenceScore: Number(p.confluence_score ?? 0),
+        breakevenArmed:
+          p.breakeven_armed === true ||
+          (typeof p.stop_loss === 'string' && Number(p.stop_loss) !== 0),
+        openedAt: trackOpenedAtByPair.get(key),
+        nowMs: Date.now(),
+        timeStopMs: ctx.config.NEGATIVE_CLOSE_TIME_STOP_MS,
+        highConfluenceThreshold: ctx.config.NEGATIVE_CLOSE_HC_MIN_SCORE,
+      };
+      const closeDecision = shouldAllowNegativeClose(context);
+      if (!closeDecision.allow && closeDecision.reason !== 'positive_pnl_or_flat') {
+        ctx.logger.debug(
+          {
+            mod: 'risk.negative-close',
+            pair: p.pair,
+            reason: closeDecision.reason,
+          },
+          'negative close policy blocked close',
+        );
+      }
+      if (closeDecision.allow && closeDecision.reason === 'time_stop_kill') {
+        const riskEventSignal = {
+          id: `risk:time-stop-kill:${p.id ?? p.pair ?? Date.now()}`,
+          ts: new Date().toISOString(),
+          strategy: 'risk.policy',
+          type: 'risk.time_stop_kill',
+          pair: p.pair,
+          severity: 'warn' as const,
+          payload: {
+            positionId: p.id,
+            pair: p.pair,
+            unrealizedPnl: Number(p.unrealized_pnl ?? 0),
+            openedAt: trackOpenedAtByPair.get(key),
+            evaluatedAt: new Date().toISOString(),
+          },
+        };
+        void ctx.bus.emit(riskEventSignal);
+      }
     });
 
     refreshPositionsDisplay();

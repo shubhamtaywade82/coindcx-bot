@@ -32,6 +32,9 @@ export interface IntentMarketContext {
   markPrice?: string | number;
   bestBid?: string | number;
   bestAsk?: string | number;
+  liquidationPrice?: string | number;
+  leverage?: string | number;
+  maxLeverage?: string | number;
   marketDataFresh?: boolean;
   accountStateFresh?: boolean;
   accountDivergent?: boolean;

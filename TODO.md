@@ -219,20 +219,20 @@ Use this file as the single source of truth for execution tracking.
 
 ### B5. Trade Plan, Risk, and Position Rules
 
-- [ ] TradePlan compute path with hard constraints
-  - [ ] Direction from score dominance
-  - [ ] Structural invalidation stop with ATR buffer
-  - [ ] Risk-capital based quantity + leverage cap
-  - [ ] Hard leverage cap at 10x (regardless of venue max)
-  - [ ] Liquidation buffer rule: distance to liq >= 2x stop distance
-  - [ ] Targets: TP1 at 1R, TP2 at 3R, TP3 trailing by chandelier/HTF structure
-  - [ ] Breakeven-plus includes fees and funding buffer
+- [x] TradePlan compute path with hard constraints
+  - [x] Direction from score dominance
+  - [x] Structural invalidation stop with ATR buffer
+  - [x] Risk-capital based quantity + leverage cap
+  - [x] Hard leverage cap at 10x (regardless of venue max)
+  - [x] Liquidation buffer rule: distance to liq >= 2x stop distance
+  - [x] Targets: TP1 at 1R, TP2 at 3R, TP3 trailing by chandelier/HTF structure
+  - [x] Breakeven-plus includes fees and funding buffer
 
-- [ ] "No close in negative PnL" policy operationalization
-  - [ ] High-confluence gate
-  - [ ] Asymmetric R management and BE lock behavior
-  - [ ] Time-stop kill as only permitted negative close path
-  - [ ] Log `risk_event: time_stop_kill`
+- [x] "No close in negative PnL" policy operationalization
+  - [x] High-confluence gate
+  - [x] Asymmetric R management and BE lock behavior
+  - [x] Time-stop kill as only permitted negative close path
+  - [x] Log `risk_event: time_stop_kill`
 
 ### B6. Position State Machine and Idempotency
 

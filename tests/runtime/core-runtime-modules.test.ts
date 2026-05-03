@@ -231,6 +231,10 @@ describe('runtime module skeletons', () => {
     if (routed?.status !== 'routed') throw new Error('expected routed decision');
     expect(routed.routedOrder.route).toBe('paper');
     expect(routed.positionState.state).toBe('entry_submitted');
+    expect(routed.tradePlan.side).toBe('LONG');
+    expect(routed.tradePlan.targets.tp1).toBeGreaterThan(routed.tradePlan.entry);
+    expect(routed.tradePlan.targets.tp2).toBeGreaterThan(routed.tradePlan.targets.tp1);
+    expect(routed.tradePlan.metadata.negativeCloseAllowedOnlyBy).toBe('time_stop_kill');
   });
 
   it('keeps runtime decision payload focused without probability internals', () => {
@@ -245,6 +249,10 @@ describe('runtime module skeletons', () => {
     expect(decision).toBeTruthy();
     if (!decision) throw new Error('expected decision');
     expect('probability' in decision).toBe(false);
+    if (decision.status === 'routed') {
+      expect(decision.tradePlan.metadata.highConfluenceGate).toBe(85);
+      expect(decision.tradePlan.metadata.negativeCloseAllowedOnlyBy).toBe('time_stop_kill');
+    }
   });
 
   it('cancels pending entries when regime changes on next 5m cadence', () => {
