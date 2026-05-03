@@ -163,3 +163,20 @@ export function validateFuturesEndpointSpec(spec: FuturesEndpointSpec): string[]
 
   return issues;
 }
+
+// Backward-compatible aliases used by tests/CLI.
+export function loadFuturesEndpointCatalogFromPath(specPath: string): FuturesEndpointSpec {
+  return loadFuturesEndpointSpec(specPath);
+}
+
+export function loadFuturesEndpointCatalog(): FuturesEndpointSpec {
+  return loadFuturesEndpointSpec();
+}
+
+export function readFuturesEndpointCatalog(): FuturesEndpointSpec {
+  return loadFuturesEndpointSpec();
+}
+
+export function validateFuturesEndpointCatalog(spec: FuturesEndpointSpec): string[] {
+  return validateFuturesEndpointSpec(spec);
+}

@@ -1,11 +1,15 @@
-import { loadFuturesEndpointCatalog } from '../config/futures-endpoints';
+import { loadFuturesEndpointSpec, validateFuturesEndpointSpec } from '../config/futures-endpoints';
 
 async function main() {
-  const catalog = loadFuturesEndpointCatalog();
-  const endpointCount = catalog.endpoints.length;
+  const spec = loadFuturesEndpointSpec();
+  const issues = validateFuturesEndpointSpec(spec);
+  if (issues.length > 0) {
+    throw new Error(issues.join('; '));
+  }
+  const endpointCount = spec.endpoints.length;
   // eslint-disable-next-line no-console
   console.log(
-    `Validated futures endpoint catalog (${catalog.version}) with ${endpointCount} endpoints`,
+    `Validated futures endpoint spec (v${spec.catalogVersion}) with ${endpointCount} endpoints`,
   );
 }
 
