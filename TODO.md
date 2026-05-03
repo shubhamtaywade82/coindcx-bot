@@ -111,7 +111,7 @@ Use this file as the single source of truth for execution tracking.
 - [ ] Futures REST endpoint capture and hardening
 - [ ] Manually extract exact `/exchange/v1/derivatives/futures/...` paths from authenticated docs
 - [x] Save verbatim paths + params to `config/coindcx_futures_endpoints.yml` (scaffold + validator in place; awaiting manual endpoint fill)
-  - [ ] Reject third-party gists as source of truth
+  - [x] Reject third-party gists as source of truth (validator enforces trusted docs host + blocks gist/snippet URLs)
   - [ ] Implement wrappers for all named futures sections:
     - [x] instruments active/details/realtime trades/orderbook/candles (resolver + loader scaffold in place; read-only methods now mapped with fallback)
     - [x] orders list/create/cancel/edit (list/read path wired via resolver; write paths remain blocked by ReadOnlyGuard)

@@ -31,7 +31,9 @@ export interface FuturesEndpointSpec {
 
 const SPEC_PATH = resolve(process.cwd(), 'config/coindcx_futures_endpoints.yml');
 const PATH_PREFIX = '/exchange/v1/derivatives/futures/';
+const TRUSTED_DOCS_HOST = 'docs.coindcx.com';
 const VALID_METHODS: readonly EndpointMethod[] = ['UNKNOWN', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
+const UNTRUSTED_REFERENCE_PATTERN = /(gist\.github\.com|raw\.githubusercontent\.com|pastebin\.com)/i;
 
 function asObject(value: unknown, field: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -82,6 +84,11 @@ function labelFromKey(key: string): string {
     .filter(Boolean)
     .map((part) => part[0]?.toUpperCase() + part.slice(1))
     .join(' ');
+}
+
+function hasUntrustedReference(value?: string | null): boolean {
+  if (!value) return false;
+  return UNTRUSTED_REFERENCE_PATTERN.test(value);
 }
 
 function parseEndpoint(entry: unknown, idx: number): FuturesEndpointEntry {
@@ -168,6 +175,13 @@ export function loadFuturesEndpointSpec(specPath: string = SPEC_PATH): FuturesEn
 export function validateFuturesEndpointSpec(spec: FuturesEndpointSpec): string[] {
   const issues: string[] = [];
 
+  if (spec.source.docsHost.trim().toLowerCase() !== TRUSTED_DOCS_HOST) {
+    issues.push(`source.docsHost must be "${TRUSTED_DOCS_HOST}"`);
+  }
+  if (hasUntrustedReference(spec.source.notes)) {
+    issues.push('source.notes must not reference third-party gist/snippet URLs');
+  }
+
   if (spec.source.captureStatus === 'captured' && !spec.source.capturedAt) {
     issues.push('source.capturedAt is required when captureStatus=captured');
   }
@@ -186,6 +200,9 @@ export function validateFuturesEndpointSpec(spec: FuturesEndpointSpec): string[]
       if (endpoint.paramsSpec === 'TBD') {
         issues.push(`endpoint "${endpoint.key}" is captured but paramsSpec is still TBD`);
       }
+    }
+    if (hasUntrustedReference(endpoint.paramsSpec)) {
+      issues.push(`endpoint "${endpoint.key}" paramsSpec must not reference third-party gist/snippet URLs`);
     }
   }
 
