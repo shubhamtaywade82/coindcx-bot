@@ -22,6 +22,8 @@ applyReadOnlyGuard(publicHttp, {
 export const __httpForTests = http;
 
 export class CoinDCXApi {
+  private static readonly clockSkewRetryStatuses = new Set([400, 401, 403]);
+
   private static sign(payload: string): string {
     return crypto
       .createHmac('sha256', config.apiSecret)
@@ -48,83 +50,127 @@ export class CoinDCXApi {
     };
   }
 
-  static async getBalances() {
-    const { body, headers } = this.buildSignedRequest({ timestamp: Date.now() });
+  private static isClockSkewError(error: any): boolean {
+    const status = error?.response?.status;
+    if (!this.clockSkewRetryStatuses.has(status)) return false;
+    const message = String(error?.response?.data?.message ?? error?.message ?? '');
+    return /(timestamp|clock|ahead|behind|expired|nonce|recvwindow)/i.test(message);
+  }
+
+  private static async fetchServerTimestamp(): Promise<number> {
+    const response = await axios.get(`${config.apiBaseUrl}/exchange/v1/markets`, { timeout: 5_000 });
+    const header = response.headers?.date;
+    if (typeof header !== 'string') {
+      throw new Error('Clock-sync failed: missing Date header');
+    }
+    const serverMs = Date.parse(header);
+    if (Number.isNaN(serverMs)) {
+      throw new Error(`Clock-sync failed: invalid Date header "${header}"`);
+    }
+    return serverMs;
+  }
+
+  private static formatApiError(endpoint: string, error: any): Error {
+    const status = error?.response?.status;
+    const msg = error?.response?.data?.message || error?.message;
+    return new Error(`${endpoint} API [${status || 'timeout'}]: ${msg}`);
+  }
+
+  private static async withClockSkewRetry<T>(
+    endpoint: string,
+    bodyBuilder: (timestamp: number) => Record<string, any>,
+    execute: (req: { body: Record<string, any>; headers: Record<string, string> }) => Promise<T>,
+  ): Promise<T> {
+    const firstRequest = this.buildSignedRequest(bodyBuilder(Date.now()));
     try {
-      const response = await http.get('/exchange/v1/derivatives/futures/wallets', {
-        data: body,
-        headers,
-      });
-      return response.data;
+      return await execute(firstRequest);
     } catch (error: any) {
-      const status = error.response?.status;
-      const msg = error.response?.data?.message || error.message;
-      throw new Error(`Balances API [${status || 'timeout'}]: ${msg}`);
+      if (!this.isClockSkewError(error)) {
+        throw this.formatApiError(endpoint, error);
+      }
+      try {
+        const serverTimestamp = await this.fetchServerTimestamp();
+        const retryRequest = this.buildSignedRequest(bodyBuilder(serverTimestamp));
+        return await execute(retryRequest);
+      } catch (retryError: any) {
+        throw this.formatApiError(endpoint, retryError);
+      }
     }
   }
 
+  static async getBalances() {
+    return this.withClockSkewRetry(
+      'Balances',
+      (timestamp) => ({ timestamp }),
+      async ({ body, headers }) => {
+        const response = await http.get('/exchange/v1/derivatives/futures/wallets', {
+        data: body,
+        headers,
+      });
+        return response.data;
+      },
+    );
+  }
+
   static async getFuturesPositions() {
-    const { body, headers } = this.buildSignedRequest({
-      timestamp: Date.now(),
-      page: '1',
-      size: '100',
-      margin_currency_short_name: ['USDT', 'INR'],
-    });
-    try {
-      const response = await http.post(
+    return this.withClockSkewRetry(
+      'Positions',
+      (timestamp) => ({
+        timestamp,
+        page: '1',
+        size: '100',
+        margin_currency_short_name: ['USDT', 'INR'],
+      }),
+      async ({ body, headers }) => {
+        const response = await http.post(
         '/exchange/v1/derivatives/futures/positions',
         body,
         { headers },
       );
-      return response.data;
-    } catch (error: any) {
-      const status = error.response?.status;
-      const msg = error.response?.data?.message || error.message;
-      throw new Error(`Positions API [${status || 'timeout'}]: ${msg}`);
-    }
+        return response.data;
+      },
+    );
   }
 
   static async getOpenOrders() {
-    const { body, headers } = this.buildSignedRequest({
-      timestamp: Date.now(),
-      status: 'open',
-      page: '1',
-      size: '100',
-      margin_currency_short_name: ['USDT', 'INR'],
-    });
-    try {
-      const response = await http.post(
+    return this.withClockSkewRetry(
+      'OpenOrders',
+      (timestamp) => ({
+        timestamp,
+        status: 'open',
+        page: '1',
+        size: '100',
+        margin_currency_short_name: ['USDT', 'INR'],
+      }),
+      async ({ body, headers }) => {
+        const response = await http.post(
         '/exchange/v1/derivatives/futures/orders',
         body,
         { headers },
       );
-      return response.data;
-    } catch (error: any) {
-      const status = error.response?.status;
-      const msg = error.response?.data?.message || error.message;
-      throw new Error(`OpenOrders API [${status || 'timeout'}]: ${msg}`);
-    }
+        return response.data;
+      },
+    );
   }
 
   static async getFuturesTradeHistory(opts: { fromTimestamp?: number; size?: number } = {}) {
-    const { body, headers } = this.buildSignedRequest({
-      timestamp: Date.now(),
-      from_timestamp: opts.fromTimestamp ?? 0,
-      size: String(opts.size ?? 100),
-      margin_currency_short_name: ['USDT', 'INR'],
-    });
-    try {
-      const response = await http.post(
+    return this.withClockSkewRetry(
+      'TradeHistory',
+      (timestamp) => ({
+        timestamp,
+        from_timestamp: opts.fromTimestamp ?? 0,
+        size: String(opts.size ?? 100),
+        margin_currency_short_name: ['USDT', 'INR'],
+      }),
+      async ({ body, headers }) => {
+        const response = await http.post(
         '/exchange/v1/derivatives/futures/trade_history',
         body,
         { headers },
       );
-      return response.data;
-    } catch (error: any) {
-      const status = error.response?.status;
-      const msg = error.response?.data?.message || error.message;
-      throw new Error(`TradeHistory API [${status || 'timeout'}]: ${msg}`);
-    }
+        return response.data;
+      },
+    );
   }
 
   static async getTickers() {
