@@ -6,6 +6,7 @@
   "scripts": {
     "sync-env": "ts-node src/utils/sync-env.ts",
     "verify:env": "bash scripts/verify-env.sh",
+    "validate:futures-endpoints": "ts-node src/cli/validate-futures-endpoints.ts",
     "prestart": "npm run sync-env",
     "start": "ts-node src/index.ts",
     "dev": "nodemon --watch src --ext ts --exec ts-node src/index.ts",
@@ -30,6 +31,7 @@
     "blessed": "^0.1.81",
     "blessed-contrib": "^4.11.0",
     "dotenv": "^17.4.2",
+    "js-yaml": "^4.1.1",
     "node-pg-migrate": "^8.0.4",
     "ntp-client": "^0.5.3",
     "ollama": "^0.6.3",
@@ -42,6 +44,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.19.39",
     "@types/pg": "^8.20.0",
     "@typescript-eslint/eslint-plugin": "^8.59.0",
