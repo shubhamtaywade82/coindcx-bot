@@ -5,7 +5,14 @@ import { applyReadOnlyGuard } from '../safety/read-only-guard';
 import { resolveFuturesPath } from './futures-endpoint-resolver';
 
 const http: AxiosInstance = axios.create({ baseURL: config.apiBaseUrl, timeout: 10_000 });
-const publicHttp: AxiosInstance = axios.create({ baseURL: config.publicBaseUrl, timeout: 10_000 });
+const publicHttp: AxiosInstance = axios.create({
+  baseURL: config.publicBaseUrl,
+  timeout: 10_000,
+  headers: {
+    Accept: 'application/json',
+    'User-Agent': 'coindcx-bot/1.0',
+  },
+});
 
 applyReadOnlyGuard(http, {
   onViolation: ({ method, path }) => {

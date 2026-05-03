@@ -48,8 +48,7 @@ const UPSERT_MARKETS_SQL = `
     min_notional = EXCLUDED.min_notional,
     max_leverage = EXCLUDED.max_leverage,
     payload = EXCLUDED.payload,
-    refreshed_at = EXCLUDED.refreshed_at,
-    payload = EXCLUDED.payload
+    refreshed_at = EXCLUDED.refreshed_at
 `;
 
 const READ_CATALOG_SQL = `

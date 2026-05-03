@@ -3,6 +3,30 @@ import { captureLiquidationPrice, resolveMarkPrice } from '../marketdata/data-ga
 
 const str = (v: any): string => (v === undefined || v === null ? '' : String(v));
 
+/** CoinDCX often sends ms since epoch as number or digit string; Postgres needs ISO for timestamptz. */
+export function parseTimestamptzIso(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const ms = value > 1e11 ? value : value * 1000;
+    const t = new Date(ms).getTime();
+    return Number.isFinite(t) ? new Date(ms).toISOString() : null;
+  }
+  const s = String(value).trim();
+  if (!s) return null;
+  if (/^\d{13,16}$/.test(s)) {
+    const ms = Number(s);
+    const t = new Date(ms).getTime();
+    return Number.isFinite(t) ? new Date(ms).toISOString() : null;
+  }
+  if (/^\d{10}(\.\d+)?$/.test(s)) {
+    const sec = Number(s);
+    const t = new Date(sec * 1000).getTime();
+    return Number.isFinite(t) ? new Date(sec * 1000).toISOString() : null;
+  }
+  const parsed = Date.parse(s);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+}
+
 function classifySide(activePos: number): Side {
   if (activePos > 0) return 'long';
   if (activePos < 0) return 'short';
@@ -34,8 +58,8 @@ export function normalizePosition(raw: any, source: Source, now: string): Positi
     marginCurrency: str(raw.margin_currency_short_name ?? raw.settlement_currency_short_name ?? 'USDT').toUpperCase(),
     unrealizedPnl: str(raw.unrealized_pnl ?? 0),
     realizedPnl: str(raw.realized_pnl ?? 0),
-    openedAt: raw.opened_at ? str(raw.opened_at) : undefined,
-    updatedAt: str(raw.updated_at ?? now),
+    openedAt: parseTimestamptzIso(raw.opened_at) ?? undefined,
+    updatedAt: parseTimestamptzIso(raw.updated_at) ?? now,
     source,
   };
 }
@@ -45,12 +69,12 @@ export function normalizeBalance(raw: any, source: Source, now: string): Balance
     currency: str(raw.currency_short_name ?? raw.currency).toUpperCase(),
     available: str(raw.balance ?? 0),
     locked: str(raw.locked_balance ?? raw.locked ?? 0),
-    updatedAt: str(raw.updated_at ?? now),
+    updatedAt: parseTimestamptzIso(raw.updated_at) ?? now,
     source,
   };
 }
 
-export function normalizeOrder(raw: any, source: Source): Order {
+export function normalizeOrder(raw: any, source: Source, now: string = new Date().toISOString()): Order {
   const side = (str(raw.side).toLowerCase() === 'sell' ? 'sell' : 'buy') as OrderSide;
   return {
     id: str(raw.id),
@@ -63,8 +87,12 @@ export function normalizeOrder(raw: any, source: Source): Order {
     remainingQty: str(raw.remaining_quantity ?? 0),
     avgFillPrice: raw.avg_price !== undefined ? str(raw.avg_price) : undefined,
     positionId: raw.position_id !== undefined ? str(raw.position_id) : undefined,
-    createdAt: str(raw.created_at ?? raw.updated_at ?? ''),
-    updatedAt: str(raw.updated_at ?? raw.created_at ?? ''),
+    createdAt: parseTimestamptzIso(raw.created_at)
+      ?? parseTimestamptzIso(raw.updated_at)
+      ?? now,
+    updatedAt: parseTimestamptzIso(raw.updated_at)
+      ?? parseTimestamptzIso(raw.created_at)
+      ?? now,
     source,
   };
 }
@@ -82,7 +110,9 @@ export function normalizeFill(raw: any, source: Source, now: string): Fill {
     fee: raw.fee !== undefined ? str(raw.fee) : undefined,
     feeCurrency: raw.fee_currency !== undefined ? str(raw.fee_currency) : undefined,
     realizedPnl: raw.realized_pnl !== undefined ? str(raw.realized_pnl) : undefined,
-    executedAt: str(raw.executed_at ?? raw.timestamp ?? now),
+    executedAt: parseTimestamptzIso(raw.executed_at)
+      ?? parseTimestamptzIso(raw.timestamp)
+      ?? now,
     ingestedAt: now,
     source,
   };

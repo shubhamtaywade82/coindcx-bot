@@ -81,4 +81,25 @@ describe('normalizers', () => {
     expect(f.realizedPnl).toBe('5');
     expect(f.ingestedAt).toBe('now');
   });
+
+  it('normalizeFill converts exchange epoch ms to ISO for Postgres timestamptz', () => {
+    const raw = {
+      id: 'f2', pair: 'X', side: 'buy', price: 1, quantity: 1,
+      timestamp: 1_747_000_000_000,
+    };
+    const f = normalizeFill(raw, 'rest', '2026-05-03T00:00:00.000Z');
+    expect(f.executedAt).toBe(new Date(1_747_000_000_000).toISOString());
+  });
+
+  it('normalizeOrder converts numeric created_at ms to ISO', () => {
+    const raw = {
+      id: 'o2', pair: 'X', side: 'buy', order_type: 'limit', status: 'open',
+      price: 1, total_quantity: 1, remaining_quantity: 1,
+      created_at: 1_747_000_000_000,
+      updated_at: 1_747_000_000_001,
+    };
+    const o = normalizeOrder(raw, 'rest', '2026-05-03T00:00:00.000Z');
+    expect(o.createdAt).toBe(new Date(1_747_000_000_000).toISOString());
+    expect(o.updatedAt).toBe(new Date(1_747_000_000_001).toISOString());
+  });
 });

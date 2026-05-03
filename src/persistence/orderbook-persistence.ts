@@ -27,6 +27,11 @@ export interface ReplayArtifactInput {
   payload: Record<string, unknown>;
 }
 
+function exchangeTsForPg(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return Math.trunc(value);
+}
+
 export class OrderbookPersistence {
   constructor(private readonly pool: Pool) {}
 
@@ -42,7 +47,7 @@ export class OrderbookPersistence {
       pair,
       channel,
       nowIso,
-      frame?.ts ?? null,
+      exchangeTsForPg(frame?.ts),
       Number.isFinite(bestBid) ? bestBid : null,
       Number.isFinite(bestAsk) ? bestAsk : null,
       Number.isFinite(spread) ? spread : null,
@@ -59,7 +64,7 @@ export class OrderbookPersistence {
       input.channel,
       input.kind,
       input.ts,
-      input.exchangeTs ?? null,
+      exchangeTsForPg(input.exchangeTs),
       JSON.stringify(input.payload),
     ]);
   }

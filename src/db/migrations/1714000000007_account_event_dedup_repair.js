@@ -1,5 +1,7 @@
 /* eslint-disable */
 exports.up = (pgm) => {
+  // Keep table + indexes in one DO block so DDL is visible to the same PL/pgSQL unit
+  // (avoids "relation account_event_dedup does not exist" when the runner uses one mega-transaction).
   pgm.sql(`
     DO $$
     BEGIN
@@ -12,15 +14,16 @@ exports.up = (pgm) => {
           created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
         );
       END IF;
+      IF to_regclass('public.account_event_dedup') IS NOT NULL THEN
+        CREATE UNIQUE INDEX IF NOT EXISTS account_event_dedup_client_event_uidx
+          ON account_event_dedup(client_order_id, event_id);
+        CREATE INDEX IF NOT EXISTS account_event_dedup_entity_idx
+          ON account_event_dedup(entity);
+        CREATE INDEX IF NOT EXISTS account_event_dedup_entity_created_idx
+          ON account_event_dedup(entity, created_at DESC);
+      END IF;
     END
     $$;
-
-    CREATE UNIQUE INDEX IF NOT EXISTS account_event_dedup_client_event_uidx
-      ON account_event_dedup(client_order_id, event_id);
-    CREATE INDEX IF NOT EXISTS account_event_dedup_entity_idx
-      ON account_event_dedup(entity);
-    CREATE INDEX IF NOT EXISTS account_event_dedup_entity_created_idx
-      ON account_event_dedup(entity, created_at DESC);
   `);
 };
 
