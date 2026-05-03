@@ -252,7 +252,8 @@ async function runApp(ctx: Context) {
     logger: ctx.logger,
   });
 
-  const fusion = new CoinDcxFusion(ctx.logger.child({ mod: 'fusion' }), ws as any, mtfStore, integrity.books);
+  const tradeFlow = new (await import('./marketdata/trade-flow')).TradeFlow();
+  const fusion = new CoinDcxFusion(ctx.logger.child({ mod: 'fusion' }), ws as any, mtfStore, integrity.books, tradeFlow);
   fusion.on('fusion', (snap) => {
     if (snap.pair === getFocusedCleanPair() || snap.pair === tui.focusedPair) {
       refreshBookDisplay();

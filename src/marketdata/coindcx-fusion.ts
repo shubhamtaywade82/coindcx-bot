@@ -4,6 +4,7 @@ import { BookManager } from './book/book-manager';
 import type { Candle } from '../ai/state-builder';
 import type { AppLogger } from '../logging/logger';
 import { toCoinDcxFuturesInstrument } from '../utils/format';
+import type { TradeFlow, TradeMetrics } from './trade-flow';
 
 export interface L2Snapshot {
   pair: string;
@@ -40,6 +41,7 @@ export interface FusionSnapshot {
     trend15m: 'up' | 'down' | 'sideways';
     volumeProfile: 'increasing' | 'decreasing' | 'flat';
   };
+  tradeMetrics?: TradeMetrics;
   generatedAt: number;
 }
 
@@ -51,7 +53,8 @@ export class CoinDcxFusion extends EventEmitter {
     private logger: AppLogger,
     private ws: EventEmitter,
     private mtf: MultiTimeframeStore,
-    private books: BookManager
+    private books: BookManager,
+    private trades?: TradeFlow,
   ) {
     super();
     this.setupHandlers();
@@ -84,6 +87,14 @@ export class CoinDcxFusion extends EventEmitter {
       const s = data?.s ?? data?.pair;
       if (s) this.maybeGenerateFusion(toCoinDcxFuturesInstrument(s));
     });
+
+    if (this.trades) {
+      this.ws.on('new-trade', (data: any) => {
+        this.trades!.ingestRaw(data);
+        const s = data?.s ?? data?.pair;
+        if (s) this.maybeGenerateFusion(toCoinDcxFuturesInstrument(s));
+      });
+    }
 
     this.mtf.on('update', ({ pair }: { pair: string }) => {
       this.maybeGenerateFusion(pair);
@@ -176,6 +187,7 @@ export class CoinDcxFusion extends EventEmitter {
         trend15m: trend(mtf.timeframes['15m'] || []),
         volumeProfile: volProfile(mtf.timeframes['1m'] || []),
       },
+      tradeMetrics: this.trades?.metrics(pair) ?? undefined,
       generatedAt: Date.now(),
     };
   }
