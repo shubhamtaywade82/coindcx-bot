@@ -7,7 +7,6 @@ import { bootstrap } from './lifecycle/bootstrap';
 import { installSignalHandlers } from './lifecycle/shutdown';
 import type { Context } from './lifecycle/context';
 import { IntegrityController } from './marketdata/integrity-controller';
-import { MultiTimeframeStore as MtfFusionStore } from './marketdata/multi-timeframe-store';
 import { CoinDcxFusion } from './marketdata/coindcx-fusion';
 import { AccountReconcileController } from './account/reconcile-controller';
 import { AccountPersistence } from './account/persistence';
@@ -176,18 +175,7 @@ async function runApp(ctx: Context) {
   });
   integrity.start();
 
-  const mtf = new MtfFusionStore(ctx.logger.child({ mod: 'mtf' }));
-  const fusion = new CoinDcxFusion(ctx.logger.child({ mod: 'fusion' }), ws as any, mtf, integrity.books);
-  
-  for (const pair of ctx.config.COINDCX_PAIRS) {
-    void mtf.subscribe(pair);
-  }
-
-  fusion.on('fusion', (snap) => {
-    if (snap.pair === getFocusedCleanPair() || snap.pair === tui.focusedPair) {
-      refreshBookDisplay();
-    }
-  });
+  // fusion constructed after mtfStore (see below) to share single canonical candle store
 
   // ── F3 Account Reconciler ──
   const accountPersistence = new AccountPersistence({
@@ -262,6 +250,13 @@ async function runApp(ctx: Context) {
     configs: DEFAULT_TF_CONFIGS,
     fetchCandles: fetchCandlesForStore,
     logger: ctx.logger,
+  });
+
+  const fusion = new CoinDcxFusion(ctx.logger.child({ mod: 'fusion' }), ws as any, mtfStore, integrity.books);
+  fusion.on('fusion', (snap) => {
+    if (snap.pair === getFocusedCleanPair() || snap.pair === tui.focusedPair) {
+      refreshBookDisplay();
+    }
   });
 
   // Seed all configured pairs in parallel

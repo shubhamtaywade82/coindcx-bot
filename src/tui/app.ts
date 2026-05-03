@@ -88,7 +88,7 @@ export class TuiApp {
     this.grid = new contrib.grid({ rows: 12, cols: 12, screen: this.screen });
 
     // Initialize logPanel early so this.log() works
-    this.logPanel = this.grid.set(10, 0, 2, 12, blessed.log, {
+    this.logPanel = this.grid.set(11, 0, 1, 12, blessed.log, {
       label: ' ◉ System Logs ',
       border: { type: 'line', fg: 'gray' },
       scrollable: true,
@@ -140,13 +140,11 @@ export class TuiApp {
       style: { fg: 'white' }
     });
 
-    const signalsPanel = this.grid.set(3, 9, 5, 3, blessed.box, { label: ' ⚡ Signals ' });
-    this.signalsBox = blessed.box({
-      parent: signalsPanel,
-      top: 0,
-      left: 0,
-      width: '100%',
-      height: '100%',
+    // One blessed box per grid cell (no nested child). Nested 100%×100% children overlap the
+    // parent's label/border and break line-art; multi-line balance rows need height > 1.
+    this.signalsBox = this.grid.set(3, 9, 5, 3, blessed.box, {
+      label: ' Signals ',
+      border: { type: 'line', fg: 'gray' },
       tags: true,
       scrollable: true,
       alwaysScroll: true,
@@ -154,54 +152,37 @@ export class TuiApp {
       content: ' {gray-fg}Awaiting strategy signals...{/gray-fg}',
     });
 
-    // ── Row 8: Active Positions (single grid row — was two; freed row for logs + bottom bar) ──
-    const positionsPanel = this.grid.set(8, 0, 1, 12, blessed.box, { label: ' Active Positions ' });
-    this.positionsTable = blessed.box({
-      parent: positionsPanel,
-      top: 0,
-      left: 0,
-      width: '100%',
-      height: '100%',
+    this.positionsTable = this.grid.set(8, 0, 1, 12, blessed.box, {
+      label: ' Active Positions ',
+      border: { type: 'line', fg: 'yellow' },
       tags: true,
       scrollable: true,
       alwaysScroll: true,
       scrollbar: { ch: ' ' },
     });
 
-    // ── Row 9: Balances / Orders / Risk (equal 4 + 4 + 4 cols) ──
-    const balancePanel = this.grid.set(9, 0, 1, 4, blessed.box, { label: ' Balances ' });
-    this.balanceTable = blessed.box({
-      parent: balancePanel,
-      top: 0,
-      left: 0,
-      width: '100%',
-      height: '100%',
+    // Rows 9–10: Balances / Orders / Risk (2 grid rows — INR + USD rows need vertical space)
+    this.balanceTable = this.grid.set(9, 0, 2, 4, blessed.box, {
+      label: ' Balances ',
+      border: { type: 'line', fg: 'green' },
       tags: true,
       scrollable: true,
       alwaysScroll: true,
       scrollbar: { ch: ' ' },
     });
 
-    const ordersPanel = this.grid.set(9, 4, 1, 4, blessed.box, { label: ' Orders ' });
-    this.orderTable = blessed.box({
-      parent: ordersPanel,
-      top: 0,
-      left: 0,
-      width: '100%',
-      height: '100%',
+    this.orderTable = this.grid.set(9, 4, 2, 4, blessed.box, {
+      label: ' Orders ',
+      border: { type: 'line', fg: 'magenta' },
       tags: true,
       scrollable: true,
       alwaysScroll: true,
       scrollbar: { ch: ' ' },
     });
 
-    const riskPanel = this.grid.set(9, 8, 1, 4, blessed.box, { label: ' 🛡 Risk ' });
-    this.riskBox = blessed.box({
-      parent: riskPanel,
-      top: 0,
-      left: 0,
-      width: '100%',
-      height: '100%',
+    this.riskBox = this.grid.set(9, 8, 2, 4, blessed.box, {
+      label: ' Risk ',
+      border: { type: 'line', fg: 'gray' },
       tags: true,
       scrollable: true,
       alwaysScroll: true,

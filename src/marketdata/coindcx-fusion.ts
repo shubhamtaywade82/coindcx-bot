@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { MultiTimeframeStore, type MtfSnapshot } from './multi-timeframe-store';
+import { MultiTimeframeStore, type MtfSnapshot } from './candles/multi-timeframe-store';
 import { BookManager } from './book/book-manager';
 import type { Candle } from '../ai/state-builder';
 import type { AppLogger } from '../logging/logger';
@@ -85,7 +85,7 @@ export class CoinDcxFusion extends EventEmitter {
       if (s) this.maybeGenerateFusion(toCoinDcxFuturesInstrument(s));
     });
 
-    this.mtf.on('update', ({ pair }) => {
+    this.mtf.on('update', ({ pair }: { pair: string }) => {
       this.maybeGenerateFusion(pair);
     });
   }
