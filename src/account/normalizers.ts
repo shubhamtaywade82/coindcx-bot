@@ -1,4 +1,5 @@
 import type { Balance, Fill, Order, OrderSide, OrderStatus, Position, Side, Source } from './types';
+import { captureLiquidationPrice, resolveMarkPrice } from '../marketdata/data-gap-policy';
 
 const str = (v: any): string => (v === undefined || v === null ? '' : String(v));
 
@@ -10,14 +11,25 @@ function classifySide(activePos: number): Side {
 
 export function normalizePosition(raw: any, source: Source, now: string): Position {
   const activePos = Number(raw.active_pos ?? 0);
+  const previousLiquidationPrice =
+    raw.previous_liquidation_price !== undefined ? str(raw.previous_liquidation_price) : undefined;
+  const markPrice = resolveMarkPrice({
+    markPrice: raw.mark_price,
+    lastPrice: raw.last_price,
+    avgPrice: raw.avg_price,
+  });
+  const liquidationPrice = captureLiquidationPrice({
+    observedLiquidationPrice: raw.liquidation_price,
+    previousLiquidationPrice,
+  });
   return {
     id: str(raw.id),
     pair: str(raw.pair),
     side: classifySide(activePos),
     activePos: str(raw.active_pos ?? 0),
     avgPrice: str(raw.avg_price ?? 0),
-    markPrice: raw.mark_price !== undefined ? str(raw.mark_price) : undefined,
-    liquidationPrice: raw.liquidation_price !== undefined ? str(raw.liquidation_price) : undefined,
+    markPrice: markPrice !== undefined ? str(markPrice) : undefined,
+    liquidationPrice,
     leverage: raw.leverage !== undefined ? str(raw.leverage) : undefined,
     marginCurrency: str(raw.margin_currency_short_name ?? raw.settlement_currency_short_name ?? 'USDT').toUpperCase(),
     unrealizedPnl: str(raw.unrealized_pnl ?? 0),

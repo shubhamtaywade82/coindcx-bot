@@ -5,6 +5,11 @@ import type { Candle } from '../ai/state-builder';
 import type { AppLogger } from '../logging/logger';
 import { toCoinDcxFuturesInstrument } from '../utils/format';
 import type { TradeFlow, TradeMetrics } from './trade-flow';
+import {
+  estimateSyntheticFundingRate,
+  resolveMarkPrice,
+  resolveOpenInterest,
+} from './data-gap-policy';
 
 export interface L2Snapshot {
   pair: string;
@@ -26,6 +31,9 @@ export interface FusionSnapshot {
     markPrice: number;
     volume24h: number;
     change24h: number;
+    openInterest?: number;
+    syntheticFundingRate?: number;
+    basis?: number;
   };
   candles: MtfSnapshot['timeframes'];
   bookMetrics: {
@@ -69,13 +77,27 @@ export class CoinDcxFusion extends EventEmitter {
       Object.entries(prices).forEach(([rawPair, info]: [string, any]) => {
         if (!info || typeof info !== 'object') return;
         const pair = toCoinDcxFuturesInstrument(rawPair);
+        const markPrice = resolveMarkPrice({ markPrice: info.mp, lastPrice: info.ls });
+        const lastPrice = resolveMarkPrice({ markPrice: info.ls, lastPrice: info.mp });
+        const openInterest = resolveOpenInterest(info);
+        const syntheticFunding = estimateSyntheticFundingRate({
+          futuresMarkPrice: markPrice,
+          spotLastPrice: lastPrice,
+        });
         this.ltpState.set(pair, {
-          price: parseFloat(info.ls || info.mp || '0'),
+          price: lastPrice ?? 0,
           bid: parseFloat(info.b || '0'), // Some feeds might have bid/ask
           ask: parseFloat(info.a || '0'),
-          markPrice: parseFloat(info.mp || '0'),
+          markPrice: markPrice ?? 0,
           volume24h: parseFloat(info.v || '0'),
           change24h: parseFloat(info.pc || '0'),
+          ...(openInterest !== undefined ? { openInterest } : {}),
+          ...(syntheticFunding
+            ? {
+                syntheticFundingRate: syntheticFunding.estimatedFundingRate,
+                basis: syntheticFunding.basisRatio,
+              }
+            : {}),
         });
         this.maybeGenerateFusion(pair);
       });

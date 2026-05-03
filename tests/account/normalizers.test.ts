@@ -25,6 +25,36 @@ describe('normalizers', () => {
     expect(normalizePosition(raw, 'rest', 'now').side).toBe('short');
   });
 
+  it('normalizePosition falls back mark price to last_price when mark_price missing', () => {
+    const raw = {
+      id: 'p2',
+      pair: 'B-BTC_USDT',
+      active_pos: 1,
+      avg_price: 50000,
+      last_price: 50500,
+      margin_currency_short_name: 'USDT',
+      unrealized_pnl: 0,
+      updated_at: 'now',
+    };
+    const p = normalizePosition(raw, 'rest', 'now');
+    expect(p.markPrice).toBe('50500');
+  });
+
+  it('normalizePosition preserves previous liquidation price when current payload omits it', () => {
+    const raw = {
+      id: 'p3',
+      pair: 'B-BTC_USDT',
+      active_pos: 1,
+      avg_price: 50000,
+      margin_currency_short_name: 'USDT',
+      previous_liquidation_price: '45000',
+      unrealized_pnl: 0,
+      updated_at: 'now',
+    };
+    const p = normalizePosition(raw, 'rest', 'now');
+    expect(p.liquidationPrice).toBe('45000');
+  });
+
   it('normalizeBalance maps currency_short_name + locked_balance', () => {
     const raw = { currency_short_name: 'USDT', balance: 100, locked_balance: 50 };
     const b = normalizeBalance(raw, 'ws', 'now');

@@ -136,11 +136,11 @@ Use this file as the single source of truth for execution tracking.
   - [x] Implement account/position/order/balance/candlestick/orderbook/current prices/new trade/LTP handlers
   - [x] Add channel mapping docs with examples (`docs/futures-websocket-channel-mapping.md`)
 
-- [ ] Explicit data-gap strategy for missing public endpoints/streams
-  - [ ] No dedicated mark-price endpoint: use last price policy
-  - [ ] No dedicated funding-rate endpoint: implement synthetic basis-derived estimate
-  - [ ] Open interest field absence: treat as optional input with fallback
-  - [ ] Liquidation price not guaranteed in docs: capture opportunistically from positions
+- [x] Explicit data-gap strategy for missing public endpoints/streams
+  - [x] No dedicated mark-price endpoint: use last price policy
+  - [x] No dedicated funding-rate endpoint: implement synthetic basis-derived estimate
+  - [x] Open interest field absence: treat as optional input with fallback
+  - [x] Liquidation price not guaranteed in docs: capture opportunistically from positions
 
 ### B2. Architecture and Runtime Topology
 

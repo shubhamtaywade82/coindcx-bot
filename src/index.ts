@@ -30,12 +30,16 @@ import { MultiTimeframeStore as CandleMtfStore, DEFAULT_TF_CONFIGS } from './mar
 import type { OrderBook } from './marketdata/book/orderbook';
 import ntp from 'ntp-client';
 import axios from 'axios';
+import { estimateSyntheticFundingRate, resolveMarkPrice, resolveOpenInterest } from './marketdata/data-gap-policy';
 
 // ── Types ──
 interface TickerInfo {
   price: string;
   markPrice: string;
   change: string;
+  openInterest?: string;
+  syntheticFundingRate?: string;
+  basis?: string;
 }
 
 interface TradeEntry {
@@ -908,26 +912,38 @@ async function runApp(ctx: Context) {
     Object.entries(prices).forEach(([rawPair, info]: [string, any]) => {
       if (!info || typeof info !== 'object') return;
       const pair = cleanPair(rawPair);
-      const lastPrice = info.ls || info.mp;
-      const markPrice = info.mp;
+      const markPrice = resolveMarkPrice({ markPrice: info.mp, lastPrice: info.ls });
+      const lastPrice = resolveMarkPrice({ markPrice: info.ls, lastPrice: info.mp });
       const changePct = info.pc;
+      const openInterest = resolveOpenInterest(info);
+      const syntheticFunding = estimateSyntheticFundingRate({
+        futuresMarkPrice: markPrice,
+        spotLastPrice: lastPrice,
+      });
 
       const existing = state.tickers.get(pair) || { price: '0', markPrice: '0', change: '0' };
       state.tickers.set(pair, {
         price: lastPrice?.toString() || existing.price,
         markPrice: markPrice?.toString() || existing.markPrice,
         change: changePct?.toString() || existing.change,
+        ...(openInterest !== undefined ? { openInterest: openInterest.toString() } : {}),
+        ...(syntheticFunding
+          ? {
+            syntheticFundingRate: syntheticFunding.estimatedFundingRate.toString(),
+            basis: syntheticFunding.basisRatio.toString(),
+          }
+          : {}),
       });
 
-      if (pair === 'USDTINR') {
-        state.usdtInrRate = parseFloat(lastPrice?.toString() || state.usdtInrRate.toString());
+      if (pair === 'USDTINR' && lastPrice !== undefined) {
+        state.usdtInrRate = parseFloat(lastPrice.toString());
       }
 
       // Update active positions PnL in real-time
-      if (markPrice) {
+      if (markPrice !== undefined) {
         state.positions.forEach((pos: any) => {
           if (cleanPair(pos.pair) === pair && pos.active_pos !== 0) {
-            const mp = parseFloat(markPrice);
+            const mp = Number(markPrice);
             const avg = parseFloat(pos.avg_price || '0');
             const qty = parseFloat(pos.active_pos || '0');
             pos.mark_price = mp;
