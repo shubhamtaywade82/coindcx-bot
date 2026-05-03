@@ -277,6 +277,19 @@ describe('CoinDCXApi new endpoints', () => {
     });
   });
 
+  it('getFuturesInstrumentCandles clamps limit to max 1000 bars/call', async () => {
+    const spy = vi.spyOn(__publicHttpForTests, 'get').mockResolvedValue({ data: [] });
+    await CoinDCXApi.getFuturesInstrumentCandles('B-BTC_USDT', {
+      resolution: '1',
+      from: 1000,
+      to: 1100,
+      limit: 5000,
+    });
+    expect(spy).toHaveBeenCalledWith('/market_data/candlesticks', {
+      params: { pair: 'B-BTC_USDT', resolution: '1', from: 1000, to: 1100, pcode: 'f' },
+    });
+  });
+
   it('getBalances posts futures wallet details endpoint with signed body', async () => {
     const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: [{ currency: 'USDT' }] });
     const data = await CoinDCXApi.getBalances();

@@ -7,7 +7,19 @@ import type { ClosedTrade } from '../../../src/strategy/backtest/simulator';
 
 const t: ClosedTrade = {
   side: 'LONG', entry: 100, stopLoss: 95, takeProfit: 110,
-  openedAt: 1000, closedAt: 2000, exitPrice: 110, exitReason: 'tp', pnl: 10, reason: 'r',
+  riskPerUnit: 5,
+  breakevenLockPrice: 105,
+  openedAt: 1000,
+  reachedBreakevenLockAt: 1500,
+  closedAt: 2000,
+  exitPrice: 110,
+  exitReason: 'tp',
+  pnl: 10,
+  rMultiple: 2,
+  reachedBreakevenLock: true,
+  timeToOneRMs: 500,
+  closedInNegativePnl: false,
+  reason: 'r',
 };
 
 describe('exportLedgerCsv', () => {

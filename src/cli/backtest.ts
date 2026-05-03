@@ -12,11 +12,19 @@ import { LlmPulse } from '../strategy/strategies/llm-pulse';
 import { CandleSource } from '../strategy/backtest/sources/candle-source';
 import { PostgresFillSource } from '../strategy/backtest/sources/postgres-fill-source';
 import { JsonlSource } from '../strategy/backtest/sources/jsonl-source';
+import { OrderbookReplaySource } from '../strategy/backtest/sources/orderbook-replay-source';
 import { runBacktest } from '../strategy/backtest/runner';
+import { runWalkForwardValidation } from '../strategy/backtest/walk-forward';
 import { tfMs } from '../strategy/scheduler/bar-driver';
 import type { Strategy } from '../strategy/types';
 import type { DataSource } from '../strategy/backtest/types';
 import { AiAnalyzer } from '../ai/analyzer';
+
+interface WindowFactoryContext {
+  fromMs: number;
+  toMs: number;
+  phase: 'in_sample' | 'out_of_sample';
+}
 
 function parseArgs(argv: string[]): Record<string, string> {
   const out: Record<string, string> = {};
@@ -54,6 +62,8 @@ async function main() {
   const outDir = cfg.BACKTEST_OUTPUT_DIR;
   mkdirSync(outDir, { recursive: true });
   const out = args.out ?? join(outDir, `${strategyId}-${pair}-${Date.now()}.csv`);
+  const walkForward = args.walkForward === 'true';
+  const minOosSharpeFactor = Number(args.oosSharpeFactor ?? '0.5');
 
   const stateBuilder = new MarketStateBuilder(logger);
   const analyzer = new AiAnalyzer(cfg, logger);
@@ -64,7 +74,7 @@ async function main() {
     dataSource = new CandleSource({
       pair, tf, fromMs, toMs,
       fetcher: async (p, t, fm, tm) => {
-        const limit = Math.max(1, Math.ceil((tm - fm) / tfMs(t)));
+        const limit = Math.max(1, Math.min(1000, Math.ceil((tm - fm) / tfMs(t))));
         const raw: any[] = await CoinDCXApi.getCandles(p, t, limit);
         return raw.map((row: any[]) => ({
           ts: Number(row[0]),
@@ -80,21 +90,91 @@ async function main() {
     dataSource = new PostgresFillSource({ pool, pair, fromMs, toMs });
   } else if (sourceKind === 'jsonl') {
     dataSource = new JsonlSource({ path: args.path ?? '', pair, fromMs, toMs });
+  } else if (sourceKind === 'orderbook-jsonl') {
+    dataSource = new OrderbookReplaySource({ path: args.path ?? '', pair, fromMs, toMs });
   } else {
     throw new Error(`unknown source: ${sourceKind}`);
   }
 
-  console.error(`[backtest] strategy=${strategyId} pair=${pair} source=${sourceKind} from=${args.from} to=${args.to}`);
-  const summary = await runBacktest({
-    strategy, pair, dataSource,
-    buildMarketState: (htf, ltf, p) => stateBuilder.build(htf, ltf, null, null, [], p),
-    pessimistic: cfg.BACKTEST_PESSIMISTIC,
-    outCsv: out,
-  });
-  console.log(JSON.stringify({
-    strategyId, pair, fromMs, toMs, source: sourceKind,
-    metrics: summary.metrics, coverage: summary.coverage, events: summary.events, csv: out,
-  }, null, 2));
+  console.error(`[backtest] strategy=${strategyId} pair=${pair} source=${sourceKind} from=${args.from} to=${args.to} walkForward=${walkForward}`);
+  if (walkForward) {
+    const result = await runWalkForwardValidation({
+      fromMs,
+      toMs,
+      inSampleMonths: 6,
+      outOfSampleMonths: 1,
+      minOosSharpeFactor,
+      buildDataSource: ({ fromMs: windowFromMs, toMs: windowToMs }: WindowFactoryContext) => {
+        if (sourceKind === 'candles') {
+          return new CandleSource({
+            pair,
+            tf,
+            fromMs: windowFromMs,
+            toMs: windowToMs,
+            fetcher: async (p, t, fm, tm) => {
+              const limit = Math.max(1, Math.min(1000, Math.ceil((tm - fm) / tfMs(t))));
+              const raw: any[] = await CoinDCXApi.getCandles(p, t, limit);
+              return raw.map((row: any[]) => ({
+                ts: Number(row[0]),
+                o: Number(row[1]),
+                h: Number(row[2]),
+                l: Number(row[3]),
+                c: Number(row[4]),
+              }));
+            },
+          });
+        }
+        if (sourceKind === 'jsonl') {
+          return new JsonlSource({ path: args.path ?? '', pair, fromMs: windowFromMs, toMs: windowToMs });
+        }
+        if (sourceKind === 'orderbook-jsonl') {
+          return new OrderbookReplaySource({ path: args.path ?? '', pair, fromMs: windowFromMs, toMs: windowToMs });
+        }
+        return new PostgresFillSource({
+          pool: new Pool({ connectionString: cfg.PG_URL }),
+          pair,
+          fromMs: windowFromMs,
+          toMs: windowToMs,
+        });
+      },
+      runWindowBacktest: async ({ dataSource, outCsv }) => runBacktest({
+        strategy: strategy.clone ? strategy.clone() : strategy,
+        pair,
+        dataSource,
+        buildMarketState: (htf, ltf, p) => stateBuilder.build(htf, ltf, null, null, [], p),
+        pessimistic: cfg.BACKTEST_PESSIMISTIC,
+        outCsv,
+      }),
+      outputDir: outDir,
+      outputPrefix: `${strategyId}-${pair}`,
+    });
+    console.log(JSON.stringify({
+      strategyId,
+      pair,
+      fromMs,
+      toMs,
+      source: sourceKind,
+      walkForward: {
+        accepted: result.accepted,
+        windows: result.windows.length,
+        rejectionReason: result.rejectionReason,
+        minOosSharpeFactor,
+      },
+      windows: result.windows,
+    }, null, 2));
+    process.exit(result.accepted ? 0 : 2);
+  } else {
+    const summary = await runBacktest({
+      strategy, pair, dataSource,
+      buildMarketState: (htf, ltf, p) => stateBuilder.build(htf, ltf, null, null, [], p),
+      pessimistic: cfg.BACKTEST_PESSIMISTIC,
+      outCsv: out,
+    });
+    console.log(JSON.stringify({
+      strategyId, pair, fromMs, toMs, source: sourceKind,
+      metrics: summary.metrics, coverage: summary.coverage, events: summary.events, csv: out,
+    }, null, 2));
+  }
   process.exit(0);
 }
 

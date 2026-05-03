@@ -102,6 +102,11 @@ export class CoinDCXApi {
     return Math.max(1, Math.trunc(limit ?? fallback));
   }
 
+  private static normalizeCandlestickLimit(limit?: number, fallback = 300): number {
+    const normalized = this.normalizeLimit(limit, fallback);
+    return Math.min(1000, normalized);
+  }
+
   private static async withClockSkewRetry<T>(
     endpoint: string,
     bodyBuilder: (timestamp: number) => Record<string, any>,
@@ -435,7 +440,7 @@ export class CoinDCXApi {
     const resolution = opts.resolution ?? '1';
     const to = Math.trunc(opts.to ?? Date.now() / 1000);
     const stepSeconds = resolution === '1D' ? 86_400 : Math.max(1, Number(resolution)) * 60;
-    const limit = this.normalizeLimit(opts.limit ?? 300);
+    const limit = this.normalizeCandlestickLimit(opts.limit ?? 300);
     const from = Math.trunc(opts.from ?? to - stepSeconds * limit);
     return this.fetchPublic(
       'futures instrument candles',

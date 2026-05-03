@@ -85,6 +85,12 @@ export const ConfigSchema = z.object({
     .transform(s => s.split(',').map(x => x.trim()).filter(Boolean)),
   BACKTEST_PESSIMISTIC: z.string().default('true').transform(s => s !== 'false'),
   BACKTEST_OUTPUT_DIR: z.string().default('./logs/backtest'),
+  BACKTEST_CANDLE_MAX_BARS_PER_CALL: z.coerce.number().int().positive().max(1000).default(1000),
+  BACKTEST_CANDLE_DEFAULT_TIMEFRAMES: z.string().default('1m,15m,1h')
+    .transform(s => s.split(',').map(x => x.trim()).filter(Boolean)),
+  BACKTEST_RECORDER_FLUSH_MS: z.coerce.number().int().positive().default(5000),
+  BACKTEST_RECORDER_ROTATE_MB: z.coerce.number().positive().default(128),
+  BACKTEST_RECORDER_COMPRESS: z.string().default('true').transform(s => s !== 'false'),
 
   // F5 Risk Alert Engine
   RISK_FILTER_MODE: z.enum(['passthrough', 'composite']).default('composite'),

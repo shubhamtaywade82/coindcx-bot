@@ -265,27 +265,27 @@ Use this file as the single source of truth for execution tracking.
 
 ### B8. Backtesting and Validation
 
-- [ ] Candle data ingestion
-  - [ ] Use `/market_data/candles` with pagination and max 1000 bars/call
-  - [ ] Persist multi-interval history
+- [x] Candle data ingestion
+  - [x] Use `/market_data/candles` with pagination and max 1000 bars/call
+  - [x] Persist multi-interval history
 
-- [ ] High-fidelity microstructure replay
-  - [ ] Run 30-day live depth/trade recorder
-  - [ ] Persist raw events to durable storage (Parquet/S3 or equivalent)
+- [x] High-fidelity microstructure replay
+  - [x] Run 30-day live depth/trade recorder
+  - [x] Persist raw events to durable storage (Parquet/S3 or equivalent)
 
-- [ ] Event-driven simulator
-  - [ ] Reuse production SignalEngine functions
-  - [ ] Avoid vectorized shortcuts for orderbook logic
+- [x] Event-driven simulator
+  - [x] Reuse production SignalEngine functions
+  - [x] Avoid vectorized shortcuts for orderbook logic
 
-- [ ] Metrics set
-  - [ ] Win rate, avg R, profit factor
-  - [ ] Max drawdown, Calmar, Sharpe
-  - [ ] Median time-to-1R
-  - [ ] Percent reaching BE-lock before negative close (target >= 99%)
+- [x] Metrics set
+  - [x] Win rate, avg R, profit factor
+  - [x] Max drawdown, Calmar, Sharpe
+  - [x] Median time-to-1R
+  - [x] Percent reaching BE-lock before negative close (target >= 99%)
 
-- [ ] Walk-forward validation
-  - [ ] 6-month in-sample + 1-month out-of-sample rolling windows
-  - [ ] Reject parameter set when OOS Sharpe < 0.5x IS Sharpe
+- [x] Walk-forward validation
+  - [x] 6-month in-sample + 1-month out-of-sample rolling windows
+  - [x] Reject parameter set when OOS Sharpe < 0.5x IS Sharpe
 
 - [ ] Paper trade gate before live
   - [ ] Dry-run router writes to `paper_trades`

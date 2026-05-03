@@ -5,6 +5,10 @@ export interface BacktestEvent {
   kind: BacktestEventKind;
   pair: string;
   price?: number;
+  asks?: Array<[string, string]>;
+  bids?: Array<[string, string]>;
+  seq?: number;
+  prevSeq?: number;
   high?: number;
   low?: number;
   tf?: string;
