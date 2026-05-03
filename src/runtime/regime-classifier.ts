@@ -68,7 +68,12 @@ function evaluateRegimeCandidates(features: RegimeFeatures): Record<'trending' |
 
 export function classifyRegime(features: RegimeFeatures): MarketRegime {
   const candidates = evaluateRegimeCandidates(features);
-  const tieBreakOrder: ReadonlyArray<MarketRegime> = ['trending', 'compressed', 'ranging', 'volatile'];
+  const tieBreakOrder: ReadonlyArray<keyof typeof candidates> = [
+    'trending',
+    'compressed',
+    'ranging',
+    'volatile',
+  ];
   for (const regime of tieBreakOrder) {
     if (candidates[regime]) return regime;
   }

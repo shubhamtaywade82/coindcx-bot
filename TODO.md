@@ -195,21 +195,21 @@ Use this file as the single source of truth for execution tracking.
 
 ### B4. Regime Classifier and Confluence Scoring
 
-- [ ] Regime classifier runs every 5 minutes (or each 5m close)
-  - [ ] Inputs: ADX_4H, ATR_PCTL, BB_WIDTH_PCTL, MSS_4H
-  - [ ] States: Trending, Ranging, Volatile, Compressed
-  - [ ] Apply explicit threshold table from document
-  - [ ] Tie-break order: Trending > Compressed > Ranging > Volatile
-  - [ ] Regime change cancels pending entries
+- [x] Regime classifier runs every 5 minutes (or each 5m close)
+  - [x] Inputs: ADX_4H, ATR_PCTL, BB_WIDTH_PCTL, MSS_4H
+  - [x] States: Trending, Ranging, Volatile, Compressed
+  - [x] Apply explicit threshold table from document
+  - [x] Tie-break order: Trending > Compressed > Ranging > Volatile
+  - [x] Regime change cancels pending entries
 
-- [ ] Confluence scoring implementation
-  - [ ] Maintain independent `long_score` and `short_score` in [0, 100]
-  - [ ] Use regime-dependent component weights exactly as documented
-  - [ ] Component contribution model: value in [-1, +1] mapped to side score
-  - [ ] Trade-fire gate:
-    - [ ] `max(score) >= 75`
-    - [ ] `abs(long_score - short_score) >= 25`
-    - [ ] Volatile regime exception only when microstructure contribution meets threshold
+- [x] Confluence scoring implementation
+  - [x] Maintain independent `long_score` and `short_score` in [0, 100]
+  - [x] Use regime-dependent component weights exactly as documented
+  - [x] Component contribution model: value in [-1, +1] mapped to side score
+  - [x] Trade-fire gate:
+    - [x] `max(score) >= 75`
+    - [x] `abs(long_score - short_score) >= 25`
+    - [x] Volatile regime exception only when microstructure contribution meets threshold
 
 - [ ] Probability-of-profit analytics
   - [ ] SQL view grouped by `(regime, score_bucket_5)` over recent signal history
