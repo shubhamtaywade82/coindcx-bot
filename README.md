@@ -66,6 +66,18 @@ Alert pipeline:
 - Rate-limited via `TELEGRAM_RATE_PER_MIN` (default 20/min).
 - Drops are logged + audit-recorded; check `logs/` for delivery failures.
 
+Optional Pine/TradingView webhook gateway (off by default):
+
+```
+WEBHOOK_ENABLED=true
+WEBHOOK_BIND_HOST=127.0.0.1            # default; expose only via reverse proxy
+WEBHOOK_PORT=4003
+WEBHOOK_PATH=/webhook/tradingview
+WEBHOOK_SHARED_SECRET=<long random>    # required if exposed beyond loopback
+```
+
+POST raw alert text to `http://<host>:<port>/webhook/tradingview` with `X-Auth-Token: <secret>` (or `?token=<secret>`). Body capped at 64 KiB. Parsed alerts emit on `SignalBus`. Endpoint never places orders — receive-only.
+
 Pre-flight checklist before going live:
 1. `npm run check` clean (typecheck + lint + tests)
 2. `READ_ONLY=true` in env (defense-in-depth, even though guard ignores it)

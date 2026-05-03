@@ -52,9 +52,9 @@ export class AiAnalyzer {
            "confidence": A number 0-1,
            "setup": {
              "entry": "price (MUST BE NEAR CURRENT PRICE: ${state.current_price})",
-             "sl": "price (Logical stop below/above structure)",
-             "tp": "price (TARGETING NEXT LIQUIDITY POOL/STRUCTURAL LEVEL. OR target ~10% profit on utilized capital if structure is unclear)",
-             "rr": number (REWARD/RISK RATIO - DOUBLE CHECK YOUR MATH: (TP-Entry)/(Entry-SL))
+             "sl": "price (stop: for LONG must be BELOW entry; for SHORT must be ABOVE entry)",
+             "tp": "price (take profit: for LONG must be ABOVE entry; for SHORT must be BELOW entry)",
+             "rr": number (REWARD/RISK: LONG = (tp-entry)/(entry-sl); SHORT = (entry-tp)/(sl-entry); must be positive)
            },
            "management_advice": "IF AN ACTIVE POSITION EXISTS: Provide specific action (HOLD, TRAIL SL TO X, EXIT NOW) based on the current context.",
            "levels": ["Key level 1", "Key level 2"],
@@ -63,6 +63,7 @@ export class AiAnalyzer {
          }
 
       STRICT RULES:
+      - GEOMETRY: If signal is LONG then sl < entry < tp. If signal is SHORT then tp < entry < sl. Never invert.
       - USE THE CURRENT PRICE (${state.current_price}) AS THE REFERENCE FOR YOUR ENTRY.
       - TAKE PROFIT (TP) MUST BE BASED ON ASSET CONTEXT (Liquidity Pools, FVG, Swing Highs/Lows).
       - If structural targets are not obvious, aim for a price that would yield roughly 10% return on the utilized balance for this trade.

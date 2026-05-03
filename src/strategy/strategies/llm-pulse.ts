@@ -22,6 +22,33 @@ function normSide(s: unknown): Side {
   return 'WAIT';
 }
 
+/** LONG: SL below entry, TP above. SHORT: TP below entry, SL above. LLMs often emit LONG geometry with a SHORT label — swap when that pattern is exact. */
+export function alignStopTakeToSide(side: Side, entry: number, sl: number, tp: number): { sl: number; tp: number; swapped: boolean } {
+  if (side !== 'LONG' && side !== 'SHORT') return { sl, tp, swapped: false };
+  if (![entry, sl, tp].every(n => Number.isFinite(n))) return { sl, tp, swapped: false };
+
+  const longGeometry = sl < entry && entry < tp;
+  const shortGeometry = tp < entry && entry < sl;
+
+  if (side === 'LONG') {
+    if (longGeometry) return { sl, tp, swapped: false };
+    if (shortGeometry) return { sl: tp, tp: sl, swapped: true };
+    return { sl, tp, swapped: false };
+  }
+
+  if (shortGeometry) return { sl, tp, swapped: false };
+  if (longGeometry) return { sl: tp, tp: sl, swapped: true };
+  return { sl, tp, swapped: false };
+}
+
+function rewardRiskRatio(side: Side, entry: number, sl: number, tp: number): number | undefined {
+  if (![entry, sl, tp].every(n => Number.isFinite(n)) || entry === sl) return undefined;
+  const risk = side === 'LONG' ? entry - sl : sl - entry;
+  const reward = side === 'LONG' ? tp - entry : entry - tp;
+  if (risk <= 0 || reward <= 0) return undefined;
+  return reward / risk;
+}
+
 export class LlmPulse implements Strategy {
   manifest = MANIFEST;
 
@@ -41,15 +68,24 @@ export class LlmPulse implements Strategy {
     const side = normSide(resp?.signal);
 
     const entry = resp?.setup?.entry ? parseFloat(String(resp.setup.entry)) : undefined;
-    const sl = resp?.setup?.sl ? parseFloat(String(resp.setup.sl)) : undefined;
-    const tp = resp?.setup?.tp ? parseFloat(String(resp.setup.tp)) : undefined;
+    let sl = resp?.setup?.sl ? parseFloat(String(resp.setup.sl)) : undefined;
+    let tp = resp?.setup?.tp ? parseFloat(String(resp.setup.tp)) : undefined;
+
+    let levelGeometryCorrected = false;
+    if (side === 'LONG' || side === 'SHORT') {
+      if (entry !== undefined && sl !== undefined && tp !== undefined) {
+        const aligned = alignStopTakeToSide(side, entry, sl, tp);
+        sl = aligned.sl;
+        tp = aligned.tp;
+        levelGeometryCorrected = aligned.swapped;
+      }
+    }
 
     let rr = resp?.setup?.rr;
-    if (entry && sl && tp && entry !== sl) {
-      const risk = Math.abs(entry - sl);
-      const reward = Math.abs(tp - entry);
-      rr = reward / risk;
-    }
+    const recomputed = entry !== undefined && sl !== undefined && tp !== undefined
+      ? rewardRiskRatio(side, entry, sl, tp)
+      : undefined;
+    if (recomputed !== undefined) rr = recomputed;
 
     return {
       side,
@@ -65,7 +101,8 @@ export class LlmPulse implements Strategy {
         rr, 
         alternate: resp?.alternate_scenario, 
         levels: resp?.levels,
-        management: resp?.management_advice
+        management: resp?.management_advice,
+        ...(levelGeometryCorrected ? { levelGeometryCorrected: true } : {}),
       },
     };
   }

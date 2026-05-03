@@ -36,6 +36,8 @@ type SystemLogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 export class TuiApp {
   private screen: any;
+  /** Host for blessed-contrib grid; sits below fixed 1-line status + summary strips. */
+  private gridHost: any;
   private grid: any;
   private logPanel: any;
   private statusBar: any;
@@ -85,10 +87,20 @@ export class TuiApp {
     });
 
     this.pairs = config.pairs;
-    this.grid = new contrib.grid({ rows: 12, cols: 12, screen: this.screen });
+
+    // Status + summary are NOT grid rows: each grid row is (100/12)% of its parent, so a
+    // single text line leaves empty padding inside the cell. Fixed height:1 strips avoid that.
+    this.gridHost = blessed.box({
+      parent: this.screen,
+      top: 2,
+      left: 0,
+      width: '100%',
+      height: '100%-2',
+    });
+    this.grid = new contrib.grid({ rows: 12, cols: 12, screen: this.gridHost });
 
     // Initialize logPanel early so this.log() works
-    this.logPanel = this.grid.set(11, 0, 1, 12, blessed.log, {
+    this.logPanel = this.grid.set(9, 0, 3, 12, blessed.log, {
       label: ' ◉ System Logs ',
       border: { type: 'line', fg: 'gray' },
       scrollable: true,
@@ -99,22 +111,30 @@ export class TuiApp {
 
     this.log(`Tui initialized with ${this.pairs.length} pairs: ${this.pairs.join(', ')}`);
 
-    // ── Row 0: Top Status Bar ──
-    this.statusBar = this.grid.set(0, 0, 1, 12, blessed.box, {
+    this.statusBar = blessed.box({
+      parent: this.screen,
+      top: 0,
+      left: 0,
+      width: '100%',
+      height: 1,
       tags: true,
       content: ' LOADING...',
-      style: { bg: 'black' }
+      style: { bg: 'black' },
     });
 
-    // ── Row 1: Account Summary Bar ──
-    this.summaryBox = this.grid.set(1, 0, 1, 12, blessed.box, {
+    this.summaryBox = blessed.box({
+      parent: this.screen,
+      top: 1,
+      left: 0,
+      width: '100%',
+      height: 1,
       tags: true,
       content: ' {yellow-fg}Loading account stats...{/yellow-fg}',
-      style: { bg: 'black' }
+      style: { bg: 'black' },
     });
 
-    // ── Row 2: Asset Header Bar ──
-    this.headerBox = this.grid.set(2, 0, 1, 12, blessed.box, {
+    // ── Grid row 0: Asset Header (grid is mounted below the two 1-line strips) ──
+    this.headerBox = this.grid.set(0, 0, 1, 12, blessed.box, {
       label: ' ◈ Asset Focus ',
       border: { type: 'line', fg: 'cyan' },
       style: { fg: 'white', bold: true },
@@ -122,8 +142,8 @@ export class TuiApp {
       content: this.buildHeaderContent(),
     });
 
-    // ── Row 3-7: Top Row Panels ──
-    this.tradeTable = this.grid.set(3, 0, 5, 3, blessed.box, {
+    // ── Grid rows 1-5: Book / AI / Signals ──
+    this.tradeTable = this.grid.set(1, 0, 5, 3, blessed.box, {
       label: ` ◉ Book — ${this.focusedPairClean} `,
       border: { type: 'line', fg: 'blue' },
       style: { fg: 'white' },
@@ -132,7 +152,7 @@ export class TuiApp {
       scrollable: true
     });
 
-    this.aiBox = this.grid.set(3, 3, 5, 6, blessed.box, {
+    this.aiBox = this.grid.set(1, 3, 5, 6, blessed.box, {
       label: ` ◈ AI Strategy Pulse — ${this.focusedPairClean} `,
       border: { type: 'line', fg: 'cyan' },
       tags: true,
@@ -142,7 +162,7 @@ export class TuiApp {
 
     // One blessed box per grid cell (no nested child). Nested 100%×100% children overlap the
     // parent's label/border and break line-art; multi-line balance rows need height > 1.
-    this.signalsBox = this.grid.set(3, 9, 5, 3, blessed.box, {
+    this.signalsBox = this.grid.set(1, 9, 5, 3, blessed.box, {
       label: ' Signals ',
       border: { type: 'line', fg: 'gray' },
       tags: true,
@@ -152,7 +172,7 @@ export class TuiApp {
       content: ' {gray-fg}Awaiting strategy signals...{/gray-fg}',
     });
 
-    this.positionsTable = this.grid.set(8, 0, 1, 12, blessed.box, {
+    this.positionsTable = this.grid.set(6, 0, 1, 12, blessed.box, {
       label: ' Active Positions ',
       border: { type: 'line', fg: 'yellow' },
       tags: true,
@@ -161,8 +181,8 @@ export class TuiApp {
       scrollbar: { ch: ' ' },
     });
 
-    // Rows 9–10: Balances / Orders / Risk (2 grid rows — INR + USD rows need vertical space)
-    this.balanceTable = this.grid.set(9, 0, 2, 4, blessed.box, {
+    // Grid rows 7–8: Balances / Orders / Risk (2 grid rows — INR + USD rows need vertical space)
+    this.balanceTable = this.grid.set(7, 0, 2, 4, blessed.box, {
       label: ' Balances ',
       border: { type: 'line', fg: 'green' },
       tags: true,
@@ -171,7 +191,7 @@ export class TuiApp {
       scrollbar: { ch: ' ' },
     });
 
-    this.orderTable = this.grid.set(9, 4, 2, 4, blessed.box, {
+    this.orderTable = this.grid.set(7, 4, 2, 4, blessed.box, {
       label: ' Orders ',
       border: { type: 'line', fg: 'magenta' },
       tags: true,
@@ -180,7 +200,7 @@ export class TuiApp {
       scrollbar: { ch: ' ' },
     });
 
-    this.riskBox = this.grid.set(9, 8, 2, 4, blessed.box, {
+    this.riskBox = this.grid.set(7, 8, 2, 4, blessed.box, {
       label: ' Risk ',
       border: { type: 'line', fg: 'gray' },
       tags: true,

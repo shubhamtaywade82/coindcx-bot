@@ -86,7 +86,24 @@ export async function bootstrap(): Promise<Context> {
   const analyzer = new AiAnalyzer(config, logger);
   const stateBuilder = new MarketStateBuilder(logger, pool);
 
-  logger.info({ mod: 'boot', sinks: config.SIGNAL_SINKS }, 'boot complete');
+  let webhook: import('../gateways/webhook').WebhookGateway | undefined;
+  if (config.WEBHOOK_ENABLED) {
+    const { WebhookGateway } = await import('../gateways/webhook');
+    if (!config.WEBHOOK_SHARED_SECRET) {
+      logger.warn({ mod: 'boot' }, 'WEBHOOK_ENABLED=true without WEBHOOK_SHARED_SECRET — endpoint unauthenticated; bound to localhost only');
+    }
+    webhook = new WebhookGateway({
+      port: config.WEBHOOK_PORT,
+      path: config.WEBHOOK_PATH,
+      host: config.WEBHOOK_BIND_HOST,
+      sharedSecret: config.WEBHOOK_SHARED_SECRET,
+      bus,
+      logger: logger.child({ mod: 'webhook' }),
+    });
+    webhook.start();
+  }
 
-  return { config, logger, pool, audit, bus, cursors, analyzer, stateBuilder };
+  logger.info({ mod: 'boot', sinks: config.SIGNAL_SINKS, webhook: !!webhook }, 'boot complete');
+
+  return { config, logger, pool, audit, bus, cursors, analyzer, stateBuilder, webhook };
 }

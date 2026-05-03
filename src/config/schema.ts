@@ -31,8 +31,11 @@ export const ConfigSchema = z.object({
   SOCKET_BASE_URL: z.string().url().default('wss://stream.coindcx.com'),
   OLLAMA_URL: z.string().url().default('http://127.0.0.1:11434'),
   OLLAMA_MODEL: z.string().default('llama3'),
+  WEBHOOK_ENABLED: z.string().default('false').transform(s => s === 'true'),
   WEBHOOK_PORT: z.coerce.number().int().positive().default(4003),
   WEBHOOK_PATH: z.string().default('/webhook/tradingview'),
+  WEBHOOK_BIND_HOST: z.string().default('127.0.0.1'),
+  WEBHOOK_SHARED_SECRET: z.string().optional(),
 
   // F2 Market Data Integrity
   RESYNC_WS_TIMEOUT_MS: z.coerce.number().int().positive().default(3000),

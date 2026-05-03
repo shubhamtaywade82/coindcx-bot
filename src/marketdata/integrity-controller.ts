@@ -149,7 +149,24 @@ export class IntegrityController {
     if (typeof raw === 'object' && raw && typeof raw.T === 'number') {
       this.latency.record(channel, 'tickAge', ts - raw.T);
     }
-    const rawPair: string | undefined = raw?.s ?? raw?.pair;
+    const pr = raw?.pr as string | undefined;
+    if (
+      (channel === 'depth-snapshot' || channel === 'depth-update') &&
+      (pr === 'spot' || pr === 's' || pr === 'Spot')
+    ) {
+      return;
+    }
+
+    let rawPair: string | undefined = raw?.s ?? raw?.pair;
+    if (
+      !rawPair &&
+      (channel === 'depth-snapshot' || channel === 'depth-update') &&
+      Array.isArray(this.deps.config.COINDCX_PAIRS) &&
+      this.deps.config.COINDCX_PAIRS.length === 1
+    ) {
+      rawPair = this.deps.config.COINDCX_PAIRS[0];
+    }
+
     const pair: string | undefined = rawPair ? toCoinDcxFuturesInstrument(rawPair) : undefined;
     if (pair) this.stale.touch(channel, pair);
 

@@ -6,6 +6,7 @@ import type { SignalBus } from '../signals/bus';
 import type { Cursors } from '../resume/cursors';
 import type { AiAnalyzer } from '../ai/analyzer';
 import type { MarketStateBuilder } from '../ai/state-builder';
+import type { WebhookGateway } from '../gateways/webhook';
 
 export interface Context {
   config: Config;
@@ -16,4 +17,5 @@ export interface Context {
   cursors: Cursors;
   analyzer: AiAnalyzer;
   stateBuilder: MarketStateBuilder;
+  webhook?: WebhookGateway;
 }
