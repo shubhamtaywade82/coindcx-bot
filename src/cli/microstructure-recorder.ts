@@ -69,9 +69,10 @@ async function main(): Promise<void> {
   const onDepthSnapshot = (raw: unknown) => recordByPair('depth-snapshot', raw);
   const onDepthUpdate = (raw: unknown) => recordByPair('depth-update', raw);
   const onTrade = (raw: unknown) => recordByPair('new-trade', raw);
-  ws.on('depth-snapshot', onDepthSnapshot);
-  ws.on('depth-update', onDepthUpdate);
-  ws.on('new-trade', onTrade);
+  // Record futures aliases only to avoid spot/futures stream mixing.
+  ws.on('futures-orderbook-snapshot', onDepthSnapshot);
+  ws.on('futures-orderbook-update', onDepthUpdate);
+  ws.on('futures-new-trade', onTrade);
 
   for (const pair of pairs) {
     ws.subscribePair(toCoinDcxFuturesInstrument(pair));
@@ -92,9 +93,9 @@ async function main(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     clearTimeout(timeout);
-    ws.off('depth-snapshot', onDepthSnapshot);
-    ws.off('depth-update', onDepthUpdate);
-    ws.off('new-trade', onTrade);
+    ws.off('futures-orderbook-snapshot', onDepthSnapshot);
+    ws.off('futures-orderbook-update', onDepthUpdate);
+    ws.off('futures-new-trade', onTrade);
     ws.disconnect();
     const summaries = await Promise.all(
       [...recorderByPair.entries()].map(async ([pairKey, recorder]) => ({
@@ -133,6 +134,13 @@ void main().catch((error) => {
 });
 
 function extractPair(raw: unknown): string | undefined {
+  if (typeof raw === 'string') {
+    try {
+      return extractPair(JSON.parse(raw));
+    } catch {
+      return undefined;
+    }
+  }
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
   const row = raw as Record<string, unknown>;
   const pair = row.s ?? row.pair;

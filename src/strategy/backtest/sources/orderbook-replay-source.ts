@@ -3,6 +3,7 @@ import { createInterface } from 'node:readline';
 import { createGunzip } from 'node:zlib';
 import { OrderBook } from '../../../marketdata/book/orderbook';
 import type { BacktestEvent, DataSource } from '../types';
+import { toCoinDcxFuturesInstrument } from '../../../utils/format';
 
 export interface OrderbookReplaySourceOptions {
   path: string;
@@ -25,7 +26,7 @@ export class OrderbookReplaySource implements DataSource {
   private readonly book: OrderBook;
 
   constructor(private readonly opts: OrderbookReplaySourceOptions) {
-    this.book = new OrderBook(opts.pair);
+    this.book = new OrderBook(toCoinDcxFuturesInstrument(opts.pair));
   }
 
   async *iterate(): AsyncIterable<BacktestEvent> {
@@ -39,8 +40,8 @@ export class OrderbookReplaySource implements DataSource {
       if (!row) continue;
       this.scanned += 1;
       if (row.ts < this.opts.fromMs || row.ts > this.opts.toMs) continue;
-      const pair = cleanPair(row.raw.s ?? row.raw.pair);
-      if (pair !== cleanPair(this.opts.pair)) continue;
+      const pair = normalizePair(row.raw.s ?? row.raw.pair);
+      if (pair !== normalizePair(this.opts.pair)) continue;
       const event = this.processReplayEvent(row);
       if (!event) continue;
       this.yielded += 1;
@@ -153,4 +154,9 @@ function parseFiniteInteger(value: unknown): number | undefined {
 
 function cleanPair(value: unknown): string {
   return String(value ?? '').trim().toUpperCase();
+}
+
+function normalizePair(value: unknown): string {
+  const clean = cleanPair(value);
+  return clean ? toCoinDcxFuturesInstrument(clean) : '';
 }

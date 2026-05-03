@@ -73,4 +73,33 @@ describe('OrderbookReplaySource', () => {
     expect(events[0]?.price).toBe(100);
     rmSync(dir, { recursive: true, force: true });
   });
+
+  it('matches symbol-form trade rows against futures pair input', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ob-replay-'));
+    const path = join(dir, 'frames.jsonl');
+    const lines = [
+      JSON.stringify({
+        ts: 1_000,
+        channel: 'new-trade',
+        raw: {
+          s: 'BTCUSDT',
+          p: '101.5',
+        },
+      }),
+    ];
+    writeFileSync(path, lines.join('\n'));
+    const source = new OrderbookReplaySource({
+      path,
+      pair: 'B-BTC_USDT',
+      fromMs: 0,
+      toMs: 10_000,
+    });
+    const events = [];
+    for await (const event of source.iterate()) {
+      events.push(event);
+    }
+    expect(events).toHaveLength(1);
+    expect(events[0]?.price).toBe(101.5);
+    rmSync(dir, { recursive: true, force: true });
+  });
 });
