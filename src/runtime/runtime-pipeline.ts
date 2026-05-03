@@ -34,6 +34,7 @@ export interface RuntimeSignalContext {
     feeRate: number;
     fundingRate: number;
     maxVenueLeverage: number;
+    liquidationBufferMultiplier: number;
   }>;
 }
 
