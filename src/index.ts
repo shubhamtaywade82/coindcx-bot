@@ -134,6 +134,21 @@ function parseFiniteNumber(value: unknown): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function readSignalMeta(payload: unknown): Record<string, unknown> | undefined {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return undefined;
+  const metaUnknown = (payload as Record<string, unknown>).meta;
+  if (!metaUnknown || typeof metaUnknown !== 'object' || Array.isArray(metaUnknown)) return undefined;
+  return metaUnknown as Record<string, unknown>;
+}
+
+function pickFirstFinite(meta: Record<string, unknown>, keys: readonly string[]): number | undefined {
+  for (const key of keys) {
+    const value = parseFiniteNumber(meta[key]);
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
+
 function buildRuntimeMarketContext(pair: string): IntentMarketContext {
   const ticker = state.tickers.get(pair) ?? state.tickers.get(cleanPair(pair));
   const markPrice = ticker?.markPrice || ticker?.price;
@@ -150,20 +165,61 @@ function buildRuntimeMarketContext(pair: string): IntentMarketContext {
 }
 
 function buildRuntimeRegimeFeatures(payload: unknown): RegimeFeatures {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return {};
-  const metaUnknown = (payload as Record<string, unknown>).meta;
-  if (!metaUnknown || typeof metaUnknown !== 'object' || Array.isArray(metaUnknown)) return {};
-  const meta = metaUnknown as Record<string, unknown>;
-  const adx4h = parseFiniteNumber(meta.adx4h);
-  const atrPercentile = parseFiniteNumber(meta.atrPercentile);
-  const bbWidthPercentile = parseFiniteNumber(meta.bbWidthPercentile);
-  const hasMarketStructureShift = meta.marketStructureShift === true;
+  const meta = readSignalMeta(payload);
+  if (!meta) return {};
+  const adx4h = pickFirstFinite(meta, ['adx4h', 'ADX_4H', 'adx_4h']);
+  const atrPercentile = pickFirstFinite(meta, ['atrPercentile', 'ATR_PCTL', 'atr_pctl']);
+  const bbWidthPercentile = pickFirstFinite(meta, ['bbWidthPercentile', 'BB_WIDTH_PCTL', 'bb_width_pctl']);
+  const mssSignal = meta.hasMarketStructureShift ?? meta.marketStructureShift ?? meta.MSS_4H ?? meta.mss_4h;
+  const mssNumeric = parseFiniteNumber(mssSignal);
+  const hasMarketStructureShift = mssSignal === true || (mssNumeric !== undefined && mssNumeric > 0);
   return {
     ...(adx4h !== undefined ? { adx4h } : {}),
     ...(atrPercentile !== undefined ? { atrPercentile } : {}),
     ...(bbWidthPercentile !== undefined ? { bbWidthPercentile } : {}),
     hasMarketStructureShift,
   };
+}
+
+function inferRuntimeMicrostructureContribution(payload: unknown): number | undefined {
+  const meta = readSignalMeta(payload);
+  if (!meta) return undefined;
+  const raw =
+    meta.microstructureContribution ??
+    meta.bookImbalanceContribution ??
+    meta.orderFlowContribution;
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return Math.max(-1, Math.min(1, raw));
+  }
+  return undefined;
+}
+
+function buildRuntimeConfluenceComponents(payload: unknown): Record<string, number> | undefined {
+  const meta = readSignalMeta(payload);
+  if (!meta) return undefined;
+  const sourceUnknown = meta.confluenceComponents;
+  const source =
+    sourceUnknown && typeof sourceUnknown === 'object' && !Array.isArray(sourceUnknown)
+      ? sourceUnknown as Record<string, unknown>
+      : meta;
+  const confidence = pickFirstFinite(source, ['confidenceContribution']);
+  const structure = pickFirstFinite(source, ['structureContribution']);
+  const momentum = pickFirstFinite(source, ['momentumContribution']);
+  const microstructure = pickFirstFinite(source, [
+    'microstructureContribution',
+    'bookImbalanceContribution',
+    'orderFlowContribution',
+  ]);
+  const risk = pickFirstFinite(source, ['riskContribution']);
+  const entries = Object.entries({
+    ...(confidence !== undefined ? { confidence } : {}),
+    ...(structure !== undefined ? { structure } : {}),
+    ...(momentum !== undefined ? { momentum } : {}),
+    ...(microstructure !== undefined ? { microstructure } : {}),
+    ...(risk !== undefined ? { risk } : {}),
+  }).map(([component, value]) => [component, Math.max(-1, Math.min(1, value))] as const);
+  if (entries.length === 0) return undefined;
+  return Object.fromEntries(entries);
 }
 
 // ══════════════════════════════════════════════════════
@@ -187,6 +243,8 @@ async function runApp(ctx: Context) {
           market: buildRuntimeMarketContext(s.pair),
           regimeFeatures: buildRuntimeRegimeFeatures(s.payload),
           defaultEntryType: 'limit',
+          confluenceComponents: buildRuntimeConfluenceComponents(s.payload),
+          microstructureContribution: inferRuntimeMicrostructureContribution(s.payload),
         });
         if (decision?.status === 'blocked' && !decision.riskDecision.approved) {
           ctx.logger.debug(

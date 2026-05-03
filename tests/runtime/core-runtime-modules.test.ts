@@ -31,29 +31,95 @@ function baseSignal(overrides: Partial<Signal> = {}): Signal {
 describe('runtime module skeletons', () => {
   it('classifies regime with explicit precedence', () => {
     expect(classifyRegime({ adx4h: 28, bbWidthPercentile: 0.1 })).toBe('trending');
-    expect(classifyRegime({ bbWidthPercentile: 0.1, atrPercentile: 0.9 })).toBe('compressed');
+    expect(classifyRegime({
+      adx4h: 10,
+      atrPercentile: 0.4,
+      bbWidthPercentile: 0.1,
+    })).toBe('compressed');
     expect(classifyRegime({ adx4h: 10, atrPercentile: 0.4, bbWidthPercentile: 0.7 })).toBe('ranging');
     expect(classifyRegime({ adx4h: 22, atrPercentile: 0.9, bbWidthPercentile: 0.8 })).toBe('volatile');
+    expect(classifyRegime({ adx4h: 19, atrPercentile: 40, bbWidthPercentile: 15 })).toBe('compressed');
   });
 
-  it('stores classifier snapshots by pair', () => {
-    const classifier = new RegimeClassifier(() => Date.parse('2026-05-03T12:00:00.000Z'));
-    const snapshot = classifier.classify('B-BTC_USDT', { adx4h: 30 });
-    expect(snapshot.regime).toBe('trending');
+  it('stores classifier snapshots by pair on 5 minute cadence', () => {
+    let nowMs = Date.parse('2026-05-03T12:00:00.000Z');
+    const classifier = new RegimeClassifier(() => nowMs);
+
+    const first = classifier.classify('B-BTC_USDT', {
+      adx4h: 30,
+      atrPercentile: 0.2,
+      bbWidthPercentile: 0.2,
+    });
+    expect(first.regime).toBe('trending');
+    expect(first.changed).toBe(false);
     expect(classifier.current('B-BTC_USDT')?.classifiedAt).toBe('2026-05-03T12:00:00.000Z');
+
+    nowMs = Date.parse('2026-05-03T12:01:00.000Z');
+    const sameBucket = classifier.classify('B-BTC_USDT', {
+      adx4h: 10,
+      atrPercentile: 0.4,
+      bbWidthPercentile: 0.7,
+    });
+    expect(sameBucket).toBe(first);
+
+    nowMs = Date.parse('2026-05-03T12:06:00.000Z');
+    const nextBucket = classifier.classify('B-BTC_USDT', {
+      adx4h: 10,
+      atrPercentile: 0.4,
+      bbWidthPercentile: 0.7,
+    });
+    expect(nextBucket.regime).toBe('ranging');
+    expect(nextBucket.changed).toBe(true);
+    expect(nextBucket.previousRegime).toBe('trending');
   });
 
-  it('scores confluence using side and regime', () => {
+  it('scores confluence with independent long and short side scores', () => {
     const scorer = new ConfluenceScorer(() => Date.parse('2026-05-03T12:00:00.000Z'));
     const score = scorer.score({
       pair: 'B-BTC_USDT',
       side: 'LONG',
-      confidence: 0.8,
+      confidence: 0.9,
       regime: 'trending',
+      components: {
+        structure: 1,
+        momentum: 1,
+        microstructure: 0.8,
+        risk: 1,
+      },
     });
-    expect(score.longScore).toBe(80);
-    expect(score.shortScore).toBe(20);
+    expect(score.longScore).toBeGreaterThanOrEqual(75);
+    expect(score.shortScore).toBeLessThanOrEqual(25);
+    expect(score.fireGatePassed).toBe(true);
+    expect(scorer.decision('B-BTC_USDT')?.dominantSide).toBe('LONG');
     expect(scorer.current('B-BTC_USDT')?.scoredAt).toBe('2026-05-03T12:00:00.000Z');
+  });
+
+  it('applies volatile exception when microstructure contribution is strong', () => {
+    const scorer = new ConfluenceScorer(() => Date.parse('2026-05-03T12:00:00.000Z'));
+    const score = scorer.score({
+      pair: 'B-BTC_USDT',
+      side: 'LONG',
+      confidence: 1,
+      regime: 'volatile',
+      components: {
+        confidence: 1,
+        structure: 1,
+        momentum: 1,
+        microstructure: 1,
+        risk: 1,
+      },
+      shortComponents: {
+        confidence: 1,
+        structure: 1,
+        momentum: 1,
+        microstructure: 1,
+        risk: 1,
+      },
+    });
+    const decision = scorer.decision('B-BTC_USDT');
+    expect(score.scoreSpread).toBeLessThan(25);
+    expect(decision?.shouldFire).toBe(true);
+    expect(decision?.volatileExceptionApplied).toBe(true);
   });
 
   it('maps strategy signals into trade intents via SignalEngine', () => {
@@ -119,16 +185,34 @@ describe('runtime module skeletons', () => {
     expect(machine.current('B-BTC_USDT')?.transitionAt).toBe('2026-05-03T12:00:00.000Z');
   });
 
-  it('runs blocked and routed paths through CoreRuntimePipeline', () => {
+  it('blocks on confluence gate and keeps pending entries', () => {
+    const pipeline = new CoreRuntimePipeline();
+    const blocked = pipeline.process(baseSignal(), {
+      market: { markPrice: '100', marketDataFresh: true, accountStateFresh: true },
+      regimeFeatures: { adx4h: 30, atrPercentile: 0.3, bbWidthPercentile: 0.3 },
+      riskOptions: { nowMs: Date.parse('2026-05-03T12:00:10.000Z') },
+    });
+    expect(blocked?.status).toBe('blocked');
+    if (blocked?.status !== 'blocked') throw new Error('expected blocked decision');
+    expect(blocked.reason).toBe('confluence_gate');
+    expect(blocked.riskDecision.approved).toBe(false);
+    expect(pipeline.pendingIntent('B-BTC_USDT')).toBeDefined();
+  });
+
+  it('runs risk-gate and routed paths through CoreRuntimePipeline', () => {
     const pipeline = new CoreRuntimePipeline();
     const blocked = pipeline.process(
       baseSignal({ payload: { confidence: 0.9, reason: 'missing guards' } }),
       {
         market: { markPrice: '100', marketDataFresh: true, accountStateFresh: true },
+        regimeFeatures: { adx4h: 30, atrPercentile: 0.3, bbWidthPercentile: 0.3 },
+        confluenceComponents: { structure: 1, momentum: 1, microstructure: 1, risk: 1 },
+        riskOptions: { nowMs: Date.parse('2026-05-03T12:00:10.000Z') },
       },
     );
     expect(blocked?.status).toBe('blocked');
     if (blocked?.status !== 'blocked') throw new Error('expected blocked decision');
+    expect(blocked.reason).toBe('risk_gate');
     expect(blocked.riskDecision.approved).toBe(false);
     if (!blocked.riskDecision.approved) {
       expect(blocked.riskDecision.rejections.map((rejection) => rejection.code)).toEqual(
@@ -139,11 +223,47 @@ describe('runtime module skeletons', () => {
     const routed = pipeline.process(baseSignal(), {
       market: { markPrice: '100', marketDataFresh: true, accountStateFresh: true },
       regimeFeatures: { adx4h: 29, bbWidthPercentile: 0.3 },
+      confluenceComponents: { structure: 1, momentum: 1, microstructure: 1, risk: 1 },
+      microstructureContribution: 1,
       riskOptions: { nowMs: Date.parse('2026-05-03T12:00:10.000Z') },
     });
     expect(routed?.status).toBe('routed');
     if (routed?.status !== 'routed') throw new Error('expected routed decision');
     expect(routed.routedOrder.route).toBe('paper');
     expect(routed.positionState.state).toBe('entry_submitted');
+  });
+
+  it('cancels pending entries when regime changes on next 5m cadence', () => {
+    let nowMs = Date.parse('2026-05-03T12:00:00.000Z');
+    const pipeline = new CoreRuntimePipeline({
+      regimeClassifier: new RegimeClassifier(() => nowMs),
+      confluenceScorer: new ConfluenceScorer(() => nowMs),
+      riskManager: new RiskManager(() => nowMs),
+      orderRouter: new OrderRouter(() => nowMs),
+      positionStateMachine: new PositionStateMachine(() => nowMs),
+    });
+
+    const first = pipeline.process(baseSignal(), {
+      market: { markPrice: '100', marketDataFresh: true, accountStateFresh: true },
+      regimeFeatures: { adx4h: 30, atrPercentile: 0.3, bbWidthPercentile: 0.3 },
+      riskOptions: { nowMs: Date.parse('2026-05-03T12:00:10.000Z') },
+    });
+    expect(first?.status).toBe('blocked');
+    expect(pipeline.pendingIntent('B-BTC_USDT')).toBeDefined();
+
+    nowMs = Date.parse('2026-05-03T12:06:00.000Z');
+    const second = pipeline.process(baseSignal({ id: 'sig-2' }), {
+      market: { markPrice: '100', marketDataFresh: true, accountStateFresh: true },
+      regimeFeatures: { adx4h: 10, atrPercentile: 0.4, bbWidthPercentile: 0.7 },
+      confluenceComponents: { structure: 1, momentum: 1, microstructure: 1, risk: 1 },
+      microstructureContribution: 1,
+      riskOptions: { nowMs: Date.parse('2026-05-03T12:00:20.000Z') },
+    });
+    expect(second?.status).toBe('routed');
+    if (second?.status !== 'routed') throw new Error('expected routed decision');
+    expect(second.pendingEntriesCancelled).toBe(true);
+    expect(second.regime.changed).toBe(true);
+    expect(second.regime.previousRegime).toBe('trending');
+    expect(pipeline.pendingIntent('B-BTC_USDT')).toBeUndefined();
   });
 });

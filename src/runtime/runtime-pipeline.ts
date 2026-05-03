@@ -24,6 +24,8 @@ export interface RuntimeSignalContext {
   regimeFeatures?: RegimeFeatures;
   riskOptions?: IntentValidatorOptions;
   defaultEntryType?: EntryType;
+  confluenceComponents?: Record<string, number>;
+  microstructureContribution?: number;
 }
 
 export interface RoutedRuntimeDecision {
@@ -36,6 +38,7 @@ export interface RoutedRuntimeDecision {
   confluence: ConfluenceScore;
   routedOrder: RoutedOrder;
   positionState: PositionStateSnapshot;
+  pendingEntriesCancelled: boolean;
 }
 
 export interface BlockedRuntimeDecision {
@@ -46,9 +49,31 @@ export interface BlockedRuntimeDecision {
   riskEvaluation: RiskEvaluation;
   regime: RegimeSnapshot;
   confluence: ConfluenceScore;
+  reason:
+    | 'confluence_gate'
+    | 'risk_gate';
+  pendingEntriesCancelled: boolean;
 }
 
 export type RuntimeDecision = RoutedRuntimeDecision | BlockedRuntimeDecision;
+
+function confluenceBlockedDecision(message: string): IntentValidationDecision {
+  return {
+    approved: false,
+    rejections: [{
+      code: 'reward_risk_too_low',
+      message,
+    }],
+  };
+}
+
+function confluenceBlockedEvaluation(pair: string, evaluatedAt: string, decision: IntentValidationDecision): RiskEvaluation {
+  return {
+    pair,
+    evaluatedAt,
+    decision,
+  };
+}
 
 export class CoreRuntimePipeline {
   readonly signalEngine: SignalEngine;
@@ -57,6 +82,7 @@ export class CoreRuntimePipeline {
   readonly riskManager: RiskManager;
   readonly orderRouter: OrderRouter;
   readonly positionStateMachine: PositionStateMachine;
+  private readonly pendingIntentByPair = new Map<string, TradeIntent>();
 
   constructor(
     modules: Partial<{
@@ -84,12 +110,48 @@ export class CoreRuntimePipeline {
     if (!intent) return null;
 
     const regime = this.regimeClassifier.classify(intent.pair, context.regimeFeatures ?? {});
+    const pendingEntriesCancelled = this.cancelPendingEntriesOnRegimeChange(intent.pair, regime);
     const confluence = this.confluenceScorer.score({
       pair: intent.pair,
       side: intent.side,
       confidence: intent.confidence,
       regime: regime.regime,
+      ...(context.confluenceComponents ? { components: context.confluenceComponents } : {}),
+      ...(context.microstructureContribution !== undefined
+        ? { microstructureContribution: context.microstructureContribution }
+        : {}),
     });
+    const confluenceDecision = this.confluenceScorer.decision(intent.pair);
+    if (!confluenceDecision?.shouldFire || confluenceDecision.dominantSide === 'NONE') {
+      this.pendingIntentByPair.set(intent.pair, intent);
+      const riskDecision = confluenceBlockedDecision('blocked by confluence gate');
+      return {
+        status: 'blocked',
+        pair: intent.pair,
+        intent,
+        riskDecision,
+        riskEvaluation: confluenceBlockedEvaluation(intent.pair, confluence.scoredAt, riskDecision),
+        regime,
+        confluence,
+        reason: 'confluence_gate',
+        pendingEntriesCancelled,
+      };
+    }
+    if (intent.side !== confluenceDecision.dominantSide) {
+      this.pendingIntentByPair.set(intent.pair, intent);
+      const riskDecision = confluenceBlockedDecision('blocked by dominant-side confluence mismatch');
+      return {
+        status: 'blocked',
+        pair: intent.pair,
+        intent,
+        riskDecision,
+        riskEvaluation: confluenceBlockedEvaluation(intent.pair, confluence.scoredAt, riskDecision),
+        regime,
+        confluence,
+        reason: 'confluence_gate',
+        pendingEntriesCancelled,
+      };
+    }
     const riskEvaluation = this.riskManager.evaluate({
       intent,
       market: context.market,
@@ -97,6 +159,7 @@ export class CoreRuntimePipeline {
     });
 
     if (!riskEvaluation.decision.approved) {
+      this.pendingIntentByPair.set(intent.pair, intent);
       return {
         status: 'blocked',
         pair: intent.pair,
@@ -105,10 +168,13 @@ export class CoreRuntimePipeline {
         riskEvaluation,
         regime,
         confluence,
+        reason: 'risk_gate',
+        pendingEntriesCancelled,
       };
     }
 
     const routedOrder = this.orderRouter.route(riskEvaluation.decision.intent);
+    this.pendingIntentByPair.delete(intent.pair);
     const positionState = this.positionStateMachine.transition(intent.pair, {
       type: 'intent_routed',
       reason: routedOrder.reason,
@@ -123,6 +189,16 @@ export class CoreRuntimePipeline {
       confluence,
       routedOrder,
       positionState,
+      pendingEntriesCancelled,
     };
+  }
+
+  pendingIntent(pair: string): TradeIntent | undefined {
+    return this.pendingIntentByPair.get(pair);
+  }
+
+  private cancelPendingEntriesOnRegimeChange(pair: string, regime: RegimeSnapshot): boolean {
+    if (!regime.changed) return false;
+    return this.pendingIntentByPair.delete(pair);
   }
 }
