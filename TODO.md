@@ -211,11 +211,11 @@ Use this file as the single source of truth for execution tracking.
     - [x] `abs(long_score - short_score) >= 25`
     - [x] Volatile regime exception only when microstructure contribution meets threshold
 
-- [ ] Probability-of-profit analytics
-  - [ ] SQL view grouped by `(regime, score_bucket_5)` over recent signal history
-  - [ ] Output `p_hit_1r`, `p_hit_3r`, `p_hit_stop`, `expected_r`
-  - [ ] Bayesian update using rolling recent trades (Beta prior update)
-  - [ ] Attach probability block to each fired signal payload
+- [x] Probability-of-profit analytics
+  - [x] SQL view grouped by `(regime, score_bucket_5)` over recent signal history
+  - [x] Output `p_hit_1r`, `p_hit_3r`, `p_hit_stop`, `expected_r`
+  - [x] Bayesian update using rolling recent trades (Beta prior update)
+  - [x] Attach probability block to each fired signal payload
 
 ### B5. Trade Plan, Risk, and Position Rules
 

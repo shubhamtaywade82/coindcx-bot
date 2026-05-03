@@ -34,6 +34,7 @@ import { RuntimeWorkerSet } from './runtime/workers/runtime-workers';
 import { RuntimePersistence } from './persistence/runtime-persistence';
 import { TradePersistence } from './persistence/trade-persistence';
 import { OrderbookPersistence } from './persistence/orderbook-persistence';
+import { ProbabilityAnalyticsRepository } from './runtime/probability-analytics';
 import ntp from 'ntp-client';
 import axios from 'axios';
 import { estimateSyntheticFundingRate, resolveMarkPrice, resolveOpenInterest } from './marketdata/data-gap-policy';
@@ -231,6 +232,7 @@ async function runApp(ctx: Context) {
   const runtimePersistence = new RuntimePersistence(ctx.pool);
   const tradePersistence = new TradePersistence(ctx.pool);
   const orderbookPersistence = new OrderbookPersistence(ctx.pool);
+  const probabilityAnalytics = new ProbabilityAnalyticsRepository(ctx.pool);
   ctx.logger.info({ mod: 'app' }, 'app start');
 
   // F6: Tap SignalBus emissions into TUI signals + risk panels
@@ -246,6 +248,33 @@ async function runApp(ctx: Context) {
           confluenceComponents: buildRuntimeConfluenceComponents(s.payload),
           microstructureContribution: inferRuntimeMicrostructureContribution(s.payload),
         });
+        if (decision) {
+          const probability = decision.confluence.fireGatePassed
+            ? await probabilityAnalytics.snapshot({
+              regime: decision.regime.regime,
+              maxScore: decision.confluence.maxScore,
+            })
+            : undefined;
+          const payload = {
+            ...(s.payload ?? {}),
+            ...(probability ? { probability } : {}),
+            confluence: {
+              longScore: decision.confluence.longScore,
+              shortScore: decision.confluence.shortScore,
+              maxScore: decision.confluence.maxScore,
+              scoreSpread: decision.confluence.scoreSpread,
+              fireGatePassed: decision.confluence.fireGatePassed,
+              volatileExceptionApplied: decision.confluence.volatileExceptionApplied,
+            },
+            regime: {
+              value: decision.regime.regime,
+              changed: decision.regime.changed,
+              previousRegime: decision.regime.previousRegime,
+              classifiedAt: decision.regime.classifiedAt,
+            },
+          };
+          s.payload = payload;
+        }
         if (decision?.status === 'blocked' && !decision.riskDecision.approved) {
           ctx.logger.debug(
             {

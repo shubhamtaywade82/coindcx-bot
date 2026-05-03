@@ -233,6 +233,20 @@ describe('runtime module skeletons', () => {
     expect(routed.positionState.state).toBe('entry_submitted');
   });
 
+  it('keeps runtime decision payload focused without probability internals', () => {
+    const pipeline = new CoreRuntimePipeline();
+    const decision = pipeline.process(baseSignal(), {
+      market: { markPrice: '100', marketDataFresh: true, accountStateFresh: true },
+      regimeFeatures: { adx4h: 30, atrPercentile: 0.3, bbWidthPercentile: 0.3 },
+      confluenceComponents: { structure: 1, momentum: 1, microstructure: 1, risk: 1 },
+      microstructureContribution: 1,
+      riskOptions: { nowMs: Date.parse('2026-05-03T12:00:10.000Z') },
+    });
+    expect(decision).toBeTruthy();
+    if (!decision) throw new Error('expected decision');
+    expect('probability' in decision).toBe(false);
+  });
+
   it('cancels pending entries when regime changes on next 5m cadence', () => {
     let nowMs = Date.parse('2026-05-03T12:00:00.000Z');
     const pipeline = new CoreRuntimePipeline({
