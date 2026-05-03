@@ -123,12 +123,11 @@ export async function bootstrap(): Promise<Context> {
   const marketCatalog = new MarketCatalog({
     pool,
     logger: logger.child({ mod: 'market-catalog' }),
-    signalBus: bus,
+    bus,
     refreshMs: 15 * 60_000,
-    staleAfterMs: 60 * 60_000,
-    fetchMarketDetails: () => import('../gateways/coindcx-api').then(({ CoinDCXApi }) => CoinDCXApi.getMarketDetails()),
+    staleAlertMs: 60 * 60_000,
   });
-  await marketCatalog.refresh('boot');
+  await marketCatalog.refreshNow('startup');
   marketCatalog.start();
 
   logger.info({ mod: 'boot', sinks: config.SIGNAL_SINKS, webhook: !!webhook }, 'boot complete');

@@ -7,7 +7,7 @@ export async function shutdown(ctx: Context, signal: string): Promise<void> {
 
   const grace = ctx.config.SHUTDOWN_GRACE_MS;
   if (ctx.marketCatalog) {
-    ctx.marketCatalog.stop();
+    await ctx.marketCatalog.stop();
   }
   if (ctx.webhook) {
     try { await ctx.webhook.stop(); } catch (err: any) {
