@@ -89,6 +89,20 @@ Pre-flight checklist before going live:
 
 `npm run check` — typecheck + lint + tests. Some integration tests require Docker (skip with `SKIP_DOCKER_TESTS=1`).
 
+### Cloud-agent defaults (non-Docker)
+
+For cloud agents without Docker runtime:
+
+- Tests auto-default `SKIP_DOCKER_TESTS=1` via `tests/setup-env.ts`.
+- Tests auto-populate local-safe defaults for required config vars when missing:
+  - `PG_URL=postgres://bot:bot@localhost:5432/coindcx_bot`
+  - `COINDCX_API_KEY=local-dev-key`
+  - `COINDCX_API_SECRET=local-dev-secret`
+  - `LOG_DIR=./logs`
+
+This keeps `npm run test` and `npm run check` runnable in non-Docker environments
+while preserving explicit behavior for Docker-backed integration tests.
+
 ### Phase 5: Risk-alert engine (shipped)
 - `CompositeRiskFilter` chains pluggable rules
 - Built-in rules: MinConfidence, MaxConcurrentSignals, PerStrategyMaxPositions, DrawdownGate, OpposingPairCorrelation, PerPairCooldown
