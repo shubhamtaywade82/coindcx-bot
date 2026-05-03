@@ -23,17 +23,31 @@ export interface ResolveFuturesEndpointOptions {
   catalog?: FuturesEndpointSpec;
 }
 
+export const DEFAULT_FUTURES_ENDPOINTS = {
+  list_positions: '/exchange/v1/derivatives/futures/positions',
+  list_orders: '/exchange/v1/derivatives/futures/orders',
+  get_trades: '/exchange/v1/derivatives/futures/trade_history',
+} as const;
+
+export function resolveCatalogEndpointPath(key: string, catalog: FuturesEndpointSpec): string | undefined {
+  const entry = catalog.endpoints.find((endpoint) => endpoint.key === key);
+  if (!entry) return undefined;
+  if (!isCapturedPath(entry.path)) return undefined;
+  return entry.path;
+}
+
 export function resolveFuturesEndpointPath(
   key: string,
   opts: ResolveFuturesEndpointOptions = {},
 ): string {
   const catalog = opts.catalog ?? getCatalog();
-  if (catalog && !catalog.endpoints.some((endpoint) => endpoint.key === key)) {
-    throw new Error(`Unknown futures endpoint key: "${key}"`);
+  const configuredPath = catalog ? resolveCatalogEndpointPath(key, catalog) : undefined;
+  if (configuredPath) {
+    return configuredPath;
   }
-  const entry = catalog?.endpoints.find((endpoint) => endpoint.key === key);
-  if (entry && isCapturedPath(entry.path)) {
-    return entry.path;
+  const builtinFallback = DEFAULT_FUTURES_ENDPOINTS[key as keyof typeof DEFAULT_FUTURES_ENDPOINTS];
+  if (builtinFallback) {
+    return builtinFallback;
   }
   if (opts.fallbackPath) {
     return opts.fallbackPath;

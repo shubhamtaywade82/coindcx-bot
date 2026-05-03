@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_FUTURES_ENDPOINTS,
-  resolveCatalogEndpointPath,
+  resolveFuturesEndpointPath,
   resolveFuturesEndpointPath,
 } from '../../src/gateways/futures-endpoint-resolver';
 
