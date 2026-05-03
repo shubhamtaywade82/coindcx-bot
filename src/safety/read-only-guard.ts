@@ -32,7 +32,7 @@ export interface GuardOptions {
 }
 
 /** CoinDCX uses POST for some authenticated read endpoints. Allowlist below. */
-export const SIGNED_READ_POST_PATHS: readonly string[] = [
+const SIGNED_READ_POST_PATHS: readonly string[] = [
   '/exchange/v1/derivatives/futures/positions',
   '/exchange/v1/derivatives/futures/orders',
   '/exchange/v1/derivatives/futures/trade_history',

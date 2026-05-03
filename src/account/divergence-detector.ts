@@ -3,8 +3,8 @@ import type { Balance, Order, Position } from './types';
 export type Severity = 'info' | 'warn' | 'alarm';
 
 export type Diff =
-  | { kind: 'missing_in_local'; id: string; restRow: any; severity: Severity }
-  | { kind: 'missing_in_rest'; id: string; localRow: any; severity: Severity }
+  | { kind: 'missing_in_local'; id: string; restRow: Record<string, unknown>; severity: Severity }
+  | { kind: 'missing_in_rest'; id: string; localRow: Record<string, unknown>; severity: Severity }
   | { kind: 'field_mismatch'; id: string; field: string; local: string; rest: string; severity: Severity };
 
 export interface DivergenceConfig {
@@ -56,12 +56,12 @@ export class DivergenceDetector {
     for (const [id, restRow] of idRest) {
       const localRow = idLocal.get(id);
       if (!localRow) {
-        diffs.push({ kind: 'missing_in_local', id, restRow, severity: 'warn' });
+        diffs.push({ kind: 'missing_in_local', id, restRow: restRow as Record<string, unknown>, severity: 'warn' });
         continue;
       }
       for (const field of compareFields) {
-        const lv = String((localRow as any)[field] ?? '');
-        const rv = String((restRow as any)[field] ?? '');
+        const lv = String((localRow as Record<string, unknown>)[field] ?? '');
+        const rv = String((restRow as Record<string, unknown>)[field] ?? '');
         if (lv === rv) continue;
         diffs.push({
           kind: 'field_mismatch', id, field, local: lv, rest: rv,
@@ -71,7 +71,7 @@ export class DivergenceDetector {
     }
     for (const [id, localRow] of idLocal) {
       if (!idRest.has(id)) {
-        diffs.push({ kind: 'missing_in_rest', id, localRow, severity: 'warn' });
+        diffs.push({ kind: 'missing_in_rest', id, localRow: localRow as Record<string, unknown>, severity: 'warn' });
       }
     }
     return diffs;
