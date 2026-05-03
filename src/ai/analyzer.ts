@@ -1,5 +1,6 @@
 import type { Config } from '../config/schema';
 import type { AppLogger } from '../logging/logger';
+import { ollamaHostRequiresApiKey } from './ollama-host';
 
 // Use require to bypass ESM/CJS interop issues with ollama-js in ts-node
 const { Ollama } = require('ollama');
@@ -19,13 +20,33 @@ export interface MarketPulse {
 export class AiAnalyzer {
   private ollama: any;
   private model: string;
+  private readonly cloudWithoutKey: boolean;
 
   constructor(config: Config, private logger: AppLogger) {
-    this.ollama = new Ollama({ host: config.OLLAMA_URL });
+    const key = config.OLLAMA_API_KEY?.trim();
+    const headers =
+      key !== ''
+        ? { Authorization: `Bearer ${key}` }
+        : undefined;
+    this.cloudWithoutKey = ollamaHostRequiresApiKey(config.OLLAMA_URL) && key === '';
+    this.ollama = new Ollama({
+      host: config.OLLAMA_URL,
+      ...(headers ? { headers } : {}),
+    });
     this.model = config.OLLAMA_MODEL;
   }
 
   async analyze(state: any) {
+    if (this.cloudWithoutKey) {
+      this.logger.warn({ mod: 'ai', symbol: state?.symbol }, 'Ollama Cloud URL set but OLLAMA_API_KEY is empty');
+      return {
+        verdict: 'Ollama Cloud needs an API key',
+        signal: 'WAIT',
+        confidence: 0,
+        no_trade_condition:
+          'Set OLLAMA_API_KEY in .env (create one at https://ollama.com/settings/keys). Empty key cannot call https://ollama.com.',
+      };
+    }
     const prompt = `
       You are a professional SMC-based crypto futures trading system.
       Input: Multi-Timeframe (MTF) market state for ${state.symbol || 'asset'}.
@@ -87,12 +108,33 @@ export class AiAnalyzer {
       this.logger.debug({ mod: 'ai', content }, 'AI response received');
       return JSON.parse(content);
     } catch (err: any) {
-      this.logger.error({ mod: 'ai', err: err.message }, 'AI analysis failed');
+      const msg = typeof err?.message === 'string' ? err.message : String(err);
+      const status = err?.status_code ?? err?.status;
+      this.logger.error({ mod: 'ai', err: msg, status }, 'AI analysis failed');
+
+      let hint =
+        'Check logs. Typical fixes: set OLLAMA_API_KEY for Cloud; use a valid OLLAMA_MODEL for that host.';
+      if (status === 401 || /401|unauthorized/i.test(msg)) {
+        hint =
+          'HTTP 401: invalid or missing OLLAMA_API_KEY for Ollama Cloud (https://ollama.com/settings/keys).';
+      } else if (
+        status === 404 ||
+        /model not found|unknown model|invalid model|file does not exist/i.test(msg)
+      ) {
+        hint =
+          'Model or path not found: confirm OLLAMA_MODEL exists on this host (Cloud names differ from local ollama list).';
+      } else if (/fetch failed|ECONNREFUSED|ENOTFOUND|network/i.test(msg)) {
+        hint = 'Network error: confirm OLLAMA_URL is reachable from this machine.';
+      } else if (err instanceof SyntaxError || /JSON|Unexpected token/i.test(msg)) {
+        hint = 'Model did not return valid JSON (try another model or reduce prompt constraints).';
+      }
+
+      const shortDetail = msg.length > 140 ? `${msg.slice(0, 140)}…` : msg;
       return {
-        verdict: 'AI analysis temporarily unavailable',
+        verdict: `AI request failed: ${shortDetail}`,
         signal: 'WAIT',
         confidence: 0,
-        no_trade_condition: 'Connectivity issue'
+        no_trade_condition: hint,
       };
     }
   }

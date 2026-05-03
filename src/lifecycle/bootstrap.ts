@@ -1,4 +1,5 @@
 import { loadConfig } from '../config';
+import { ollamaHostRequiresApiKey } from '../ai/ollama-host';
 import { createLogger } from '../logging/logger';
 import { getPool } from '../db/pool';
 import { runMigrations } from '../db/migrate';
@@ -36,7 +37,22 @@ export async function bootstrap(): Promise<Context> {
   const { interceptConsole } = await import('../logging/interceptor');
   interceptConsole(logger);
 
-  logger.info({ mod: 'boot', ollama: config.OLLAMA_URL, model: config.OLLAMA_MODEL }, 'boot start');
+    logger.info(
+      {
+        mod: 'boot',
+        ollama: config.OLLAMA_URL,
+        model: config.OLLAMA_MODEL,
+        ollamaAuth: config.OLLAMA_API_KEY?.trim() ? 'bearer' : 'none',
+      },
+      'boot start',
+    );
+
+  if (ollamaHostRequiresApiKey(config.OLLAMA_URL) && !config.OLLAMA_API_KEY?.trim()) {
+    logger.warn(
+      { mod: 'boot' },
+      'OLLAMA_URL is Ollama Cloud but OLLAMA_API_KEY is empty — AI Strategy Pulse will not work until you set a key (https://ollama.com/settings/keys)',
+    );
+  }
 
   const pool = await connectWithRetry(async () => {
     const p = getPool();
