@@ -341,6 +341,10 @@ export class CoinDCXApi {
     );
   }
 
+  static async getLendOrders(opts: { page?: number; limit?: number } = {}) {
+    return this.getFundingOrders(opts);
+  }
+
   static async getFuturesTradeHistory(opts: { fromTimestamp?: number; size?: number } = {}) {
     return this.withClockSkewRetry(
       'TradeHistory',
