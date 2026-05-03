@@ -77,10 +77,10 @@ export class TelegramSink implements Sink {
 
   async emit(signal: Signal): Promise<void> {
     const type = signal.type || 'unknown';
-    const side = (type.split('.')[1] || 'WAIT').toUpperCase();
 
-    // Filter out WAIT signals to reduce noise (unless it's an error)
-    if (side === 'WAIT' && !type.includes('error')) return;
+    // Only skip explicit strategy WAIT (LLM / rules). Do not infer from `type.split('.')`:
+    // Pine/webhook use types like `long`, `alert`, `whale_buy` with no dot — those were wrongly dropped.
+    if (type === 'strategy.wait') return;
 
     const text = fmt(signal);
     if (!text) return;
