@@ -1,249 +1,346 @@
 # TODO
 
-This checklist is organized into PR-sized slices. Each PR includes explicit scope and
-verification details so progress can be tracked without opening multiple planning docs.
+Master checklist for:
+- Existing repo plans (F1-F4 + roadmap slices)
+- Uploaded framework document:
+  `CoinDCX Spot and Perpetual Trading Bot - Institutional-Grade Signal and Execution Framework`
 
-## NOW (Critical Path)
+Use this file as the single source of truth for execution tracking.
 
-- [ ] PR-01: Foundation tooling baseline
-  - [ ] Source tasks: F1 Task 1
-  - [ ] Scope:
-    - [ ] Establish strict TypeScript baseline (`tsconfig` + compiler settings).
-    - [ ] Add lint/test tool configs (ESLint + Vitest) and align project scripts.
-    - [ ] Add one sanity test to confirm the test harness is active.
-  - [ ] Verification:
-    - [ ] Run project quality checks and confirm toolchain is wired correctly.
+## A) Existing Plan Execution (F1-F4)
 
-- [ ] PR-02: Config + logging core
-  - [ ] Source tasks: F1 Task 2, F1 Task 3
-  - [ ] Scope:
-    - [ ] Implement typed config schema with safe defaults and env validation.
-    - [ ] Add secret redaction utility for logs/output.
-    - [ ] Implement logger with structured output and redaction integration.
-  - [ ] Verification:
-    - [ ] Add/execute tests for schema parsing, redaction behavior, and logger behavior.
+### A1. NOW (Critical Path)
 
-- [ ] PR-03: Database bootstrap
-  - [ ] Source tasks: F1 Task 4, F1 Task 13 (infrastructure portion)
-  - [ ] Scope:
-    - [ ] Add initial Postgres migration and migration runner.
-    - [ ] Implement DB pool management and startup migration execution.
-    - [ ] Add local Postgres docker-compose service for development/test runs.
-  - [ ] Verification:
-    - [ ] Run migration flow end-to-end against local Postgres.
+- [ ] PR-01 Foundation tooling baseline
+  - [ ] F1 Task 1 (strict TypeScript, ESLint, Vitest, scripts, sanity test)
+  - [ ] Verify quality gate passes with expected baseline output
 
-- [ ] PR-04: Signal plumbing
-  - [ ] Source tasks: F1 Task 5, F1 Task 6
-  - [ ] Scope:
-    - [ ] Implement audit module with bounded queue behavior.
-    - [ ] Implement SignalBus and default sinks (stdout + file).
-    - [ ] Ensure sink interfaces are explicit and composable.
-  - [ ] Verification:
-    - [ ] Add/execute tests for queue bounds, publish flow, and sink output.
+- [ ] PR-02 Config and logging core
+  - [ ] F1 Task 2 (config schema + redactor)
+  - [ ] F1 Task 3 (logger)
+  - [ ] Verify schema parsing, redaction, and structured log tests
 
-- [ ] PR-05: Safety controls
-  - [ ] Source tasks: F1 Task 7, F1 Task 8, F1 Task 11
-  - [ ] Scope:
-    - [ ] Add Telegram sink with token bucket/retry handling.
-    - [ ] Implement ReadOnlyGuard to block non-read API activity.
-    - [ ] Wire ReadOnlyGuard through the CoinDCX API gateway path.
-  - [ ] Verification:
-    - [ ] Add tests proving blocked-write behavior and allowed-read behavior.
+- [ ] PR-03 Database bootstrap
+  - [ ] F1 Task 4 (pool + migrations + initial schema)
+  - [ ] F1 Task 13 infra portion (docker-compose postgres)
+  - [ ] Verify migrations run end-to-end locally
 
-- [ ] PR-06: Runtime lifecycle
-  - [ ] Source tasks: F1 Task 9, F1 Task 10, F1 Task 12, F1 Task 13 (docs portion)
-  - [ ] Scope:
-    - [ ] Add resume cursor persistence for safe restarts.
-    - [ ] Implement lifecycle bootstrap/shutdown and runtime context wiring.
-    - [ ] Move to new entrypoint shape and keep startup responsibilities explicit.
-    - [ ] Update README for the finalized runtime/lifecycle behavior.
-  - [ ] Verification:
-    - [ ] Execute lifecycle smoke run (startup, steady state, graceful shutdown).
+- [ ] PR-04 Signal plumbing
+  - [ ] F1 Task 5 (audit module)
+  - [ ] F1 Task 6 (SignalBus + StdoutSink + FileSink)
+  - [ ] Verify bounded queue behavior and sink outputs
 
-## NEXT (Core Product Capabilities)
+- [ ] PR-05 Safety controls
+  - [ ] F1 Task 7 (Telegram sink with token bucket and retries)
+  - [ ] F1 Task 8 (ReadOnlyGuard)
+  - [ ] F1 Task 11 (wire guard into gateway)
+  - [ ] Verify blocked-write and allowed-read behavior
 
-- [ ] PR-07: Market data base contracts
-  - [ ] Source tasks: F2 Task 1, F2 Task 2, F2 Task 3
-  - [ ] Scope:
-    - [ ] Add F2 config/dependencies and shared market data contracts.
-    - [ ] Implement TailBuffer for raw frame capture.
-    - [ ] Implement probe CLI for recording/inspection workflows.
-  - [ ] Verification:
-    - [ ] Run probe path against fixture or live stream and validate output format.
+- [ ] PR-06 Runtime lifecycle
+  - [ ] F1 Task 9 (resume cursors)
+  - [ ] F1 Task 10 (bootstrap + shutdown + context)
+  - [ ] F1 Task 12 (entrypoint wiring)
+  - [ ] F1 Task 13 docs portion
+  - [ ] Verify startup, steady-state, and graceful shutdown
 
-- [ ] PR-08: Book integrity engine
-  - [ ] Source tasks: F2 Task 4, F2 Task 5, F2 Task 6, F2 Task 7
-  - [ ] Scope:
-    - [ ] Implement REST budget guard for resync calls.
-    - [ ] Implement OrderBook state/apply/checksum behavior.
-    - [ ] Implement BookManager orchestration and resync transitions.
-  - [ ] Verification:
-    - [ ] Add unit/property tests for book application and checksum consistency.
+### A2. NEXT (Core Product Capabilities)
 
-- [ ] PR-09: Market health monitoring
-  - [ ] Source tasks: F2 Task 8, F2 Task 9, F2 Task 10, F2 Task 11, F2 Task 13
-  - [ ] Scope:
-    - [ ] Implement heartbeat watchdog and stale stream detection.
-    - [ ] Implement latency tracker and exchange time-sync checks.
-    - [ ] Feed real latency state to TUI badge.
-  - [ ] Verification:
-    - [ ] Add tests for health-state transitions and validate TUI displays real LAT.
+- [ ] PR-07 Market data base contracts (F2 Tasks 1-3)
+- [ ] PR-08 Book integrity engine (F2 Tasks 4-7)
+- [ ] PR-09 Market health monitoring (F2 Tasks 8-11 + 13)
+- [ ] PR-10 Market controller integration (F2 Tasks 12 + 14 + 15)
+- [ ] PR-11 Account reconciler foundations (F3 Tasks 1-7)
+- [ ] PR-12 Reconciliation safety logic (F3 Tasks 8-11 + 13)
+- [ ] PR-13 Reconcile orchestration (F3 Tasks 12 + 14-18)
+- [ ] PR-14 Account-state hardening (F3 Tasks 19-20)
 
-- [ ] PR-10: Market controller integration
-  - [ ] Source tasks: F2 Task 12, F2 Task 14, F2 Task 15
-  - [ ] Scope:
-    - [ ] Implement IntegrityController and wire it into runtime.
-    - [ ] Add probe replay integration test with fixture frames.
-    - [ ] Document finalized F2 behavior in README/roadmap.
-  - [ ] Verification:
-    - [ ] Run integration tests covering replay-driven controller behavior.
+### A3. LATER (Strategy + Backtesting + Execution Rollout)
 
-- [ ] PR-11: Account reconciler foundations
-  - [ ] Source tasks: F3 Task 1, F3 Task 2, F3 Task 3, F3 Task 4, F3 Task 5, F3 Task 6, F3 Task 7
-  - [ ] Scope:
-    - [ ] Add F3 config and DB migration for account state storage.
-    - [ ] Implement account domain types and core stores:
-      - [ ] PositionStore
-      - [ ] BalanceStore
-      - [ ] OrderStore
-      - [ ] FillsLedger
-  - [ ] Verification:
-    - [ ] Add tests proving store read/write behavior and schema compatibility.
+- [ ] PR-15 Strategy framework skeleton (F4 Tasks 1-6)
+- [ ] PR-16 Strategy drivers (F4 Tasks 7-9 + 13 + 14)
+- [ ] PR-17 Built-in strategies (F4 Tasks 10-12)
+- [ ] PR-18 Backtest data sources (F4 Tasks 15-18)
+- [ ] PR-19 Backtest execution engine (F4 Tasks 19-22)
+- [ ] PR-20 Backtest verification (F4 Tasks 23-24)
 
-- [ ] PR-12: Reconciliation safety logic
-  - [ ] Source tasks: F3 Task 8, F3 Task 9, F3 Task 10, F3 Task 11, F3 Task 13
-  - [ ] Scope:
-    - [ ] Implement divergence detection and drift sweeps.
-    - [ ] Implement heartbeat watcher for account channel health.
-    - [ ] Extend gateway reads (`getOpenOrders`, `getFuturesTradeHistory`).
-    - [ ] Add zod-based normalizers for WS payload shapes.
-  - [ ] Verification:
-    - [ ] Add tests for divergence signals, drift triggers, and normalizer failures.
+### A4. Roadmap Execution Slices
 
-- [ ] PR-13: Reconcile orchestration
-  - [ ] Source tasks: F3 Task 12, F3 Task 14, F3 Task 15, F3 Task 16, F3 Task 17, F3 Task 18
-  - [ ] Scope:
-    - [ ] Implement persistence module and ReconcileController orchestration.
-    - [ ] Add boot seed and reconnect-triggered forced sweep path.
-    - [ ] Wire controller into `runApp` and update TUI to consume snapshots.
-    - [ ] Add account probe script for raw account-channel capture.
-  - [ ] Verification:
-    - [ ] Run end-to-end reconcile flow with mocked WS + REST.
+- [ ] PR-21 Slice 1 runtime wiring (signals -> intents, execution off by default)
+- [ ] PR-22 Slice 2 risk sizing (`RiskSizer` + risk budget)
+- [ ] PR-23 Slice 3 paper execution (`PaperExecutionEngine`)
+- [ ] PR-24 Slice 4 order lifecycle persistence
+- [ ] PR-25 Slice 5 TUI execution panels
+- [ ] PR-26 Slice 6 backtest execution model upgrade
+- [ ] PR-27 Slice 7 live adapter behind strict safety gates
+- [ ] PR-28 Slice 8 live canary controls
 
-- [ ] PR-14: Account-state hardening
-  - [ ] Source tasks: F3 Task 19, F3 Task 20
-  - [ ] Scope:
-    - [ ] Add integration test coverage (real Postgres + mocked WS/REST).
-    - [ ] Run quality gate and update README phase status.
-  - [ ] Verification:
-    - [ ] Confirm integration tests and quality gate pass under documented conditions.
+## B) PDF Complete Coverage Checklist
 
-## LATER (Strategy + Backtesting + Execution Rollout)
+### B1. Exchange Surface and Protocol Requirements
 
-- [ ] PR-15: Strategy framework skeleton
-  - [ ] Source tasks: F4 Task 1, F4 Task 2, F4 Task 3, F4 Task 4, F4 Task 5, F4 Task 6
-  - [ ] Scope:
-    - [ ] Promote/export `MarketState` cleanly from state-builder.
-    - [ ] Add F4 config and strategy domain types.
-    - [ ] Implement PassthroughRiskFilter, StrategyRegistry, and ContextBuilder.
-  - [ ] Verification:
-    - [ ] Add tests for registration, context generation, and risk-filter passthrough.
+- [ ] Pin websocket client implementation to `socket.io-client@2.4.0` only
+  - [ ] Add lock in package manifest
+  - [ ] Add startup assertion that fails if version drifts
+  - [ ] Add regression test for handshake + event receipt
 
-- [ ] PR-16: Strategy drivers
-  - [ ] Source tasks: F4 Task 7, F4 Task 8, F4 Task 9, F4 Task 13, F4 Task 14
-  - [ ] Scope:
-    - [ ] Implement interval/tick/bar drivers with deterministic dispatch behavior.
-    - [ ] Implement StrategyController and wire to runtime lifecycle.
-  - [ ] Verification:
-    - [ ] Validate driver scheduling + dispatch order in controller tests.
+- [ ] Enforce CoinDCX auth contract for all private REST/private WS joins
+  - [ ] `X-AUTH-APIKEY`
+  - [ ] `X-AUTH-SIGNATURE` using HMAC-SHA256(secret, canonical JSON body)
+  - [ ] `timestamp` in body
+  - [ ] Canonical JSON serialization validation tests
+  - [ ] Clock-skew handling and retry guard
 
-- [ ] PR-17: Built-in strategies
-  - [ ] Source tasks: F4 Task 10, F4 Task 11, F4 Task 12
-  - [ ] Scope:
-    - [ ] Implement SmcRule and MaCross strategies.
-    - [ ] Implement LlmPulse strategy wrapping existing AiAnalyzer.
-  - [ ] Verification:
-    - [ ] Add strategy-level behavior tests using deterministic fixtures.
+- [ ] Build and persist `MarketCatalog` from `/exchange/v1/markets_details`
+  - [ ] Cache `pair <-> symbol <-> ecode <-> precision <-> step <-> min_notional <-> max_leverage`
+  - [ ] Add refresh job and stale-data alert
 
-- [ ] PR-18: Backtest data sources
-  - [ ] Source tasks: F4 Task 15, F4 Task 16, F4 Task 17, F4 Task 18
-  - [ ] Scope:
-    - [ ] Define backtest contracts (`DataSource` + type surface).
-    - [ ] Implement CandleSource, PostgresFillSource, and JsonlSource adapters.
-  - [ ] Verification:
-    - [ ] Add adapter tests for cursoring, ordering, and schema validation.
+- [ ] Implement Spot REST wrappers and smoke tests
+  - [ ] Public data: ticker, markets, markets_details, trade_history, orderbook, candles
+  - [ ] Account/trading: balances, user info, create, status, status_multiple, active_orders, active_orders_count
+  - [ ] History/cancel/edit: trade_history, cancel, cancel_all, cancel_by_ids, edit
+  - [ ] Wallet: transfer, sub_account_transfer
+  - [ ] Optional product surfaces: margin endpoints, lend endpoints
+  - [ ] Enforce documented rate limits (especially `cancel_all` 30/60s)
 
-- [ ] PR-19: Backtest execution engine
-  - [ ] Source tasks: F4 Task 19, F4 Task 20, F4 Task 21, F4 Task 22
-  - [ ] Scope:
-    - [ ] Implement simulator execution path and event loop.
-    - [ ] Implement metrics and TradeLedger CSV output.
-    - [ ] Implement backtest runner and CLI entrypoint.
-  - [ ] Verification:
-    - [ ] Execute sample backtest and verify metrics + ledger output integrity.
+- [ ] Futures REST endpoint capture and hardening
+  - [ ] Manually extract exact `/exchange/v1/derivatives/futures/...` paths from authenticated docs
+  - [ ] Save verbatim paths + params to `config/coindcx_futures_endpoints.yml`
+  - [ ] Reject third-party gists as source of truth
+  - [ ] Implement wrappers for all named futures sections:
+    - [ ] instruments active/details/realtime trades/orderbook/candles
+    - [ ] orders list/create/cancel/edit
+    - [ ] positions list/get/update leverage
+    - [ ] add/remove margin
+    - [ ] cancel-all variants + exit position
+    - [ ] TP/SL order create (`untriggered` status support)
+    - [ ] transactions/trades/current prices/pair stats
+    - [ ] cross margin details
+    - [ ] wallet transfer/details/transactions
+    - [ ] change margin type
+    - [ ] currency conversion
 
-- [ ] PR-20: Backtest verification
-  - [ ] Source tasks: F4 Task 23, F4 Task 24
-  - [ ] Scope:
-    - [ ] Add integration test (Postgres + mocked WS/Ollama, Docker-gated).
-    - [ ] Run final quality gate and update README phase status.
-  - [ ] Verification:
-    - [ ] Confirm gated integration path and non-Docker fallback behavior.
+- [ ] Spot websocket channels and handlers
+  - [ ] Private: `balance-update`, `order-update`, `trade-update` on `coindcx`
+  - [ ] Public: candlestick, depth-snapshot, depth-update, currentPrices, priceStats, new-trade, price-change
+  - [ ] Join/leave multiplexing support
 
-## Roadmap Execution Slices
+- [ ] Futures websocket coverage
+  - [ ] Confirm exact futures channel strings in authenticated docs body
+  - [ ] Implement account/position/order/balance/candlestick/orderbook/current prices/new trade/LTP handlers
+  - [ ] Add channel mapping docs with examples
 
-- [ ] PR-21: Slice 1 runtime wiring (signals -> intents behind disabled-by-default execution flag)
-  - [ ] Details:
-    - [ ] Introduce intent boundary without submitting live orders.
-    - [ ] Add feature flag defaulting to execution disabled.
-  - [ ] Verification:
-    - [ ] Confirm intents are emitted and execution remains hard-disabled by default.
+- [ ] Explicit data-gap strategy for missing public endpoints/streams
+  - [ ] No dedicated mark-price endpoint: use last price policy
+  - [ ] No dedicated funding-rate endpoint: implement synthetic basis-derived estimate
+  - [ ] Open interest field absence: treat as optional input with fallback
+  - [ ] Liquidation price not guaranteed in docs: capture opportunistically from positions
 
-- [ ] PR-22: Slice 2 risk sizing (RiskSizer + risk budget)
-  - [ ] Details:
-    - [ ] Implement deterministic sizing rules and risk budget checks.
-    - [ ] Reject intents that exceed budget constraints.
-  - [ ] Verification:
-    - [ ] Add tests for budget acceptance/rejection thresholds.
+### B2. Architecture and Runtime Topology
 
-- [ ] PR-23: Slice 3 paper execution (PaperExecutionEngine)
-  - [ ] Details:
-    - [ ] Implement simulated order lifecycle transitions.
-    - [ ] Persist paper fills and status changes for auditability.
-  - [ ] Verification:
-    - [ ] Run scenario tests for submit/fill/cancel/reject transitions.
+- [ ] Implement Node websocket sidecar (transport only, no strategy logic)
+  - [ ] Normalize events
+  - [ ] Publish to Redis Streams (`market.*`, `account.*`)
+  - [ ] Reconnect and resubscribe all channels on disconnect
 
-- [ ] PR-24: Slice 4 order lifecycle persistence
-  - [ ] Details:
-    - [ ] Persist intent/order/fill lifecycle events to DB.
-    - [ ] Add query interfaces for status timelines.
-  - [ ] Verification:
-    - [ ] Validate timeline reconstruction from persisted events.
+- [ ] Core runtime modules present and wired
+  - [ ] SignalEngine
+  - [ ] RegimeClassifier
+  - [ ] ConfluenceScorer
+  - [ ] RiskManager
+  - [ ] OrderRouter
+  - [ ] PositionStateMachine
 
-- [ ] PR-25: Slice 5 TUI execution panels
-  - [ ] Details:
-    - [ ] Add TUI panels for intents, risk decisions, and execution state.
-    - [ ] Keep display state derived from canonical runtime snapshots.
-  - [ ] Verification:
-    - [ ] Confirm panel values match emitted events in smoke run.
+- [ ] Worker/scheduler responsibilities
+  - [ ] Candle-close jobs
+  - [ ] Breakeven-protection ticker
+  - [ ] Funding ticker before scheduled funding windows
 
-- [ ] PR-26: Slice 6 backtest execution model upgrade
-  - [ ] Details:
-    - [ ] Align backtest engine with intent/risk/execution boundary model.
-    - [ ] Ensure backtest and runtime share strategy/execution contracts.
-  - [ ] Verification:
-    - [ ] Re-run baseline scenarios and compare expected metric deltas.
+- [ ] Persistence model implemented
+  - [ ] `signals`, `trades`, `positions`, `risk_events`
+  - [ ] orderbook snapshots and replay artifacts
 
-- [ ] PR-27: Slice 7 live adapter behind strict safety gates
-  - [ ] Details:
-    - [ ] Add live adapter disabled by default and guarded by multiple gates.
-    - [ ] Require explicit runtime approvals before any live order path.
-  - [ ] Verification:
-    - [ ] Prove all safety gates must pass before adapter can send live requests.
+### B3. Signal Component Catalog (all layers)
 
-- [ ] PR-28: Slice 8 live canary controls
-  - [ ] Details:
-    - [ ] Add canary constraints (pair allowlist, size cap, kill switch).
-    - [ ] Add monitoring hooks and fast rollback controls.
-  - [ ] Verification:
-    - [ ] Run canary simulation and validate emergency stop behavior.
+- [ ] Layer 1 Microstructure indicators
+  - [ ] Top-N book imbalance
+  - [ ] CVD (using maker/aggressor semantics)
+  - [ ] Tape-speed acceleration
+  - [ ] Aggressor ratio
+  - [ ] Sweep detection (`<= 200ms` burst cluster)
+  - [ ] Iceberg/spoof persistence heuristics
+
+- [ ] Layer 2 Intraday indicators (1m-15m)
+  - [ ] Anchored VWAP contexts (session/daily/swing)
+  - [ ] TTM squeeze detection and breakout trigger
+  - [ ] EMA stack (9/21/50) rule set
+  - [ ] RSI divergence detector
+  - [ ] ATR percentile rank over 200 bars
+  - [ ] Rolling order-flow imbalance
+
+- [ ] Layer 3 Swing indicators (1H-4H-1D)
+  - [ ] Market structure shift (fractal swing based)
+  - [ ] Daily/weekly pivots
+  - [ ] 200/50 EMA bias filter
+  - [ ] Funding-rate extremes as optional signal
+  - [ ] OI delta vs price truth-table
+  - [ ] Spot-futures basis signal
+  - [ ] BTC dominance/correlation filter for alts
+
+### B4. Regime Classifier and Confluence Scoring
+
+- [ ] Regime classifier runs every 5 minutes (or each 5m close)
+  - [ ] Inputs: ADX_4H, ATR_PCTL, BB_WIDTH_PCTL, MSS_4H
+  - [ ] States: Trending, Ranging, Volatile, Compressed
+  - [ ] Apply explicit threshold table from document
+  - [ ] Tie-break order: Trending > Compressed > Ranging > Volatile
+  - [ ] Regime change cancels pending entries
+
+- [ ] Confluence scoring implementation
+  - [ ] Maintain independent `long_score` and `short_score` in [0, 100]
+  - [ ] Use regime-dependent component weights exactly as documented
+  - [ ] Component contribution model: value in [-1, +1] mapped to side score
+  - [ ] Trade-fire gate:
+    - [ ] `max(score) >= 75`
+    - [ ] `abs(long_score - short_score) >= 25`
+    - [ ] Volatile regime exception only when microstructure contribution meets threshold
+
+- [ ] Probability-of-profit analytics
+  - [ ] SQL view grouped by `(regime, score_bucket_5)` over recent signal history
+  - [ ] Output `p_hit_1r`, `p_hit_3r`, `p_hit_stop`, `expected_r`
+  - [ ] Bayesian update using rolling recent trades (Beta prior update)
+  - [ ] Attach probability block to each fired signal payload
+
+### B5. Trade Plan, Risk, and Position Rules
+
+- [ ] TradePlan compute path with hard constraints
+  - [ ] Direction from score dominance
+  - [ ] Structural invalidation stop with ATR buffer
+  - [ ] Risk-capital based quantity + leverage cap
+  - [ ] Hard leverage cap at 10x (regardless of venue max)
+  - [ ] Liquidation buffer rule: distance to liq >= 2x stop distance
+  - [ ] Targets: TP1 at 1R, TP2 at 3R, TP3 trailing by chandelier/HTF structure
+  - [ ] Breakeven-plus includes fees and funding buffer
+
+- [ ] "No close in negative PnL" policy operationalization
+  - [ ] High-confluence gate
+  - [ ] Asymmetric R management and BE lock behavior
+  - [ ] Time-stop kill as only permitted negative close path
+  - [ ] Log `risk_event: time_stop_kill`
+
+### B6. Position State Machine and Idempotency
+
+- [ ] Implement formal state machine
+  - [ ] IDLE -> SCANNING -> SIGNAL_DETECTED -> ENTRY_VALIDATED -> ORDER_PLACED
+  - [ ] POSITION_OPEN -> BREAKEVEN_PROTECTED -> PARTIAL_TP_HIT -> TRAILING -> POSITION_CLOSED
+  - [ ] TIME_STOP_KILL side path
+
+- [ ] Transition and reconciliation rules
+  - [ ] Unfilled timeout cancellation path
+  - [ ] Partial fill handling from `remaining_quantity`
+  - [ ] Idempotency keying by `client_order_id + event_id`
+  - [ ] Dedup unique index in Postgres
+  - [ ] Restart reconciliation via active orders + positions snapshots
+
+### B7. Database and Data Contracts
+
+- [ ] Schema coverage from document essentials
+  - [ ] `markets`
+  - [ ] `candles`
+  - [ ] `signals`
+  - [ ] `trades`
+  - [ ] `positions`
+  - [ ] `risk_events`
+  - [ ] `order_book_snapshots`
+
+- [ ] Add indexes and constraints needed for replay/idempotency
+- [ ] Keep payload columns JSONB where dynamic shape is expected
+- [ ] Add migration and rollback verification tests
+
+### B8. Backtesting and Validation
+
+- [ ] Candle data ingestion
+  - [ ] Use `/market_data/candles` with pagination and max 1000 bars/call
+  - [ ] Persist multi-interval history
+
+- [ ] High-fidelity microstructure replay
+  - [ ] Run 30-day live depth/trade recorder
+  - [ ] Persist raw events to durable storage (Parquet/S3 or equivalent)
+
+- [ ] Event-driven simulator
+  - [ ] Reuse production SignalEngine functions
+  - [ ] Avoid vectorized shortcuts for orderbook logic
+
+- [ ] Metrics set
+  - [ ] Win rate, avg R, profit factor
+  - [ ] Max drawdown, Calmar, Sharpe
+  - [ ] Median time-to-1R
+  - [ ] Percent reaching BE-lock before negative close (target >= 99%)
+
+- [ ] Walk-forward validation
+  - [ ] 6-month in-sample + 1-month out-of-sample rolling windows
+  - [ ] Reject parameter set when OOS Sharpe < 0.5x IS Sharpe
+
+- [ ] Paper trade gate before live
+  - [ ] Dry-run router writes to `paper_trades`
+  - [ ] Run minimum 30 calendar days
+  - [ ] Enforce go-live criteria from recommendations
+
+### B9. CoinDCX-Specific Operational Gotchas
+
+- [ ] Symbol/pair resolver used everywhere (no mixed semantics)
+- [ ] `cancel_all` used sparingly and rate-limit aware
+- [ ] Funding windows scheduler at 09:30 / 17:30 / 01:30 IST with pre-event recompute
+- [ ] WS disconnect handling:
+  - [ ] If WS gap > 5s, emit `risk_event`
+  - [ ] Pause new entries until next clean candle
+  - [ ] Reconcile state immediately after reconnect
+- [ ] Low-liquidity guardrails:
+  - [ ] Notional floor for thin pairs
+  - [ ] Top-of-book depth multiple vs intended notional
+- [ ] Mark price equals last price policy reflected in risk constraints
+- [ ] Synthetic funding approximation implemented and reconciled daily to UI values
+
+### B10. Stage-Based Rollout and Runtime Controls
+
+- [ ] Stage 0 Foundations
+  - [ ] Sidecar + Redis Streams verified on public channels
+  - [ ] MarketCatalog built
+  - [ ] HMAC signer smoke-tested
+  - [ ] Futures endpoint YAML captured and versioned
+
+- [ ] Stage 1 Read-only data plane
+  - [ ] Stream/persist top USDT and INR pairs across required intervals
+  - [ ] Orderbook snapshot+delta merge with `vs` gap recovery
+  - [ ] 30-day recorder running continuously
+
+- [ ] Stage 2 Signal + paper trading
+  - [ ] Layer 2 + Layer 3 first, then Layer 1 integration
+  - [ ] Regime + confluence emit signals with full components
+  - [ ] Paper run meets:
+    - [ ] >= 99% BE-lock before stop
+    - [ ] expectancy >= +0.4R
+    - [ ] max drawdown < 8%
+
+- [ ] Stage 3 Live gated capital
+  - [ ] Start with 0.25% risk and 3x leverage cap for first 30 trades
+  - [ ] Promote to 0.5% risk and 10x cap only after gate pass
+  - [ ] Operator kill-switch wired and tested
+  - [ ] Threshold policies implemented:
+    - [ ] escalate at high rolling expectancy + BE compliance
+    - [ ] de-escalate/disable on BE compliance degradation
+    - [ ] constrain to Trending-only entries when rolling Sharpe degrades
+
+### B11. Security, Compliance, and Incident-Readiness
+
+- [ ] API keys IP-bound and withdrawal safeguards documented
+- [ ] Keep futures wallet balances near working capital only
+- [ ] Export-ready trade logs for tax/compliance workflows
+- [ ] Retention policy and auditability controls documented
+- [ ] Incident playbook for exchange/API disruptions documented and tested
+
+## C) Definition of Done for Any Checklist Item
+
+- [ ] Code/tests/docs updated
+- [ ] Behavior verified with explicit test or smoke command
+- [ ] Checklist item and sub-items checked only after verification evidence exists
+- [ ] PR description links the completed checklist scope
