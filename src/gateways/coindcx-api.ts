@@ -272,6 +272,25 @@ export class CoinDCXApi {
     return this.getSpotActiveOrdersCount();
   }
 
+  static async getSpotTradeHistory(opts: { market?: string; page?: number; limit?: number } = {}) {
+    const page = Math.max(1, Math.trunc(opts.page ?? 1));
+    const limit = Math.max(1, Math.trunc(opts.limit ?? 100));
+    const market = opts.market?.trim();
+    return this.withClockSkewRetry(
+      'SpotTradeHistory',
+      (timestamp) => ({
+        timestamp,
+        page,
+        limit,
+        ...(market ? { market } : {}),
+      }),
+      async ({ body, headers }) => {
+        const response = await http.post('/exchange/v1/orders/trade_history', body, { headers });
+        return response.data;
+      },
+    );
+  }
+
   static async getFuturesTradeHistory(opts: { fromTimestamp?: number; size?: number } = {}) {
     return this.withClockSkewRetry(
       'TradeHistory',

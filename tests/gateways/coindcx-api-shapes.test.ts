@@ -116,4 +116,15 @@ describe('CoinDCXApi new endpoints', () => {
     );
     expect(data).toEqual({ count: 2 });
   });
+
+  it('getSpotTradeHistory posts to orders/trade_history', async () => {
+    const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: [{ id: 't1' }] });
+    const data = await CoinDCXApi.getSpotTradeHistory({ market: 'BTCUSDT', page: 2, size: 50 });
+    expect(spy).toHaveBeenCalledWith(
+      '/exchange/v1/orders/trade_history',
+      expect.objectContaining({ market: 'BTCUSDT', page: 2, size: 50, timestamp: expect.any(Number) }),
+      expect.any(Object),
+    );
+    expect(data).toEqual([{ id: 't1' }]);
+  });
 });
