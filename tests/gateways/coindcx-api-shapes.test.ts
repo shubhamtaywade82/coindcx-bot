@@ -119,7 +119,7 @@ describe('CoinDCXApi new endpoints', () => {
 
   it('getSpotTradeHistory posts to orders/trade_history', async () => {
     const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: [{ id: 't1' }] });
-    const data = await CoinDCXApi.getSpotTradeHistory({ market: 'BTCUSDT', page: 2, size: 50 });
+    const data = await CoinDCXApi.getSpotTradeHistory({ market: 'BTCUSDT', page: 2, limit: 50 });
     expect(spy).toHaveBeenCalledWith(
       '/exchange/v1/orders/trade_history',
       expect.objectContaining({ market: 'BTCUSDT', page: 2, limit: 100, timestamp: expect.any(Number) }),
