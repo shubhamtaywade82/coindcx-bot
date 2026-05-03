@@ -205,8 +205,20 @@ export class CoreRuntimePipeline {
 
     const routedOrder = this.orderRouter.route(riskEvaluation.decision.intent);
     this.pendingIntentByPair.delete(intent.pair);
+    this.positionStateMachine.transition(intent.pair, {
+      type: 'scan_started',
+      reason: 'runtime scan started',
+    });
+    this.positionStateMachine.transition(intent.pair, {
+      type: 'signal_detected',
+      reason: 'runtime signal detected',
+    });
+    this.positionStateMachine.transition(intent.pair, {
+      type: 'entry_validated',
+      reason: 'risk gate validated entry',
+    });
     const positionState = this.positionStateMachine.transition(intent.pair, {
-      type: 'intent_routed',
+      type: 'order_placed',
       reason: routedOrder.reason,
     });
     return {

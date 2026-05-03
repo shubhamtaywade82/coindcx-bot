@@ -12,6 +12,7 @@ const mockPersistence = () => ({
   upsertOrder: vi.fn().mockResolvedValue(undefined),
   appendFill: vi.fn().mockResolvedValue(undefined),
   recordChangelog: vi.fn().mockResolvedValue(undefined),
+  recordAccountEventDedup: vi.fn().mockResolvedValue(true),
   flush: vi.fn().mockResolvedValue(undefined),
   queueSize: () => 0,
 });
@@ -93,6 +94,35 @@ describe('AccountReconcileController WS ingest', () => {
       margin_currency_short_name: 'USDT', unrealized_pnl: -55, updated_at: 'now' });
     const calls = sig.emit.mock.calls.filter(c => (c[0] as any).type === 'position.pnl_threshold');
     expect(calls.length).toBe(1);
+  });
+
+  it('deduplicates order events by client_order_id + event_id', async () => {
+    const sig = mockSignalBus();
+    const persist = mockPersistence();
+    persist.recordAccountEventDedup
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+    const rest = mockRest();
+    const c = new AccountReconcileController({
+      restApi: rest as any, persistence: persist as any, signalBus: sig.bus,
+      tryAcquireBudget: async () => true, config: baseConfig,
+    });
+
+    const raw = {
+      id: 'o1',
+      pair: 'B-BTC_USDT',
+      status: 'open',
+      total_quantity: '1',
+      remaining_quantity: '1',
+      client_order_id: 'cid-1',
+      event_id: 'evt-1',
+      updated_at: '2026-05-03T12:00:00.000Z',
+      created_at: '2026-05-03T12:00:00.000Z',
+    };
+    await c.ingest('order', raw);
+    await c.ingest('order', raw);
+
+    expect(persist.upsertOrder).toHaveBeenCalledTimes(1);
   });
 });
 

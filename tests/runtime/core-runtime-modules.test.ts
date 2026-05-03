@@ -178,10 +178,16 @@ describe('runtime module skeletons', () => {
 
   it('tracks position lifecycle transitions per pair', () => {
     const machine = new PositionStateMachine(() => Date.parse('2026-05-03T12:00:00.000Z'));
-    expect(machine.transition('B-BTC_USDT', { type: 'intent_routed', reason: 'intent sent' }).state).toBe('entry_submitted');
-    expect(machine.transition('B-BTC_USDT', { type: 'entry_filled', reason: 'fill' }).state).toBe('entry_filled');
-    expect(machine.transition('B-BTC_USDT', { type: 'exit_submitted', reason: 'exit sent' }).state).toBe('exit_submitted');
-    expect(machine.transition('B-BTC_USDT', { type: 'position_closed', reason: 'position flat' }).state).toBe('closed');
+    expect(machine.transition('B-BTC_USDT', { type: 'scan_started', reason: 'scan' }).state).toBe('SCANNING');
+    expect(machine.transition('B-BTC_USDT', { type: 'signal_detected', reason: 'signal' }).state).toBe('SIGNAL_DETECTED');
+    expect(machine.transition('B-BTC_USDT', { type: 'entry_validated', reason: 'validated' }).state).toBe('ENTRY_VALIDATED');
+    expect(machine.transition('B-BTC_USDT', { type: 'order_placed', reason: 'placed' }).state).toBe('ORDER_PLACED');
+    expect(machine.transition('B-BTC_USDT', { type: 'entry_filled', reason: 'fill' }).state).toBe('POSITION_OPEN');
+    expect(machine.transition('B-BTC_USDT', { type: 'breakeven_protected', reason: 'be' }).state).toBe('BREAKEVEN_PROTECTED');
+    expect(machine.transition('B-BTC_USDT', { type: 'partial_tp_hit', reason: 'tp1' }).state).toBe('PARTIAL_TP_HIT');
+    expect(machine.transition('B-BTC_USDT', { type: 'trailing_started', reason: 'trail' }).state).toBe('TRAILING');
+    expect(machine.transition('B-BTC_USDT', { type: 'time_stop_kill', reason: 'timeout' }).state).toBe('TIME_STOP_KILL');
+    expect(machine.transition('B-BTC_USDT', { type: 'position_closed', reason: 'flat' }).state).toBe('POSITION_CLOSED');
     expect(machine.current('B-BTC_USDT')?.transitionAt).toBe('2026-05-03T12:00:00.000Z');
   });
 
@@ -230,7 +236,7 @@ describe('runtime module skeletons', () => {
     expect(routed?.status).toBe('routed');
     if (routed?.status !== 'routed') throw new Error('expected routed decision');
     expect(routed.routedOrder.route).toBe('paper');
-    expect(routed.positionState.state).toBe('entry_submitted');
+    expect(routed.positionState.state).toBe('ORDER_PLACED');
     expect(routed.tradePlan.side).toBe('LONG');
     expect(routed.tradePlan.targets.tp1).toBeGreaterThan(routed.tradePlan.entry);
     expect(routed.tradePlan.targets.tp2).toBeGreaterThan(routed.tradePlan.targets.tp1);

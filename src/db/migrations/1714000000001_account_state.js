@@ -76,6 +76,7 @@ exports.up = (pgm) => {
     );
     CREATE INDEX changelog_entity_idx   ON account_changelog(entity, entity_id);
     CREATE INDEX changelog_recorded_idx ON account_changelog(recorded_at);
+
   `);
 };
 

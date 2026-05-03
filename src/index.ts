@@ -1335,6 +1335,10 @@ async function runApp(ctx: Context) {
         );
       }
       if (closeDecision.allow && closeDecision.reason === 'time_stop_kill') {
+        ctx.runtime.positionStateMachine.transition(cleanPair(p.pair ?? ''), {
+          type: 'time_stop_kill',
+          reason: 'negative close allowed by time-stop-kill policy',
+        });
         const riskEventSignal = {
           id: `risk:time-stop-kill:${p.id ?? p.pair ?? Date.now()}`,
           ts: new Date().toISOString(),

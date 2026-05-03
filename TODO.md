@@ -236,17 +236,17 @@ Use this file as the single source of truth for execution tracking.
 
 ### B6. Position State Machine and Idempotency
 
-- [ ] Implement formal state machine
-  - [ ] IDLE -> SCANNING -> SIGNAL_DETECTED -> ENTRY_VALIDATED -> ORDER_PLACED
-  - [ ] POSITION_OPEN -> BREAKEVEN_PROTECTED -> PARTIAL_TP_HIT -> TRAILING -> POSITION_CLOSED
-  - [ ] TIME_STOP_KILL side path
+- [x] Implement formal state machine
+  - [x] IDLE -> SCANNING -> SIGNAL_DETECTED -> ENTRY_VALIDATED -> ORDER_PLACED
+  - [x] POSITION_OPEN -> BREAKEVEN_PROTECTED -> PARTIAL_TP_HIT -> TRAILING -> POSITION_CLOSED
+  - [x] TIME_STOP_KILL side path
 
-- [ ] Transition and reconciliation rules
-  - [ ] Unfilled timeout cancellation path
-  - [ ] Partial fill handling from `remaining_quantity`
-  - [ ] Idempotency keying by `client_order_id + event_id`
-  - [ ] Dedup unique index in Postgres
-  - [ ] Restart reconciliation via active orders + positions snapshots
+- [x] Transition and reconciliation rules
+  - [x] Unfilled timeout cancellation path
+  - [x] Partial fill handling from `remaining_quantity`
+  - [x] Idempotency keying by `client_order_id + event_id`
+  - [x] Dedup unique index in Postgres
+  - [x] Restart reconciliation via active orders + positions snapshots
 
 ### B7. Database and Data Contracts
 

@@ -34,6 +34,7 @@ describe.skipIf(!dockerAvailable)('migrations', () => {
         'audit_events',
         'seq_cursor',
         'signal_log',
+        'account_event_dedup',
         'signals',
         'risk_events',
         'trades',
