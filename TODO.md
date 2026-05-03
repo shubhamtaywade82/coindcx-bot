@@ -184,14 +184,14 @@ Use this file as the single source of truth for execution tracking.
   - [x] ATR percentile rank over 200 bars
   - [x] Rolling order-flow imbalance
 
-- [ ] Layer 3 Swing indicators (1H-4H-1D)
-  - [ ] Market structure shift (fractal swing based)
-  - [ ] Daily/weekly pivots
-  - [ ] 200/50 EMA bias filter
-  - [ ] Funding-rate extremes as optional signal
-  - [ ] OI delta vs price truth-table
-  - [ ] Spot-futures basis signal
-  - [ ] BTC dominance/correlation filter for alts
+- [x] Layer 3 Swing indicators (1H-4H-1D)
+  - [x] Market structure shift (fractal swing based)
+  - [x] Daily/weekly pivots
+  - [x] 200/50 EMA bias filter
+  - [x] Funding-rate extremes as optional signal
+  - [x] OI delta vs price truth-table
+  - [x] Spot-futures basis signal
+  - [x] BTC dominance/correlation filter for alts
 
 ### B4. Regime Classifier and Confluence Scoring
 

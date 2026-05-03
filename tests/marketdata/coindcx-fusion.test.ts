@@ -116,6 +116,9 @@ describe('CoinDcxFusion microstructure integration', () => {
       expect(snapshot?.intraday.emaStack.ema9).toBeGreaterThan(0);
       expect(snapshot?.intraday.atrPercentileRank.percentile).toBeGreaterThanOrEqual(0);
       expect(snapshot?.intraday.atrPercentileRank.percentile).toBeLessThanOrEqual(1);
+      expect(snapshot?.swing.emaBiasFilter.ema50).toBeGreaterThan(0);
+      expect(snapshot?.swing.dailyWeeklyPivots.weekly).not.toBeNull();
+      expect(['allow', 'caution']).toContain(snapshot?.swing.btcDominanceCorrelationFilter.filter);
     } finally {
       vi.useRealTimers();
     }

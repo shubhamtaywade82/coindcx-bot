@@ -12,6 +12,11 @@ import {
 } from './data-gap-policy';
 import { computeMicrostructureMetrics, type MicrostructureMetrics } from './microstructure';
 import { computeIntradayIndicators, type IntradayIndicators } from './intraday-indicators';
+import {
+  computeSwingIndicators,
+  type SwingHistoryPoint,
+  type SwingIndicators,
+} from './swing-indicators';
 
 export interface L2Snapshot {
   pair: string;
@@ -54,6 +59,7 @@ export interface FusionSnapshot {
   tradeMetrics?: TradeMetrics;
   microstructure: MicrostructureMetrics;
   intraday: IntradayIndicators;
+  swing: SwingIndicators;
   generatedAt: number;
 }
 
@@ -65,6 +71,9 @@ function parseLevelNumber(value: string | number): number {
 export class CoinDcxFusion extends EventEmitter {
   private ltpState = new Map<string, FusionSnapshot['ltp']>();
   private latestFusion = new Map<string, FusionSnapshot>();
+  private swingHistoryByPair = new Map<string, SwingHistoryPoint[]>();
+  private readonly swingHistoryLimit = 600;
+  private readonly now: () => number;
 
   constructor(
     private logger: AppLogger,
@@ -72,8 +81,10 @@ export class CoinDcxFusion extends EventEmitter {
     private mtf: MultiTimeframeStore,
     private books: BookManager,
     private trades?: TradeFlow,
+    clock: () => number = Date.now,
   ) {
     super();
+    this.now = clock;
     this.setupHandlers();
   }
 
@@ -138,8 +149,10 @@ export class CoinDcxFusion extends EventEmitter {
     const mtfSnap = this.mtf.getSnapshot(pair);
 
     if (!book || !ltp || !mtfSnap) return;
+    const nowMs = this.now();
+    this.recordSwingHistory(pair, ltp, nowMs);
 
-    const snapshot = this.buildFusion(pair, book, ltp, mtfSnap);
+    const snapshot = this.buildFusion(pair, book, ltp, mtfSnap, nowMs);
     this.latestFusion.set(pair, snapshot);
     this.emit('fusion', snapshot);
   }
@@ -148,7 +161,8 @@ export class CoinDcxFusion extends EventEmitter {
     pair: string,
     book: import('./book/orderbook').OrderBook,
     ltp: FusionSnapshot['ltp'],
-    mtf: MtfSnapshot
+    mtf: MtfSnapshot,
+    nowMs: number,
   ): FusionSnapshot {
     const top = book.topN(50);
     const bestBid = top.bids[0] ? parseFloat(top.bids[0].price) : 0;
@@ -207,7 +221,7 @@ export class CoinDcxFusion extends EventEmitter {
         spread,
         bidDepth: bidDepth1pct,
         askDepth: askDepth1pct,
-        timestamp: Date.now(),
+        timestamp: nowMs,
       },
       ltp,
       candles: mtf.timeframes,
@@ -233,20 +247,47 @@ export class CoinDcxFusion extends EventEmitter {
         pair,
         top,
         tradeFlow: this.trades,
-        nowMs: Date.now(),
+        nowMs,
       }),
       intraday: computeIntradayIndicators({
         pair,
         candles1m: mtf.timeframes['1m'] || [],
         candles15m: mtf.timeframes['15m'] || [],
         tradeFlow: this.trades,
-        nowMs: Date.now(),
+        nowMs,
       }),
-      generatedAt: Date.now(),
+      swing: computeSwingIndicators({
+        pair,
+        candles1h: mtf.timeframes['1h'] || [],
+        ltp,
+        historyByPair: this.swingHistoryByPair,
+        nowMs,
+      }),
+      generatedAt: nowMs,
     };
   }
 
   getLatest(pair: string): FusionSnapshot | null {
     return this.latestFusion.get(pair) || null;
+  }
+
+  private recordSwingHistory(pair: string, ltp: FusionSnapshot['ltp'], nowMs: number): void {
+    const price = ltp.markPrice || ltp.price;
+    if (!Number.isFinite(price) || price <= 0) return;
+    const history = this.swingHistoryByPair.get(pair) ?? [];
+    const point: SwingHistoryPoint = {
+      ts: nowMs,
+      price,
+      ...(ltp.openInterest !== undefined ? { openInterest: ltp.openInterest } : {}),
+      ...(ltp.basis !== undefined ? { basis: ltp.basis } : {}),
+      ...(ltp.syntheticFundingRate !== undefined
+        ? { syntheticFundingRate: ltp.syntheticFundingRate }
+        : {}),
+    };
+    history.push(point);
+    if (history.length > this.swingHistoryLimit) {
+      history.splice(0, history.length - this.swingHistoryLimit);
+    }
+    this.swingHistoryByPair.set(pair, history);
   }
 }
