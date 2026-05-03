@@ -1,7 +1,7 @@
 import * as blessed from 'blessed';
 import * as contrib from 'blessed-contrib';
 import { config } from '../config/config';
-import { cleanPair, formatPrice } from '../utils/format';
+import { cleanPair, formatPrice, toCoinDcxFuturesInstrument } from '../utils/format';
 
 interface AiPanelState {
   verdict: string;
@@ -100,7 +100,7 @@ export class TuiApp {
     this.grid = new contrib.grid({ rows: 12, cols: 12, screen: this.gridHost });
 
     // Initialize logPanel early so this.log() works
-    this.logPanel = this.grid.set(9, 0, 3, 12, blessed.log, {
+    this.logPanel = this.grid.set(10, 0, 2, 12, blessed.log, {
       label: ' ◉ System Logs ',
       border: { type: 'line', fg: 'gray' },
       scrollable: true,
@@ -142,9 +142,9 @@ export class TuiApp {
       content: this.buildHeaderContent(),
     });
 
-    // ── Grid rows 1-5: Book / AI / Signals ──
-    this.tradeTable = this.grid.set(1, 0, 5, 3, blessed.box, {
-      label: ` ◉ Book — ${this.focusedPairClean} `,
+    // ── Grid rows 1–6: Book / AI / Signals (tall enough for ~10 ask + ~10 bid rows + spread) ──
+    this.tradeTable = this.grid.set(1, 0, 6, 3, blessed.box, {
+      label: ` BOOK · ${this.focusedPairInstrument} `,
       border: { type: 'line', fg: 'blue' },
       style: { fg: 'white' },
       tags: true,
@@ -152,7 +152,7 @@ export class TuiApp {
       scrollable: true
     });
 
-    this.aiBox = this.grid.set(1, 3, 5, 6, blessed.box, {
+    this.aiBox = this.grid.set(1, 3, 6, 6, blessed.box, {
       label: ` ◈ AI Strategy Pulse — ${this.focusedPairClean} `,
       border: { type: 'line', fg: 'cyan' },
       tags: true,
@@ -162,7 +162,7 @@ export class TuiApp {
 
     // One blessed box per grid cell (no nested child). Nested 100%×100% children overlap the
     // parent's label/border and break line-art; multi-line balance rows need height > 1.
-    this.signalsBox = this.grid.set(1, 9, 5, 3, blessed.box, {
+    this.signalsBox = this.grid.set(1, 9, 6, 3, blessed.box, {
       label: ' Signals ',
       border: { type: 'line', fg: 'gray' },
       tags: true,
@@ -172,7 +172,7 @@ export class TuiApp {
       content: ' {gray-fg}Awaiting strategy signals...{/gray-fg}',
     });
 
-    this.positionsTable = this.grid.set(6, 0, 1, 12, blessed.box, {
+    this.positionsTable = this.grid.set(7, 0, 1, 12, blessed.box, {
       label: ' Active Positions ',
       border: { type: 'line', fg: 'yellow' },
       tags: true,
@@ -181,8 +181,8 @@ export class TuiApp {
       scrollbar: { ch: ' ' },
     });
 
-    // Grid rows 7–8: Balances / Orders / Risk (2 grid rows — INR + USD rows need vertical space). Balances 6 cols, Orders/Risk 3 each.
-    this.balanceTable = this.grid.set(7, 0, 2, 6, blessed.box, {
+    // Grid rows 8–9: Balances / Orders / Risk (2 grid rows — INR + USD rows need vertical space). Balances 6 cols, Orders/Risk 3 each.
+    this.balanceTable = this.grid.set(8, 0, 2, 6, blessed.box, {
       label: ' Balances ',
       border: { type: 'line', fg: 'green' },
       tags: true,
@@ -191,7 +191,7 @@ export class TuiApp {
       scrollbar: { ch: ' ' },
     });
 
-    this.orderTable = this.grid.set(7, 6, 2, 3, blessed.box, {
+    this.orderTable = this.grid.set(8, 6, 2, 3, blessed.box, {
       label: ' Orders ',
       border: { type: 'line', fg: 'magenta' },
       tags: true,
@@ -200,7 +200,7 @@ export class TuiApp {
       scrollbar: { ch: ' ' },
     });
 
-    this.riskBox = this.grid.set(7, 9, 2, 3, blessed.box, {
+    this.riskBox = this.grid.set(8, 9, 2, 3, blessed.box, {
       label: ' Risk ',
       border: { type: 'line', fg: 'gray' },
       tags: true,
@@ -329,6 +329,11 @@ export class TuiApp {
     return cleanPair(this.focusedPair);
   }
 
+  /** CoinDCX futures instrument for labels (e.g. B-SOL_USDT), not compact SOLUSDT. */
+  get focusedPairInstrument(): string {
+    return toCoinDcxFuturesInstrument(this.focusedPair);
+  }
+
   setOnFocusChange(callback: (pair: string) => void) {
     this.onFocusChange = callback;
   }
@@ -420,7 +425,7 @@ export class TuiApp {
   private emitFocusChange() {
     this.updateHeader({});
     this.updateStatus({});
-    this.tradeTable.setLabel(` ◉ Book — ${this.focusedPairClean} `);
+    this.tradeTable.setLabel(` BOOK · ${this.focusedPairInstrument} `);
     this.aiBox.setLabel(` ◈ AI Strategy Pulse — ${this.focusedPairClean} `);
     this.renderBookCached();
     this.renderAi();
@@ -543,10 +548,15 @@ export class TuiApp {
     const bestBid = parseFloat(bidSlice[0]?.[0]?.replace(/,/g, '') || '0');
     const spread = bestAsk > 0 && bestBid > 0 ? (bestAsk - bestBid).toFixed(2) : '—';
 
+    const imb = fusion?.imbalance ?? 'neutral';
+    const imbColor = imb === 'bid-heavy' ? 'green' : imb === 'ask-heavy' ? 'red' : 'gray';
+
     const trend = this.trendByPair.get(target) || '';
+    // IMB on this line so it stays visible (footer below bids was clipped in the book panel).
     const ltpRow =
-      ` {yellow-fg}{bold}${this.padLeft(formatPrice(lastPrice), 12)}{/bold}{/yellow-fg} ${trend}\n` +
-      ` {gray-fg}SPR:{/gray-fg} {cyan-fg}${spread}{/cyan-fg}\n`;
+      ` {yellow-fg}{bold}${this.padLeft(formatPrice(lastPrice), 12)}{/bold}{/yellow-fg} ${trend}  ` +
+      `{gray-fg}SPR:{/gray-fg} {cyan-fg}${spread}{/cyan-fg}  ` +
+      `{gray-fg}IMB:{/gray-fg} {${imbColor}-fg}${imb.toUpperCase()}{/${imbColor}-fg}\n`;
     if (!isNaN(currentPrice)) this.lastLtpByPair.set(target, currentPrice);
 
     // ── Bids (Green) ──
@@ -561,11 +571,7 @@ export class TuiApp {
       return ` {green-fg}B{/green-fg}${wallMarker}${price}${amount} ${bar}`;
     });
 
-    const imb = fusion?.imbalance ?? 'neutral';
-    const imbColor = imb === 'bid-heavy' ? 'green' : imb === 'ask-heavy' ? 'red' : 'gray';
-    const footer = `\n {gray-fg}IMB: {/gray-fg}{${imbColor}-fg}${imb.toUpperCase()}{/${imbColor}-fg}`;
-
-    this.tradeTable.setContent(header + askRows.join('\n') + '\n' + ltpRow + bidRows.join('\n') + footer);
+    this.tradeTable.setContent(header + askRows.join('\n') + '\n' + ltpRow + bidRows.join('\n'));
     this.render();
   }
 
