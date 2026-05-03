@@ -236,6 +236,11 @@ describe('runtime module skeletons', () => {
     expect(routed?.status).toBe('routed');
     if (routed?.status !== 'routed') throw new Error('expected routed decision');
     expect(routed.routedOrder.route).toBe('paper');
+    expect(routed.routedOrder.intentId).toBe(routed.intent.id);
+    expect(routed.routedOrder.entryType).toBe('limit');
+    expect(routed.routedOrder.stopLoss).toBe(routed.intent.stopLoss);
+    expect(routed.routedOrder.takeProfit).toBe(routed.intent.takeProfit);
+    expect(routed.routedOrder.strategyId).toBe(routed.intent.strategyId);
     expect(routed.positionState.state).toBe('ORDER_PLACED');
     expect(routed.tradePlan.side).toBe('LONG');
     expect(routed.tradePlan.targets.tp1).toBeGreaterThan(routed.tradePlan.entry);

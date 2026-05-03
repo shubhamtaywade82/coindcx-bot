@@ -334,6 +334,7 @@ async function runApp(ctx: Context) {
             },
             'runtime pipeline routed intent',
           );
+          await runtimePersistence.persistPaperTrade(decision.routedOrder);
         }
       }
       if (s?.type && runtimePersistence.isSignalEligible(s)) {

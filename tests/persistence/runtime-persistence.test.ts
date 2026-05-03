@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { RuntimePersistence } from '../../src/persistence/runtime-persistence';
 import type { Signal } from '../../src/signals/types';
+import type { RoutedOrder } from '../../src/runtime/order-router';
 
 function signal(overrides: Partial<Signal> = {}): Signal {
   return {
@@ -105,6 +106,47 @@ describe('RuntimePersistence', () => {
       '100',
       '98',
       '-2',
+    ]));
+  });
+
+  it('writes routed paper orders into paper_trades table', async () => {
+    const query = vi.fn(async (_sql: string, _params: unknown[]) => ({ rows: [] }));
+    const persistence = new RuntimePersistence({ query } as any);
+    const routedOrder: RoutedOrder = {
+      route: 'paper',
+      pair: 'B-BTC_USDT',
+      side: 'LONG',
+      intentId: 'intent-1',
+      entryType: 'limit',
+      entryPrice: '100',
+      stopLoss: '95',
+      takeProfit: '112',
+      confidence: 0.9,
+      strategyId: 'llm.pulse.v1',
+      createdAt: '2026-05-03T13:00:00.000Z',
+      ttlMs: 60_000,
+      metadata: { reason: 'test' },
+      routedAt: '2026-05-03T13:00:10.000Z',
+      reason: 'runtime skeleton routes approved intents to paper',
+    };
+
+    await persistence.persistPaperTrade(routedOrder);
+
+    expect(query).toHaveBeenCalledTimes(1);
+    const firstCall = query.mock.calls[0];
+    expect(firstCall).toBeDefined();
+    if (!firstCall) return;
+    const sql = firstCall[0];
+    const params = firstCall[1];
+    expect(sql).toMatch(/INSERT INTO paper_trades/);
+    expect(params).toEqual(expect.arrayContaining([
+      'intent-1',
+      'B-BTC_USDT',
+      'LONG',
+      'limit',
+      '95',
+      '112',
+      'llm.pulse.v1',
     ]));
   });
 });

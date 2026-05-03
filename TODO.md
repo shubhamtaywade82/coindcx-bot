@@ -288,7 +288,7 @@ Use this file as the single source of truth for execution tracking.
   - [x] Reject parameter set when OOS Sharpe < 0.5x IS Sharpe
 
 - [ ] Paper trade gate before live
-  - [ ] Dry-run router writes to `paper_trades`
+  - [x] Dry-run router writes to `paper_trades`
   - [ ] Run minimum 30 calendar days
   - [ ] Enforce go-live criteria from recommendations
 

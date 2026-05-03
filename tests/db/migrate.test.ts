@@ -36,6 +36,7 @@ describe.skipIf(!dockerAvailable)('migrations', () => {
         'signal_log',
         'markets',
         'candles',
+        'paper_trades',
         'account_event_dedup',
         'signals',
         'risk_events',
@@ -71,7 +72,12 @@ describe.skipIf(!dockerAvailable)('migrations', () => {
       `SELECT count(*)::int AS n FROM information_schema.views
        WHERE table_schema='public' AND table_name='order_book_snapshots'`,
     );
-    expect(b7View.rows[0].n).toBe(0);
+    expect(b7View.rows[0].n).toBe(1);
+    const paperTradesTable = await pool.query(
+      `SELECT count(*)::int AS n FROM information_schema.tables
+       WHERE table_schema='public' AND table_name='paper_trades'`,
+    );
+    expect(paperTradesTable.rows[0].n).toBe(0);
     const probabilityView = await pool.query(
       `SELECT count(*)::int AS n FROM information_schema.views
        WHERE table_schema='public' AND table_name='probability_of_profit_by_regime_score'`,
