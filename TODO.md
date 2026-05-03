@@ -289,7 +289,7 @@ Use this file as the single source of truth for execution tracking.
 
 - [ ] Paper trade gate before live
   - [x] Dry-run router writes to `paper_trades`
-  - [ ] Run minimum 30 calendar days
+  - [x] Run minimum 30 calendar days
   - [ ] Enforce go-live criteria from recommendations
 
 ### B9. CoinDCX-Specific Operational Gotchas

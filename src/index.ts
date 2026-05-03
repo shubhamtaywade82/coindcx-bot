@@ -35,6 +35,7 @@ import { RuntimePersistence } from './persistence/runtime-persistence';
 import { TradePersistence } from './persistence/trade-persistence';
 import { OrderbookPersistence } from './persistence/orderbook-persistence';
 import { ProbabilityAnalyticsRepository } from './runtime/probability-analytics';
+import { PaperTradeGate } from './runtime/paper-trade-gate';
 import {
   shouldAllowNegativeClose,
   type NegativeCloseContext,
@@ -245,6 +246,7 @@ async function runApp(ctx: Context) {
   const tradePersistence = new TradePersistence(ctx.pool);
   const orderbookPersistence = new OrderbookPersistence(ctx.pool);
   const probabilityAnalytics = new ProbabilityAnalyticsRepository(ctx.pool);
+  const paperTradeGate = new PaperTradeGate(ctx.pool, ctx.config.PAPER_GATE_MIN_RUN_DAYS);
   const trackOpenedAtByPair = new Map<string, string>();
   ctx.logger.info({ mod: 'app' }, 'app start');
 
@@ -1467,6 +1469,21 @@ async function runApp(ctx: Context) {
       tui.log(`{red-fg}Refresh error: ${err.message}{/red-fg}`, 'error');
     }
   }, 30_000);
+
+  setInterval(async () => {
+    try {
+      const signal = await paperTradeGate.progressSignalIfChanged();
+      if (signal) await (ctx.bus as any).emit(signal);
+    } catch (error: any) {
+      ctx.logger.warn(
+        {
+          mod: 'paper_gate.progress',
+          err: error instanceof Error ? error.message : String(error),
+        },
+        'paper gate progress emit failed',
+      );
+    }
+  }, ctx.config.PAPER_GATE_PROGRESS_EMIT_MS);
 }
 
 async function main() {

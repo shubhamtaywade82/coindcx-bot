@@ -91,6 +91,8 @@ export const ConfigSchema = z.object({
   BACKTEST_RECORDER_FLUSH_MS: z.coerce.number().int().positive().default(5000),
   BACKTEST_RECORDER_ROTATE_MB: z.coerce.number().positive().default(128),
   BACKTEST_RECORDER_COMPRESS: z.string().default('true').transform(s => s !== 'false'),
+  PAPER_GATE_MIN_RUN_DAYS: z.coerce.number().positive().default(30),
+  PAPER_GATE_PROGRESS_EMIT_MS: z.coerce.number().int().positive().default(60_000),
 
   // F5 Risk Alert Engine
   RISK_FILTER_MODE: z.enum(['passthrough', 'composite']).default('composite'),
