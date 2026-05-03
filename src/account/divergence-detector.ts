@@ -1,11 +1,16 @@
 import type { Balance, Order, Position } from './types';
 
-export type Severity = 'info' | 'warn' | 'alarm';
+// Domain-level severity for account changelog entries; persisted in
+// `account_changelog.severity`. Distinct from `signals/types.Severity`
+// (bus/sink standard: info|warn|critical). `'alarm'` rows trigger
+// `reconcile.divergence` signals with `severity:'critical'` — see
+// `reconcile-controller.ts` (alarmCount → emit).
+export type DivergenceSeverity = 'info' | 'warn' | 'alarm';
 
 export type Diff =
-  | { kind: 'missing_in_local'; id: string; restRow: Record<string, unknown>; severity: Severity }
-  | { kind: 'missing_in_rest'; id: string; localRow: Record<string, unknown>; severity: Severity }
-  | { kind: 'field_mismatch'; id: string; field: string; local: string; rest: string; severity: Severity };
+  | { kind: 'missing_in_local'; id: string; restRow: Record<string, unknown>; severity: DivergenceSeverity }
+  | { kind: 'missing_in_rest'; id: string; localRow: Record<string, unknown>; severity: DivergenceSeverity }
+  | { kind: 'field_mismatch'; id: string; field: string; local: string; rest: string; severity: DivergenceSeverity };
 
 export interface DivergenceConfig {
   pnlAbsAlarm: number;
@@ -77,7 +82,7 @@ export class DivergenceDetector {
     return diffs;
   }
 
-  private classify(field: string, local: string, rest: string, qty: readonly string[], pnl: readonly string[]): Severity {
+  private classify(field: string, local: string, rest: string, qty: readonly string[], pnl: readonly string[]): DivergenceSeverity {
     if (qty.includes(field)) return 'alarm';
     if (pnl.includes(field)) {
       const lv = Number(local);
