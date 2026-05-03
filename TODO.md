@@ -96,7 +96,8 @@ Use this file as the single source of truth for execution tracking.
 
 - [ ] Implement Spot REST wrappers and smoke tests
   - [x] Public data: ticker, markets, markets_details, trade_history, orderbook, candles
-  - [ ] Account/trading: balances, user info, create, status, status_multiple, active_orders, active_orders_count
+  - [x] Account/trading (read-only subset): balances, user info, status, status_multiple, active_orders, active_orders_count
+  - [ ] Account/trading (write endpoint remains blocked by ReadOnlyGuard): create
   - [ ] History/cancel/edit: trade_history, cancel, cancel_all, cancel_by_ids, edit
   - [ ] Wallet: transfer, sub_account_transfer
   - [ ] Optional product surfaces: margin endpoints, lend endpoints

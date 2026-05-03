@@ -122,6 +122,28 @@ export class CoinDCXApi {
     );
   }
 
+  static async getUserBalances() {
+    return this.withClockSkewRetry(
+      'UserBalances',
+      (timestamp) => ({ timestamp }),
+      async ({ body, headers }) => {
+        const response = await http.post('/exchange/v1/users/balances', body, { headers });
+        return response.data;
+      },
+    );
+  }
+
+  static async getUserInfo() {
+    return this.withClockSkewRetry(
+      'UserInfo',
+      (timestamp) => ({ timestamp }),
+      async ({ body, headers }) => {
+        const response = await http.post('/exchange/v1/users/info', body, { headers });
+        return response.data;
+      },
+    );
+  }
+
   static async getFuturesPositions() {
     return this.withClockSkewRetry(
       'Positions',
@@ -158,6 +180,50 @@ export class CoinDCXApi {
         body,
         { headers },
       );
+        return response.data;
+      },
+    );
+  }
+
+  static async getSpotOrderStatus(idOrClientOrderId: string) {
+    return this.withClockSkewRetry(
+      'SpotOrderStatus',
+      (timestamp) => ({ timestamp, id: idOrClientOrderId }),
+      async ({ body, headers }) => {
+        const response = await http.post('/exchange/v1/orders/status', body, { headers });
+        return response.data;
+      },
+    );
+  }
+
+  static async getSpotOrderStatusMultiple(ids: string[]) {
+    return this.withClockSkewRetry(
+      'SpotOrderStatusMultiple',
+      (timestamp) => ({ timestamp, id: ids }),
+      async ({ body, headers }) => {
+        const response = await http.post('/exchange/v1/orders/status_multiple', body, { headers });
+        return response.data;
+      },
+    );
+  }
+
+  static async getSpotActiveOrders(market: string) {
+    return this.withClockSkewRetry(
+      'SpotActiveOrders',
+      (timestamp) => ({ timestamp, market }),
+      async ({ body, headers }) => {
+        const response = await http.post('/exchange/v1/orders/active_orders', body, { headers });
+        return response.data;
+      },
+    );
+  }
+
+  static async getSpotActiveOrdersCount() {
+    return this.withClockSkewRetry(
+      'SpotActiveOrdersCount',
+      (timestamp) => ({ timestamp }),
+      async ({ body, headers }) => {
+        const response = await http.post('/exchange/v1/orders/active_orders_count', body, { headers });
         return response.data;
       },
     );

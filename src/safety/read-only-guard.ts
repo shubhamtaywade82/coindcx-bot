@@ -39,9 +39,12 @@ const SIGNED_READ_POST_PATHS: readonly string[] = [
   '/exchange/v1/derivatives/futures/orders/status',
   '/exchange/v1/derivatives/futures/wallets',
   '/exchange/v1/users/balances',
+  '/exchange/v1/users/info',
   '/exchange/v1/orders/active_orders',
+  '/exchange/v1/orders/active_orders_count',
   '/exchange/v1/orders/trade_history',
   '/exchange/v1/orders/status',
+  '/exchange/v1/orders/status_multiple',
 ];
 
 const WRITE_VERBS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
