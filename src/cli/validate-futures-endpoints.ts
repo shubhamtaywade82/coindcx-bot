@@ -1,11 +1,8 @@
-import { readFuturesEndpointCatalog } from '../config/futures-endpoints';
+import { loadFuturesEndpointCatalog } from '../config/futures-endpoints';
 
 async function main() {
-  const catalog = readFuturesEndpointCatalog();
-  const endpointCount = Object.values(catalog.endpoints).reduce(
-    (sum, section) => sum + section.length,
-    0,
-  );
+  const catalog = loadFuturesEndpointCatalog();
+  const endpointCount = catalog.endpoints.length;
   // eslint-disable-next-line no-console
   console.log(
     `Validated futures endpoint catalog (${catalog.version}) with ${endpointCount} endpoints`,

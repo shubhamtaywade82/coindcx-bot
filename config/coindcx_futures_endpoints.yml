@@ -1,207 +1,145 @@
-catalogVersion: 1
-source:
-  docsHost: docs.coindcx.com
-  requiresAuthenticatedCapture: true
-  captureStatus: pending
-  capturedAt: null
-  capturedBy: null
-  notes: >
-    Scaffold created from public docs section names. Replace TBD path/params
-    with verbatim values captured from authenticated CoinDCX docs.
-
+version: 1
+source: authenticated_docs_capture_pending
+updated_at: "2026-05-03T10:10:00.000Z"
 endpoints:
   - key: get_active_instruments
-    label: Get active instruments
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/get_active_instruments
+    status: placeholder
+    source: placeholder
+    notes: "TODO: replace with exact method/path from authenticated CoinDCX docs"
   - key: get_instrument_details
-    label: Get instrument details
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/get_instrument_details
+    status: placeholder
+    source: placeholder
   - key: get_instrument_trade_history
-    label: Get instrument real-time trade history
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/get_instrument_trade_history
+    status: placeholder
+    source: placeholder
   - key: get_instrument_orderbook
-    label: Get instrument orderbook
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/get_instrument_orderbook
+    status: placeholder
+    source: placeholder
   - key: get_instrument_candlesticks
-    label: Get instrument candlesticks
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/get_instrument_candlesticks
+    status: placeholder
+    source: placeholder
   - key: list_orders
-    label: List orders
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/list_orders
+    status: placeholder
+    source: placeholder
   - key: create_order
-    label: Create order
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/create_order
+    status: placeholder
+    source: placeholder
   - key: cancel_order
-    label: Cancel order
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/cancel_order
+    status: placeholder
+    source: placeholder
   - key: edit_order
-    label: Edit order
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/edit_order
+    status: placeholder
+    source: placeholder
   - key: list_positions
-    label: List positions
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/list_positions
+    status: placeholder
+    source: placeholder
   - key: get_positions_by_pair_or_position_id
-    label: Get positions by pairs or position id
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/get_positions_by_pair_or_position_id
+    status: placeholder
+    source: placeholder
   - key: update_position_leverage
-    label: Update position leverage
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/update_position_leverage
+    status: placeholder
+    source: placeholder
   - key: add_margin
-    label: Add margin
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/add_margin
+    status: placeholder
+    source: placeholder
   - key: remove_margin
-    label: Remove margin
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/remove_margin
+    status: placeholder
+    source: placeholder
   - key: cancel_all_open_orders
-    label: Cancel all open orders
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/cancel_all_open_orders
+    status: placeholder
+    source: placeholder
   - key: cancel_all_open_orders_for_position
-    label: Cancel all open orders for position
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/cancel_all_open_orders_for_position
+    status: placeholder
+    source: placeholder
   - key: exit_position
-    label: Exit position
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/exit_position
+    status: placeholder
+    source: placeholder
   - key: create_take_profit_stop_loss_orders
-    label: Create take profit and stop loss orders
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/create_take_profit_stop_loss_orders
+    status: placeholder
+    source: placeholder
   - key: get_transactions
-    label: Get transactions
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/get_transactions
+    status: placeholder
+    source: placeholder
   - key: get_trades
-    label: Get trades
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/get_trades
+    status: placeholder
+    source: placeholder
   - key: get_current_prices_rt
-    label: Get current prices RT
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/get_current_prices_rt
+    status: placeholder
+    source: placeholder
   - key: get_pair_stats
-    label: Get pair stats
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/get_pair_stats
+    status: placeholder
+    source: placeholder
   - key: get_cross_margin_details
-    label: Get cross margin details
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/get_cross_margin_details
+    status: placeholder
+    source: placeholder
   - key: wallet_transfer
-    label: Wallet transfer
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/wallet_transfer
+    status: placeholder
+    source: placeholder
   - key: wallet_details
-    label: Wallet details
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/wallet_details
+    status: placeholder
+    source: placeholder
   - key: wallet_transactions
-    label: Wallet transactions
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/wallet_transactions
+    status: placeholder
+    source: placeholder
   - key: change_position_margin_type
-    label: Change position margin type
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
-
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/change_position_margin_type
+    status: placeholder
+    source: placeholder
   - key: get_currency_conversion
-    label: Get currency conversion
-    method: UNKNOWN
-    path: TBD
-    paramsSpec: TBD
-    status: pending
+    method: POST
+    path: /exchange/v1/derivatives/futures/TBD/get_currency_conversion
+    status: placeholder
+    source: placeholder

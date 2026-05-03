@@ -2,116 +2,164 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import yaml from 'js-yaml';
 
-export interface FuturesEndpointSpec {
-  key: string;
-  method: string;
-  path: string;
-  status: 'captured' | 'placeholder';
-  source: 'authenticated_docs' | 'placeholder';
+export type EndpointCaptureStatus = 'pending' | 'captured';
+export type EndpointMethod = 'UNKNOWN' | 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+export interface FuturesSourceSection {
+  docsHost: string;
+  requiresAuthenticatedCapture: boolean;
+  captureStatus: EndpointCaptureStatus;
+  capturedAt: string | null;
+  capturedBy: string | null;
   notes?: string;
 }
 
-export interface FuturesEndpointCatalog {
-  version: number;
-  source: string;
-  updated_at: string;
-  endpoints: FuturesEndpointSpec[];
+export interface FuturesEndpointEntry {
+  key: string;
+  label: string;
+  method: EndpointMethod;
+  path: string;
+  paramsSpec: string;
+  status: EndpointCaptureStatus;
 }
 
-const FUTURES_ENDPOINTS_PATH = resolve(process.cwd(), 'config/coindcx_futures_endpoints.yml');
+export interface FuturesEndpointSpec {
+  catalogVersion: number;
+  source: FuturesSourceSection;
+  endpoints: FuturesEndpointEntry[];
+}
+
+const SPEC_PATH = resolve(process.cwd(), 'config/coindcx_futures_endpoints.yml');
 const PATH_PREFIX = '/exchange/v1/derivatives/futures/';
+const VALID_METHODS: readonly EndpointMethod[] = ['UNKNOWN', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
-function assertString(value: unknown, field: string): asserts value is string {
+function asObject(value: unknown, field: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`Invalid futures endpoint spec: "${field}" must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function asString(value: unknown, field: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new Error(`Invalid futures endpoint catalog: "${field}" must be a non-empty string`);
+    throw new Error(`Invalid futures endpoint spec: "${field}" must be a non-empty string`);
   }
+  return value.trim();
 }
 
-function normalizeMethod(raw: string): string {
-  return raw.toUpperCase();
+function asBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== 'boolean') {
+    throw new Error(`Invalid futures endpoint spec: "${field}" must be a boolean`);
+  }
+  return value;
 }
 
-function validateEndpoint(endpoint: unknown, idx: number): FuturesEndpointSpec {
-  if (!endpoint || typeof endpoint !== 'object') {
-    throw new Error(`Invalid futures endpoint catalog: endpoints[${idx}] must be an object`);
+function asStatus(value: unknown, field: string): EndpointCaptureStatus {
+  const status = asString(value, field);
+  if (status !== 'pending' && status !== 'captured') {
+    throw new Error(`Invalid futures endpoint spec: "${field}" must be "pending" or "captured"`);
   }
-  const row = endpoint as Record<string, unknown>;
+  return status;
+}
 
-  assertString(row.key, `endpoints[${idx}].key`);
-  assertString(row.method, `endpoints[${idx}].method`);
-  assertString(row.path, `endpoints[${idx}].path`);
-  assertString(row.status, `endpoints[${idx}].status`);
-  assertString(row.source, `endpoints[${idx}].source`);
-
-  const method = normalizeMethod(row.method);
-  if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
-    throw new Error(`Invalid futures endpoint catalog: endpoints[${idx}].method "${row.method}" is not supported`);
+function asMethod(value: unknown, field: string): EndpointMethod {
+  const method = asString(value, field).toUpperCase() as EndpointMethod;
+  if (!VALID_METHODS.includes(method)) {
+    throw new Error(`Invalid futures endpoint spec: "${field}" "${method}" is not supported`);
   }
+  return method;
+}
 
-  const status = row.status as FuturesEndpointSpec['status'];
-  if (status !== 'captured' && status !== 'placeholder') {
-    throw new Error(`Invalid futures endpoint catalog: endpoints[${idx}].status "${row.status}" is invalid`);
-  }
+function asNullableString(value: unknown, field: string): string | null {
+  if (value === null || value === undefined) return null;
+  return asString(value, field);
+}
 
-  const source = row.source as FuturesEndpointSpec['source'];
-  if (source !== 'authenticated_docs' && source !== 'placeholder') {
-    throw new Error(`Invalid futures endpoint catalog: endpoints[${idx}].source "${row.source}" is invalid`);
-  }
-
-  const path = row.path.trim();
-  if (!path.startsWith(PATH_PREFIX)) {
+function parseEndpoint(entry: unknown, idx: number): FuturesEndpointEntry {
+  const row = asObject(entry, `endpoints[${idx}]`);
+  const method = asMethod(row.method, `endpoints[${idx}].method`);
+  const path = asString(row.path, `endpoints[${idx}].path`);
+  if (method !== 'UNKNOWN' && !path.startsWith(PATH_PREFIX)) {
     throw new Error(
-      `Invalid futures endpoint catalog: endpoints[${idx}].path must start with "${PATH_PREFIX}"`,
+      `Invalid futures endpoint spec: endpoints[${idx}].path must start with "${PATH_PREFIX}" when method is concrete`,
     );
   }
-
+  if (method === 'UNKNOWN' && path !== 'TBD') {
+    throw new Error('Invalid futures endpoint spec: UNKNOWN method endpoints must keep path as "TBD"');
+  }
   return {
-    key: row.key.trim(),
+    key: asString(row.key, `endpoints[${idx}].key`),
+    label: asString(row.label, `endpoints[${idx}].label`),
     method,
     path,
-    status,
-    source,
-    notes: typeof row.notes === 'string' ? row.notes : undefined,
+    paramsSpec: asString(row.paramsSpec, `endpoints[${idx}].paramsSpec`),
+    status: asStatus(row.status, `endpoints[${idx}].status`),
   };
 }
 
-export function loadFuturesEndpointCatalogFromPath(path: string): FuturesEndpointCatalog {
-  const raw = readFileSync(path, 'utf8');
-  const parsed = yaml.load(raw) as Record<string, unknown> | undefined;
-  if (!parsed || typeof parsed !== 'object') {
-    throw new Error('Invalid futures endpoint catalog: root must be a YAML object');
+export function loadFuturesEndpointSpec(specPath: string = SPEC_PATH): FuturesEndpointSpec {
+  const raw = readFileSync(specPath, 'utf8');
+  const parsed = yaml.load(raw);
+  const root = asObject(parsed, 'root');
+
+  const catalogVersion = Number(root.catalogVersion);
+  if (!Number.isInteger(catalogVersion) || catalogVersion <= 0) {
+    throw new Error('Invalid futures endpoint spec: "catalogVersion" must be a positive integer');
   }
 
-  const version = Number(parsed.version);
-  if (!Number.isInteger(version) || version <= 0) {
-    throw new Error('Invalid futures endpoint catalog: "version" must be a positive integer');
-  }
+  const sourceRaw = asObject(root.source, 'source');
+  const source: FuturesSourceSection = {
+    docsHost: asString(sourceRaw.docsHost, 'source.docsHost'),
+    requiresAuthenticatedCapture: asBoolean(
+      sourceRaw.requiresAuthenticatedCapture,
+      'source.requiresAuthenticatedCapture',
+    ),
+    captureStatus: asStatus(sourceRaw.captureStatus, 'source.captureStatus'),
+    capturedAt: asNullableString(sourceRaw.capturedAt, 'source.capturedAt'),
+    capturedBy: asNullableString(sourceRaw.capturedBy, 'source.capturedBy'),
+    notes: typeof sourceRaw.notes === 'string' ? sourceRaw.notes.trim() : undefined,
+  };
 
-  assertString(parsed.source, 'source');
-  assertString(parsed.updated_at, 'updated_at');
-
-  const endpointsRaw = parsed.endpoints;
+  const endpointsRaw = root.endpoints;
   if (!Array.isArray(endpointsRaw) || endpointsRaw.length === 0) {
-    throw new Error('Invalid futures endpoint catalog: "endpoints" must be a non-empty array');
+    throw new Error('Invalid futures endpoint spec: "endpoints" must be a non-empty array');
   }
 
-  const endpoints = endpointsRaw.map((entry, idx) => validateEndpoint(entry, idx));
-  const keys = new Set<string>();
+  const endpoints = endpointsRaw.map((entry, idx) => parseEndpoint(entry, idx));
+  const seen = new Set<string>();
   for (const endpoint of endpoints) {
-    if (keys.has(endpoint.key)) {
-      throw new Error(`Invalid futures endpoint catalog: duplicate endpoint key "${endpoint.key}"`);
+    if (seen.has(endpoint.key)) {
+      throw new Error(`Invalid futures endpoint spec: duplicate endpoint key "${endpoint.key}"`);
     }
-    keys.add(endpoint.key);
+    seen.add(endpoint.key);
   }
 
-  return {
-    version,
-    source: parsed.source,
-    updated_at: parsed.updated_at,
-    endpoints,
-  };
+  return { catalogVersion, source, endpoints };
 }
 
-export function loadFuturesEndpointCatalog(): FuturesEndpointCatalog {
-  return loadFuturesEndpointCatalogFromPath(FUTURES_ENDPOINTS_PATH);
+export function validateFuturesEndpointSpec(spec: FuturesEndpointSpec): string[] {
+  const issues: string[] = [];
+
+  if (spec.source.captureStatus === 'captured' && !spec.source.capturedAt) {
+    issues.push('source.capturedAt is required when captureStatus=captured');
+  }
+  if (spec.source.captureStatus === 'captured' && !spec.source.capturedBy) {
+    issues.push('source.capturedBy is required when captureStatus=captured');
+  }
+
+  for (const endpoint of spec.endpoints) {
+    if (endpoint.status === 'captured') {
+      if (endpoint.method === 'UNKNOWN') {
+        issues.push(`endpoint "${endpoint.key}" is captured but method remains UNKNOWN`);
+      }
+      if (endpoint.path === 'TBD') {
+        issues.push(`endpoint "${endpoint.key}" is captured but path is still TBD`);
+      }
+      if (endpoint.paramsSpec === 'TBD') {
+        issues.push(`endpoint "${endpoint.key}" is captured but paramsSpec is still TBD`);
+      }
+    }
+  }
+
+  return issues;
 }
