@@ -30,6 +30,7 @@ import { MultiTimeframeStore as CandleMtfStore, DEFAULT_TF_CONFIGS } from './mar
 import type { OrderBook } from './marketdata/book/orderbook';
 import type { IntentMarketContext } from './execution/intent-validator';
 import type { RegimeFeatures } from './runtime/regime-classifier';
+import { RuntimeWorkerSet } from './runtime/workers/runtime-workers';
 import ntp from 'ntp-client';
 import axios from 'axios';
 import { estimateSyntheticFundingRate, resolveMarkPrice, resolveOpenInterest } from './marketdata/data-gap-policy';
@@ -423,6 +424,57 @@ async function runApp(ctx: Context) {
   if (enabledIds.has('llm.pulse.v1'))   strategyController.register(new LlmPulse(ctx.analyzer));
   if (enabledIds.has('bearish.smc.v1')) strategyController.register(new BearishSmc());
   strategyController.start();
+
+  const runtimeWorkers = new RuntimeWorkerSet({
+    config: ctx.config,
+    logger: ctx.logger,
+    pairs: configuredPairs,
+    getPositions: () => account.snapshot().positions,
+    getMarkPrice: (pair) => {
+      const ticker = state.tickers.get(pair) ?? state.tickers.get(cleanPair(pair));
+      const raw = ticker?.markPrice ?? ticker?.price;
+      const parsed = raw !== undefined ? Number(raw) : Number.NaN;
+      return Number.isFinite(parsed) ? parsed : undefined;
+    },
+    onCandleClose: async ({ pair, timeframe }) => {
+      for (const manifest of strategyController.registry.list()) {
+        if (manifest.mode !== 'bar_close') continue;
+        const allowedTimeframes = manifest.barTimeframes ?? ['1m'];
+        if (!allowedTimeframes.includes(timeframe)) continue;
+        if (!manifest.pairs.includes('*') && !manifest.pairs.includes(pair)) continue;
+        await strategyController.runOnce(manifest.id, pair, { kind: 'bar_close', tf: timeframe });
+      }
+    },
+    onBreakevenArm: async ({ pair, positionId, markPrice, avgPrice, side }) => {
+      ctx.logger.info(
+        {
+          mod: 'worker.breakeven',
+          pair,
+          positionId,
+          side,
+          markPrice,
+          avgPrice,
+        },
+        'breakeven protection armed',
+      );
+    },
+    onFundingWindow: async ({ windowIso, leadMs }) => {
+      ctx.logger.info(
+        {
+          mod: 'worker.funding',
+          windowIso,
+          leadMs,
+        },
+        'funding pre-window ticker fired',
+      );
+      if (!enabledIds.has('llm.pulse.v1')) return;
+      for (const rawPair of configuredPairs) {
+        await strategyController.runOnce('llm.pulse.v1', rawPair, { kind: 'interval' });
+      }
+    },
+  });
+  runtimeWorkers.start();
+  ctx.runtimeWorkers = runtimeWorkers;
 
   setInterval(() => {
     tui.updateStatus({ lastUpdate: Date.now() });

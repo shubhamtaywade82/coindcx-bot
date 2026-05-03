@@ -95,6 +95,19 @@ export const ConfigSchema = z.object({
   RISK_CORRELATION_BLOCK_OPPOSING: z.string().default('true').transform(s => s !== 'false'),
   RISK_MIN_CONFIDENCE: z.coerce.number().default(0.5),
   RISK_ALERT_EMIT: z.string().default('true').transform(s => s !== 'false'),
+
+  // B2 Worker / scheduler responsibilities
+  WORKER_CANDLE_CLOSE_ENABLED: z.string().default('true').transform(s => s !== 'false'),
+  WORKER_CANDLE_CLOSE_TIMEFRAMES: z.string().default('1m,15m,1h')
+    .transform(s => s.split(',').map(x => x.trim()).filter(Boolean)),
+  WORKER_CANDLE_CLOSE_TICK_MS: z.coerce.number().int().positive().default(1_000),
+  WORKER_BREAKEVEN_ENABLED: z.string().default('true').transform(s => s !== 'false'),
+  WORKER_BREAKEVEN_INTERVAL_MS: z.coerce.number().int().positive().default(15_000),
+  WORKER_BREAKEVEN_ARM_PCT: z.coerce.number().positive().default(0.003),
+  WORKER_FUNDING_ENABLED: z.string().default('true').transform(s => s !== 'false'),
+  WORKER_FUNDING_CHECK_INTERVAL_MS: z.coerce.number().int().positive().default(30_000),
+  WORKER_FUNDING_LEAD_MS: z.coerce.number().int().positive().default(300_000),
+  WORKER_FUNDING_WINDOWS_UTC: z.string().default('04:00,12:00,20:00'),
 }).superRefine((data, _ctx) => {
   // If telegram is requested but credentials are missing, silently filter it out
   // to prevent startup crashes.

@@ -9,6 +9,7 @@ import type { MarketStateBuilder } from '../ai/state-builder';
 import type { WebhookGateway } from '../gateways/webhook';
 import type { MarketCatalog } from '../marketdata/market-catalog';
 import type { CoreRuntimePipeline } from '../runtime/runtime-pipeline';
+import type { RuntimeWorkerSet } from '../runtime/workers/runtime-workers';
 
 export interface Context {
   config: Config;
@@ -21,5 +22,6 @@ export interface Context {
   stateBuilder: MarketStateBuilder;
   marketCatalog: MarketCatalog;
   runtime: CoreRuntimePipeline;
+  runtimeWorkers?: RuntimeWorkerSet;
   webhook?: WebhookGateway;
 }

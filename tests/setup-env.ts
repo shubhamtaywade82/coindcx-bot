@@ -4,6 +4,7 @@ const DEFAULT_TEST_ENV: Record<string, string> = {
   COINDCX_API_KEY: 'local-dev-key',
   COINDCX_API_SECRET: 'local-dev-secret',
   LOG_DIR: './logs',
+  WORKER_FUNDING_WINDOWS_UTC: '04:00,12:00,20:00',
 };
 
 for (const [key, value] of Object.entries(DEFAULT_TEST_ENV)) {

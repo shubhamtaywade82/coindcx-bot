@@ -157,10 +157,10 @@ Use this file as the single source of truth for execution tracking.
   - [x] OrderRouter
   - [x] PositionStateMachine
 
-- [ ] Worker/scheduler responsibilities
-  - [ ] Candle-close jobs
-  - [ ] Breakeven-protection ticker
-  - [ ] Funding ticker before scheduled funding windows
+- [x] Worker/scheduler responsibilities
+  - [x] Candle-close jobs
+  - [x] Breakeven-protection ticker
+  - [x] Funding ticker before scheduled funding windows
 
 - [ ] Persistence model implemented
   - [ ] `signals`, `trades`, `positions`, `risk_events`

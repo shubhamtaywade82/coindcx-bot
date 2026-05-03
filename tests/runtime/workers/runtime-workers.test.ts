@@ -1,0 +1,140 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { Config } from '../../../src/config/schema';
+import { RuntimeWorkerSet } from '../../../src/runtime/workers/runtime-workers';
+
+const logger = {
+  child: () => logger,
+  trace: vi.fn(),
+  debug: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  fatal: vi.fn(),
+} as any;
+
+function baseConfig(): Config {
+  return {
+    PG_URL: 'postgres://bot:bot@localhost:5432/coindcx_bot',
+    COINDCX_API_KEY: 'key',
+    COINDCX_API_SECRET: 'secret',
+    LOG_DIR: './logs',
+    TELEGRAM_BOT_TOKEN: undefined,
+    TELEGRAM_CHAT_ID: undefined,
+    LOG_LEVEL: 'info',
+    LOG_FILE_ROTATE_MB: 50,
+    LOG_FILE_KEEP: 10,
+    SIGNAL_SINKS: ['file'],
+    SHUTDOWN_GRACE_MS: 5000,
+    AUDIT_BUFFER_MAX: 10000,
+    TELEGRAM_RATE_PER_MIN: 20,
+    COINDCX_PAIRS: ['B-BTC_USDT'],
+    READ_ONLY: true,
+    API_BASE_URL: 'https://api.coindcx.com',
+    PUBLIC_BASE_URL: 'https://public.coindcx.com',
+    SOCKET_BASE_URL: 'wss://stream.coindcx.com',
+    REDIS_URL: 'redis://127.0.0.1:6379',
+    OLLAMA_URL: 'http://127.0.0.1:11434',
+    OLLAMA_MODEL: 'llama3',
+    OLLAMA_API_KEY: '',
+    WEBHOOK_ENABLED: false,
+    WEBHOOK_PORT: 4003,
+    WEBHOOK_PATH: '/webhook/tradingview',
+    WEBHOOK_BIND_HOST: '127.0.0.1',
+    WEBHOOK_SHARED_SECRET: undefined,
+    RESYNC_WS_TIMEOUT_MS: 3000,
+    REST_BUDGET_TIMEOUT_MS: 5000,
+    REST_BUDGET_GLOBAL_PER_MIN: 6,
+    REST_BUDGET_PAIR_PER_MIN: 1,
+    HEARTBEAT_TIMEOUT_MS: 35000,
+    HEARTBEAT_INTERVAL_MS: 15000,
+    STALE_FLOOR_currentPrices: 5000,
+    STALE_FLOOR_newTrade: 30000,
+    STALE_FLOOR_depthUpdate: 10000,
+    CHECKSUM_INTERVAL_MS: 30000,
+    REST_CHECKSUM_INTERVAL_MS: 600000,
+    TIME_SYNC_INTERVAL_MS: 900000,
+    SKEW_THRESHOLD_MS: 500,
+    TAIL_BUFFER_SIZE: 1000,
+    LATENCY_RESERVOIR: 4096,
+    STALE_RESERVOIR: 1024,
+    BOOK_INTEGRITY_MODE: 'heuristic',
+    ACCOUNT_DRIFT_SWEEP_MS: 300000,
+    ACCOUNT_HEARTBEAT_FLOOR_POSITION_MS: 60000,
+    ACCOUNT_HEARTBEAT_FLOOR_BALANCE_MS: 60000,
+    ACCOUNT_HEARTBEAT_FLOOR_ORDER_MS: 30000,
+    ACCOUNT_HEARTBEAT_FLOOR_FILL_MS: 30000,
+    ACCOUNT_PNL_ALARM_PCT: -0.1,
+    ACCOUNT_UTIL_ALARM_PCT: 0.9,
+    ACCOUNT_DIVERGENCE_PNL_ABS_INR: 100,
+    ACCOUNT_DIVERGENCE_PNL_PCT: 0.01,
+    ACCOUNT_BACKFILL_HOURS: 24,
+    ACCOUNT_SIGNAL_COOLDOWN_MS: 300000,
+    ACCOUNT_STORM_THRESHOLD: 20,
+    ACCOUNT_STORM_WINDOW_MS: 60000,
+    STRATEGY_TIMEOUT_MS: 5000,
+    STRATEGY_ERROR_THRESHOLD: 3,
+    STRATEGY_EMIT_WAIT: false,
+    STRATEGY_INTERVAL_DEFAULT_MS: 15000,
+    STRATEGY_BACKPRESSURE_DROP_RATIO_ALARM: 0.5,
+    STRATEGY_ENABLED_IDS: ['smc.rule.v1'],
+    BACKTEST_PESSIMISTIC: true,
+    BACKTEST_OUTPUT_DIR: './logs/backtest',
+    RISK_FILTER_MODE: 'composite',
+    RISK_MAX_CONCURRENT_SIGNALS: 3,
+    RISK_MAX_PER_STRATEGY_POSITIONS: 1,
+    RISK_DRAWDOWN_GATE_PCT: 0.1,
+    RISK_PER_PAIR_COOLDOWN_MS: 60000,
+    RISK_CORRELATION_BLOCK_OPPOSING: true,
+    RISK_MIN_CONFIDENCE: 0.5,
+    RISK_ALERT_EMIT: true,
+    WORKER_CANDLE_CLOSE_ENABLED: true,
+    WORKER_CANDLE_CLOSE_TIMEFRAMES: ['1m', '15m'],
+    WORKER_CANDLE_CLOSE_TICK_MS: 1000,
+    WORKER_BREAKEVEN_ENABLED: true,
+    WORKER_BREAKEVEN_INTERVAL_MS: 15000,
+    WORKER_BREAKEVEN_ARM_PCT: 0.003,
+    WORKER_FUNDING_ENABLED: true,
+    WORKER_FUNDING_CHECK_INTERVAL_MS: 30000,
+    WORKER_FUNDING_LEAD_MS: 300000,
+    WORKER_FUNDING_WINDOWS_UTC: '04:00,12:00,20:00',
+  };
+}
+
+describe('RuntimeWorkerSet', () => {
+  it('builds all worker ids when enabled', () => {
+    const workers = new RuntimeWorkerSet({
+      config: baseConfig(),
+      logger,
+      pairs: ['B-BTC_USDT'],
+      getPositions: () => [],
+      getMarkPrice: () => undefined,
+      onCandleClose: () => undefined,
+      onBreakevenArm: () => undefined,
+      onFundingWindow: () => undefined,
+    });
+    expect(workers.listIds()).toEqual([
+      'candle-close-worker',
+      'breakeven-protection-worker',
+      'funding-window-worker',
+    ]);
+  });
+
+  it('omits disabled workers', () => {
+    const config = {
+      ...baseConfig(),
+      WORKER_CANDLE_CLOSE_ENABLED: false,
+      WORKER_FUNDING_ENABLED: false,
+    };
+    const workers = new RuntimeWorkerSet({
+      config,
+      logger,
+      pairs: ['B-BTC_USDT'],
+      getPositions: () => [],
+      getMarkPrice: () => undefined,
+      onCandleClose: () => undefined,
+      onBreakevenArm: () => undefined,
+      onFundingWindow: () => undefined,
+    });
+    expect(workers.listIds()).toEqual(['breakeven-protection-worker']);
+  });
+});
