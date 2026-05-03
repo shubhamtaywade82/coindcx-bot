@@ -143,10 +143,21 @@ describe('RuntimePersistence', () => {
       'intent-1',
       'B-BTC_USDT',
       'LONG',
-      'limit',
-      '95',
-      '112',
-      'llm.pulse.v1',
+      'paper',
+      'runtime skeleton routes approved intents to paper',
     ]));
+    const payloadParam = params.at(-1);
+    expect(typeof payloadParam).toBe('string');
+    if (typeof payloadParam !== 'string') return;
+    const payload = JSON.parse(payloadParam);
+    expect(payload).toMatchObject({
+      entryType: 'limit',
+      entryPrice: '100',
+      stopLoss: '95',
+      takeProfit: '112',
+      confidence: 0.9,
+      strategyId: 'llm.pulse.v1',
+      metadata: { reason: 'test' },
+    });
   });
 });

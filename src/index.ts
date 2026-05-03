@@ -246,7 +246,12 @@ async function runApp(ctx: Context) {
   const tradePersistence = new TradePersistence(ctx.pool);
   const orderbookPersistence = new OrderbookPersistence(ctx.pool);
   const probabilityAnalytics = new ProbabilityAnalyticsRepository(ctx.pool);
-  const paperTradeGate = new PaperTradeGate(ctx.pool, ctx.config.PAPER_GATE_MIN_RUN_DAYS);
+  const paperTradeGate = new PaperTradeGate(ctx.pool, {
+    minDays: ctx.config.PAPER_GATE_MIN_RUN_DAYS,
+    minBreakevenLockBeforeStopRate: ctx.config.PAPER_GATE_MIN_BE_LOCK_BEFORE_STOP_RATE,
+    minExpectancyR: ctx.config.PAPER_GATE_MIN_EXPECTANCY_R,
+    maxDrawdownPct: ctx.config.PAPER_GATE_MAX_DRAWDOWN_PCT,
+  });
   const trackOpenedAtByPair = new Map<string, string>();
   ctx.logger.info({ mod: 'app' }, 'app start');
 
@@ -1472,8 +1477,10 @@ async function runApp(ctx: Context) {
 
   setInterval(async () => {
     try {
-      const signal = await paperTradeGate.progressSignalIfChanged();
-      if (signal) await (ctx.bus as any).emit(signal);
+      const signals = await paperTradeGate.signalsIfChanged();
+      for (const signal of signals) {
+        await (ctx.bus as any).emit(signal);
+      }
     } catch (error: any) {
       ctx.logger.warn(
         {

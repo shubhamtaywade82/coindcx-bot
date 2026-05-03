@@ -93,6 +93,9 @@ export const ConfigSchema = z.object({
   BACKTEST_RECORDER_COMPRESS: z.string().default('true').transform(s => s !== 'false'),
   PAPER_GATE_MIN_RUN_DAYS: z.coerce.number().positive().default(30),
   PAPER_GATE_PROGRESS_EMIT_MS: z.coerce.number().int().positive().default(60_000),
+  PAPER_GATE_MIN_BE_LOCK_BEFORE_STOP_RATE: z.coerce.number().positive().max(100).default(0.99),
+  PAPER_GATE_MIN_EXPECTANCY_R: z.coerce.number().default(0.4),
+  PAPER_GATE_MAX_DRAWDOWN_PCT: z.coerce.number().positive().max(100).default(0.08),
 
   // F5 Risk Alert Engine
   RISK_FILTER_MODE: z.enum(['passthrough', 'composite']).default('composite'),

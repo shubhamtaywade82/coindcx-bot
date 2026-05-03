@@ -43,11 +43,10 @@ const UPSERT_POSITION_SQL = `
 
 const INSERT_PAPER_TRADE_SQL = `
   INSERT INTO paper_trades (
-    id, intent_id, ts, pair, side, entry_type, entry_price, stop_loss, take_profit,
-    confidence, strategy_id, created_at, ttl_ms, reason, payload
+    paper_trade_id, ts, pair, side, intent_id, route, reason, payload
   )
-  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb)
-  ON CONFLICT (id) DO NOTHING
+  VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)
+  ON CONFLICT (paper_trade_id) DO NOTHING
 `;
 
 function toNumberString(value: unknown): string {
@@ -104,21 +103,22 @@ export class RuntimePersistence {
     if (routedOrder.route !== 'paper') return;
     await this.pool.query(INSERT_PAPER_TRADE_SQL, [
       routedOrder.intentId,
-      routedOrder.intentId,
       routedOrder.routedAt,
       routedOrder.pair,
       routedOrder.side,
-      routedOrder.entryType,
-      routedOrder.entryPrice ?? null,
-      routedOrder.stopLoss,
-      routedOrder.takeProfit,
-      routedOrder.confidence,
-      routedOrder.strategyId,
-      routedOrder.createdAt,
-      routedOrder.ttlMs,
+      routedOrder.intentId,
+      routedOrder.route,
       routedOrder.reason,
       JSON.stringify({
-        route: routedOrder.route,
+        entryType: routedOrder.entryType,
+        entryPrice: routedOrder.entryPrice ?? null,
+        stopLoss: routedOrder.stopLoss,
+        takeProfit: routedOrder.takeProfit,
+        confidence: routedOrder.confidence,
+        strategyId: routedOrder.strategyId,
+        createdAt: routedOrder.createdAt,
+        ttlMs: routedOrder.ttlMs,
+        routedAt: routedOrder.routedAt,
         metadata: routedOrder.metadata ?? {},
       }),
     ]);
