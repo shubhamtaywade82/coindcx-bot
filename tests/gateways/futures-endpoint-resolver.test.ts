@@ -2,12 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_FUTURES_ENDPOINTS,
   resolveFuturesEndpointPath,
-  resolveFuturesEndpointPath,
 } from '../../src/gateways/futures-endpoint-resolver';
 
 describe('futures endpoint resolver', () => {
   it('returns configured path for known key from captured catalog', () => {
-    const path = resolveCatalogEndpointPath(
+    const path = resolveFuturesEndpointPath(
       'list_positions',
       {
         catalogVersion: 1,
