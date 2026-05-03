@@ -67,8 +67,14 @@ exports.up = (pgm) => {
     CREATE INDEX replay_artifacts_replay_cursor_idx
       ON replay_artifacts(channel, pair, ts DESC, id DESC);
 
-    CREATE INDEX account_event_dedup_entity_created_idx
-      ON account_event_dedup(entity, created_at DESC);
+    DO $$
+    BEGIN
+      IF to_regclass('public.account_event_dedup') IS NOT NULL THEN
+        CREATE INDEX IF NOT EXISTS account_event_dedup_entity_created_idx
+          ON account_event_dedup(entity, created_at DESC);
+      END IF;
+    END
+    $$;
   `);
 };
 
