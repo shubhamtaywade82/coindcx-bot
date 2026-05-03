@@ -103,6 +103,10 @@ For cloud agents without Docker runtime:
 This keeps `npm run test` and `npm run check` runnable in non-Docker environments
 while preserving explicit behavior for Docker-backed integration tests.
 
+Run full cloud-env health check:
+
+`npm run verify:env`
+
 ### Phase 5: Risk-alert engine (shipped)
 - `CompositeRiskFilter` chains pluggable rules
 - Built-in rules: MinConfidence, MaxConcurrentSignals, PerStrategyMaxPositions, DrawdownGate, OpposingPairCorrelation, PerPairCooldown

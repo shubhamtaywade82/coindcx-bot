@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "sync-env": "ts-node src/utils/sync-env.ts",
+    "verify:env": "bash scripts/verify-env.sh",
     "prestart": "npm run sync-env",
     "start": "ts-node src/index.ts",
     "dev": "nodemon --watch src --ext ts --exec ts-node src/index.ts",
