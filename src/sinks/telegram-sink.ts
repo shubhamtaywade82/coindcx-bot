@@ -48,9 +48,10 @@ function fmt(s: Signal): string {
     icon = '🔴';
     msg = `*ACCOUNT ALERT*\n${payload.reason || ''}`;
   } else if (s.strategy === 'integrity' || type === 'clock_skew') {
-    if (s.severity !== 'critical') return '';
-    icon = '🔴';
-    msg = `*INTEGRITY ALERT*\n${type.toUpperCase()}: ${payload.reason || payload.error || 'Skew exceeded'}`;
+    if (s.severity === 'info') return '';
+    icon = s.severity === 'critical' ? '🔴' : '🟡';
+    const label = s.severity === 'critical' ? 'INTEGRITY ALERT' : 'INTEGRITY WARN';
+    msg = `*${label}*\n${type.toUpperCase()}${pair !== '—' ? ` ${pair}` : ''}: ${payload.reason || payload.error || JSON.stringify(payload).slice(0, 200)}`;
   } else {
     // Fallback for unknown types if they made it past the filter
     return `${icon} ${title} / \`${type}\` ${pair}\n\`\`\`\n${JSON.stringify(payload, null, 2)}\n\`\`\``;

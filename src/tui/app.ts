@@ -168,8 +168,8 @@ export class TuiApp {
       scrollbar: { ch: ' ' },
     });
 
-    // ── Row 9: Balances / Orders / Risk (5 + 4 + 3 cols) ──
-    const balancePanel = this.grid.set(9, 0, 1, 5, blessed.box, { label: ' Balances ' });
+    // ── Row 9: Balances / Orders / Risk (equal 4 + 4 + 4 cols) ──
+    const balancePanel = this.grid.set(9, 0, 1, 4, blessed.box, { label: ' Balances ' });
     this.balanceTable = blessed.box({
       parent: balancePanel,
       top: 0,
@@ -182,7 +182,7 @@ export class TuiApp {
       scrollbar: { ch: ' ' },
     });
 
-    const ordersPanel = this.grid.set(9, 5, 1, 4, blessed.box, { label: ' Orders ' });
+    const ordersPanel = this.grid.set(9, 4, 1, 4, blessed.box, { label: ' Orders ' });
     this.orderTable = blessed.box({
       parent: ordersPanel,
       top: 0,
@@ -195,7 +195,7 @@ export class TuiApp {
       scrollbar: { ch: ' ' },
     });
 
-    const riskPanel = this.grid.set(9, 9, 1, 3, blessed.box, { label: ' 🛡 Risk ' });
+    const riskPanel = this.grid.set(9, 8, 1, 4, blessed.box, { label: ' 🛡 Risk ' });
     this.riskBox = blessed.box({
       parent: riskPanel,
       top: 0,
@@ -358,7 +358,7 @@ export class TuiApp {
       return `{gray-fg}○ ${name}${badgeStr}{/gray-fg}`;
     });
     const selector = parts.join('  │  ');
-    return `  ${selector}    {gray-fg}[← →]{/gray-fg} switch  {gray-fg}[1-${this.pairs.length}]{/gray-fg} select  {gray-fg}[?]{/gray-fg} help`;
+    return `  ${selector}      {gray-fg}[← →]{/gray-fg}  switch    {gray-fg}[1-${this.pairs.length}]{/gray-fg}  select    {gray-fg}[?]{/gray-fg}  help`;
   }
 
   private bumpSignalCount(pair: string, side: string | undefined): void {
@@ -403,7 +403,12 @@ export class TuiApp {
   }
 
   updateSummary(data: { equity: string; wallet: string; net: string; unrealUsdt: string }) {
-    this.summaryBox.setContent(` EQ: {green-fg}${data.equity}{/green-fg}  │  WAL: {green-fg}${data.wallet}{/green-fg}  │  NET: ${data.net}  │  UNREAL USDT: {cyan-fg}${data.unrealUsdt}{/cyan-fg}`);
+    const unrealNum =
+      parseFloat(String(data.unrealUsdt).replace(/[^0-9.+-Ee]/g, '')) || 0;
+    const unrealColor = unrealNum > 0 ? 'green' : unrealNum < 0 ? 'red' : 'cyan';
+    this.summaryBox.setContent(
+      ` EQ: {green-fg}${data.equity}{/green-fg}  │  WAL: {green-fg}${data.wallet}{/green-fg}  │  NET: ${data.net}  │  UNREAL USDT: {${unrealColor}-fg}${data.unrealUsdt}{/${unrealColor}-fg}`,
+    );
     this.render();
   }
 
@@ -699,17 +704,33 @@ export class TuiApp {
   }
 
   updatePositions(rows: string[][]) {
-    // SYM(6) SIDE(5) QTY(10) ENT(10) LAST(10) MARK(10) SL(6) PNL(10)
-    const header = ` {yellow-fg}${this.padLeft('SYM', 6)} ${this.padLeft('SIDE', 5)} ${this.padRight('QTY', 10)} ${this.padRight('ENT', 10)} ${this.padRight('LAST', 10)} ${this.padRight('MARK', 10)} ${this.padRight('SL', 6)} ${this.padRight('PNL', 10)}{/yellow-fg}\n`;
+    // Widths use plain-text padding so blessed tags do not break alignment.
+    const w = { sym: 6, side: 5, qty: 11, px: 11, sl: 6, pnl: 12 };
+    const header =
+      ` {yellow-fg}${this.padLeft('SYM', w.sym)} ${this.padLeft('SIDE', w.side)} ${this.padRight('QTY', w.qty)} ` +
+      `${this.padRight('ENT', w.px)} ${this.padRight('LAST', w.px)} ${this.padRight('MARK', w.px)} ${this.padRight('SL', w.sl)} ${this.padRight('PNL', w.pnl)}{/yellow-fg}\n`;
 
     const content = rows.map(r => {
-      const pnlVal = parseFloat(r[7] || '0');
+      const sidePlain = this.stripTags(r[1] || '');
+      const sidePad = this.padLeft(sidePlain, w.side);
+      const sideCol =
+        sidePlain === 'LONG'
+          ? `{green-fg}${sidePad}{/green-fg}`
+          : sidePlain === 'SHORT'
+            ? `{red-fg}${sidePad}{/red-fg}`
+            : sidePad;
+
+      const pnlPlain = this.stripTags(r[7] || '');
+      const pnlVal = parseFloat(pnlPlain.replace(/[^0-9.+-Ee]/g, '')) || 0;
       const pnlColor = pnlVal > 0 ? 'green' : pnlVal < 0 ? 'red' : 'white';
-      
-      const pnlCell = r[7] || '';
-      const pnlPlain = this.stripTags(pnlCell);
-      const pnlPadded = this.padRight(pnlPlain, 10);
-      return ` ${this.padLeft(r[0] || '', 6)} ${this.padLeft(r[1] || '', 5)} ${this.padRight(r[2] || '', 10)} ${this.padRight(r[3] || '', 10)} ${this.padRight(r[4] || '', 10)} ${this.padRight(r[5] || '', 10)} ${this.padRight(r[6] || '', 6)} {${pnlColor}-fg}${pnlPadded}{/${pnlColor}-fg}`;
+      const pnlPadded = this.padRight(pnlPlain, w.pnl);
+
+      return (
+        ` ${this.padLeft(this.stripTags(r[0] || ''), w.sym)} ${sideCol} ${this.padRight(this.stripTags(r[2] || ''), w.qty)} ` +
+        `${this.padRight(this.stripTags(r[3] || ''), w.px)} ${this.padRight(this.stripTags(r[4] || ''), w.px)} ` +
+        `${this.padRight(this.stripTags(r[5] || ''), w.px)} ${this.padRight(this.stripTags(r[6] || ''), w.sl)} ` +
+        `{${pnlColor}-fg}${pnlPadded}{/${pnlColor}-fg}`
+      );
     }).join('\n');
 
     this.positionsTable.setContent(header + content);
@@ -717,15 +738,46 @@ export class TuiApp {
   }
 
   updateBalances(rows: string[][]) {
-    // ASSET(6) VALUE(10) WALLET(10) PNL(10) %(6) AVAIL(10) LOCK(10) UTIL(8)
-    const header = ` {green-fg}${this.padLeft('ASSET', 6)} ${this.padRight('VALUE', 10)} ${this.padRight('WALLET', 10)} ${this.padRight('PNL', 10)} ${this.padRight('%', 6)} ${this.padRight('AVAIL', 10)} ${this.padRight('LOCK', 10)} ${this.padRight('UTIL%', 8)}{/green-fg}\n`;
-    
+    const c = { asset: 9, num: 10, pct: 7, util: 8 };
+    const header =
+      ` {green-fg}${this.padLeft('ASSET', c.asset)} ${this.padRight('VALUE', c.num)} ${this.padRight('WALLET', c.num)} ` +
+      `${this.padRight('PNL', c.num)} ${this.padRight('%', c.pct)} ${this.padRight('AVAIL', c.num)} ${this.padRight('LOCK', c.num)} ${this.padRight('UTIL%', c.util)}{/green-fg}\n`;
+
     const content = rows.map(r => {
+      const assetPlain = this.stripTags(r[0] || '');
+      const isUsdVirtual = assetPlain.includes('USD') && assetPlain.includes('$');
+      const padNum = (raw: string | undefined, wrapCyan: boolean) => {
+        const p = this.padRight(this.stripTags(raw || ''), c.num);
+        return wrapCyan ? `{cyan-fg}${p}{/cyan-fg}` : p;
+      };
+
       const pnlPlain = this.stripTags(r[3] || '');
       const pnlValue = parseFloat(pnlPlain.replace(/[^0-9.+-Ee]/g, '')) || 0;
       const pnlColor = pnlValue > 0 ? 'green' : pnlValue < 0 ? 'red' : 'white';
-      const pnlPadded = this.padRight(pnlPlain, 10);
-      return ` ${this.padLeft(r[0] || '', 6)} ${this.padRight(r[1] || '', 10)} ${this.padRight(r[2] || '', 10)} {${pnlColor}-fg}${pnlPadded}{/${pnlColor}-fg} ${this.padRight(r[4] || '', 6)} ${this.padRight(r[5] || '', 10)} ${this.padRight(r[6] || '', 10)} ${this.padRight(r[7] || '', 8)}`;
+      const pnlPadded = this.padRight(pnlPlain, c.num);
+
+      const pctPlain = this.stripTags(r[4] || '');
+      const pctVal = parseFloat(pctPlain.replace(/[^0-9.+-Ee]/g, '')) || 0;
+      const pctPad = this.padRight(pctPlain, c.pct);
+      const pctCol = !pctPlain.includes('%')
+        ? pctPad
+        : pctVal < 0
+          ? `{red-fg}${pctPad}{/red-fg}`
+          : pctVal > 0
+            ? `{green-fg}${pctPad}{/green-fg}`
+            : `{gray-fg}${pctPad}{/gray-fg}`;
+
+      const utilPlain = this.stripTags(r[7] || '');
+      const utilPad = this.padRight(utilPlain, c.util);
+      const utilCol = utilPlain.includes('%') ? `{yellow-fg}${utilPad}{/yellow-fg}` : utilPad;
+
+      const assetPad = this.padLeft(assetPlain, c.asset);
+      const assetCol = isUsdVirtual ? `{cyan-fg}${assetPad}{/cyan-fg}` : assetPad;
+
+      return (
+        ` ${assetCol} ${padNum(r[1], isUsdVirtual)} ${padNum(r[2], isUsdVirtual)} ` +
+        `{${pnlColor}-fg}${pnlPadded}{/${pnlColor}-fg} ${pctCol} ${padNum(r[5], isUsdVirtual)} ${padNum(r[6], isUsdVirtual)} ${utilCol}`
+      );
     }).join('\n');
 
     this.balanceTable.setContent(header + content);
@@ -733,7 +785,9 @@ export class TuiApp {
   }
 
   updateOrders(rows: string[][]) {
-    const header = ` {magenta-fg}${this.padLeft('T', 2)} ${this.padLeft('PAIR', 10)} ${this.padLeft('ST', 8)} ${this.padRight('LAT', 6)}{/magenta-fg}\n`;
+    const o = { side: 4, pair: 12, st: 10, lat: 8 };
+    const header =
+      ` {magenta-fg}${this.padLeft('SIDE', o.side)} ${this.padLeft('PAIR', o.pair)} ${this.padLeft('STATUS', o.st)} ${this.padRight('LAT', o.lat)}{/magenta-fg}\n`;
 
     const isPlaceholderRow =
       rows.length > 0 &&
@@ -741,17 +795,26 @@ export class TuiApp {
       rows[0].every((c) => !c || c === '—' || c === 'Connecting...');
 
     if (isPlaceholderRow) {
+      const rowW = o.side + o.pair + o.st + o.lat + 3;
       const msg =
         rows[0][1] === 'Connecting...'
-          ? ' {gray-fg}Connecting…{/gray-fg}'
-          : ' {gray-fg}No open orders{/gray-fg}';
+          ? ` ${this.padLeft('', o.side)} {gray-fg}${this.padLeft('Connecting…', rowW)}{/gray-fg}`
+          : ` ${this.padLeft('', o.side)} {gray-fg}${this.padLeft('No open orders', rowW)}{/gray-fg}`;
       this.orderTable.setContent(header + msg);
       this.render();
       return;
     }
 
     const content = rows.map(r => {
-      return ` ${this.padLeft(r[0] || '', 2)} ${this.padLeft(r[1] || '', 10)} ${this.padLeft(r[2] || '', 8)} ${this.padRight(r[3] || '', 6)}`;
+      const sidePlain = this.stripTags(r[0] || '');
+      const sidePad = this.padLeft(sidePlain, o.side);
+      const sideCol =
+        sidePlain === 'B' || sidePlain.toLowerCase() === 'buy'
+          ? `{green-fg}${sidePad}{/green-fg}`
+          : sidePlain === 'S' || sidePlain.toLowerCase() === 'sell'
+            ? `{red-fg}${sidePad}{/red-fg}`
+            : this.padLeft(sidePlain, o.side);
+      return ` ${sideCol} ${this.padLeft(this.stripTags(r[1] || ''), o.pair)} ${this.padLeft(this.stripTags(r[2] || ''), o.st)} ${this.padRight(this.stripTags(r[3] || ''), o.lat)}`;
     }).join('\n');
 
     this.orderTable.setContent(header + content);

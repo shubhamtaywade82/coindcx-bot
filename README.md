@@ -45,6 +45,34 @@ Read-only institutional-grade observation + signal-emitter bot for CoinDCX. **Ne
 
 Probe live feeds: `npm run probe -- --pair B-SOL_USDT --duration 60`
 
+## Live operation (read-only observer)
+
+Bot is structurally read-only:
+- `applyReadOnlyGuard` is wired unconditionally on every axios client (`src/gateways/coindcx-api.ts:9,15`). It rejects all write verbs and any deny-listed order/funds path. No code path bypasses it; `READ_ONLY` env is informational only.
+- No call sites for `orders/create|cancel|positions/exit` exist anywhere in `src/`. Verify before any release: `grep -rn "orders/create\|orders/cancel\|positions/exit" src/`.
+
+Run under pm2 supervisor for autorestart + log rotation:
+
+```
+npm install -g pm2
+pm2 start ecosystem.config.js
+pm2 logs coindcx-bot
+pm2 save
+pm2 startup        # generate boot script (run command it prints)
+```
+
+Alert pipeline:
+- `Telegram` sink delivers `severity:'critical'` and `severity:'warn'` for `strategy:'integrity'` (covers `stale_feed`, `book_resync`, `book_resync_failed`, `heartbeat_lost`, `clock_skew`).
+- Rate-limited via `TELEGRAM_RATE_PER_MIN` (default 20/min).
+- Drops are logged + audit-recorded; check `logs/` for delivery failures.
+
+Pre-flight checklist before going live:
+1. `npm run check` clean (typecheck + lint + tests)
+2. `READ_ONLY=true` in env (defense-in-depth, even though guard ignores it)
+3. `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` set; send a test signal to verify delivery
+4. `pm2 logs` shows `boot complete` with expected sinks
+5. TUI header reads `MODE: MONITOR`, `ORDER: OFF`
+
 ## Quality gate
 
 `npm run check` — typecheck + lint + tests. Some integration tests require Docker (skip with `SKIP_DOCKER_TESTS=1`).
