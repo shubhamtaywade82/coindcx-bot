@@ -81,7 +81,7 @@ Use this file as the single source of truth for execution tracking.
 - [ ] Pin websocket client implementation to `socket.io-client@2.4.0` only
   - [x] Add lock in package manifest
   - [x] Add startup assertion that fails if version drifts
-  - [ ] Add regression test for handshake + event receipt
+  - [x] Add regression test for handshake + event receipt
 
 - [ ] Enforce CoinDCX auth contract for all private REST/private WS joins
   - [ ] `X-AUTH-APIKEY`
