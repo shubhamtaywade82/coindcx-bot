@@ -91,8 +91,8 @@ Use this file as the single source of truth for execution tracking.
   - [x] Clock-skew handling and retry guard
 
 - [ ] Build and persist `MarketCatalog` from `/exchange/v1/markets_details`
-  - [ ] Cache `pair <-> symbol <-> ecode <-> precision <-> step <-> min_notional <-> max_leverage`
-  - [ ] Add refresh job and stale-data alert
+  - [x] Cache `pair <-> symbol <-> ecode <-> precision <-> step <-> min_notional <-> max_leverage`
+  - [x] Add refresh job and stale-data alert
 
 - [ ] Implement Spot REST wrappers and smoke tests
   - [ ] Public data: ticker, markets, markets_details, trade_history, orderbook, candles

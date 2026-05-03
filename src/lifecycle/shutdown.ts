@@ -6,6 +6,9 @@ export async function shutdown(ctx: Context, signal: string): Promise<void> {
   ctx.audit.recordEvent({ kind: 'shutdown', source: 'lifecycle', payload: { signal } });
 
   const grace = ctx.config.SHUTDOWN_GRACE_MS;
+  if (ctx.marketCatalog) {
+    ctx.marketCatalog.stop();
+  }
   if (ctx.webhook) {
     try { await ctx.webhook.stop(); } catch (err: any) {
       ctx.logger.warn({ mod: 'shutdown', err: err?.message }, 'webhook stop failed');
