@@ -344,3 +344,31 @@ Use this file as the single source of truth for execution tracking.
 - [ ] Behavior verified with explicit test or smoke command
 - [ ] Checklist item and sub-items checked only after verification evidence exists
 - [ ] PR description links the completed checklist scope
+
+## D) PDF -> TODO Traceability Matrix
+
+Use this matrix to verify every requirement from the uploaded framework document has
+an execution home in this checklist.
+
+| PDF section | Requirement focus | Covered in TODO |
+| --- | --- | --- |
+| TL;DR | Confluence-gated state machine, 10x cap, liq-buffer rule, architecture split, data gaps | B2, B4, B5, B6, B9, B10 |
+| A. CoinDCX API reference (A1-A5) | Auth, spot/futures REST, sockets, known endpoint/stream gaps | B1, B9, B10 |
+| B. Signal component catalog | Layer 1/2/3 signal modules and formulas | B3 |
+| C. Regime classifier | 4-state regime model + thresholds + cadence | B4 |
+| D. Confluence scoring engine | Regime weights, fire conditions, score conflict guard | B4 |
+| E. Entry/stop/target/sizing | TradePlan computation, R-based exits, leverage/liq/BE constraints | B5 |
+| F. "No negative close" state machine | Lifecycle states, BE lock, time-stop kill path | B5, B6 |
+| G. Implementation architecture | Sidecar, streams, runtime modules, workers, storage responsibilities | B2, B7 |
+| H. Database schema essentials | Markets/candles/signals/trades/positions/risk events/orderbook schema | B7 |
+| I. Backtesting and validation | Candle ingest, recorder, simulator, metrics, walk-forward, paper gate | B8, B10 |
+| J. Probability-of-profit output schema | p_hit fields, expected_R, payload attachment | B4 |
+| K. CoinDCX-specific gotchas | pair/symbol mapping, reconnect/rate limits/funding/liq semantics | B9, B11 |
+| Recommendations (Stage 0-3) | Sequenced rollout and risk escalation/de-escalation controls | B10 |
+| Caveats | Futures docs limits, missing fields/streams, platform and data-fidelity caveats | B1, B8, B9, B11 |
+
+### Traceability verification checklist
+
+- [ ] Every new PDF requirement is mapped to at least one B-section before implementation
+- [ ] Any TODO item added during implementation includes its PDF section reference
+- [ ] If a PDF claim is intentionally out-of-scope, record rationale in PR description
