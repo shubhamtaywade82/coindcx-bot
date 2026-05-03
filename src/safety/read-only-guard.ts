@@ -46,7 +46,7 @@ export const DENY_PATHS: readonly string[] = [
 ];
 
 export interface GuardOptions {
-  onViolation?: (info: { method: string; path: string }) => void;
+  onViolation?: (info: { method: string; path: string; rateLimitPolicy?: WriteRateLimitPolicy }) => void;
   extraDenyPaths?: string[];
   /**
    * POST paths that are read-only despite using POST (CoinDCX signed-read pattern).
@@ -85,14 +85,14 @@ export function applyReadOnlyGuard(client: AxiosInstance, opts: GuardOptions = {
     const rateLimitPolicy = method === 'POST' ? getWriteRateLimitPolicy(path) : undefined;
 
     if (deny.some((p) => path.startsWith(p))) {
-      opts.onViolation?.({ method, path });
+      opts.onViolation?.({ method, path, rateLimitPolicy });
       throw new ReadOnlyViolation(method, path, rateLimitPolicy);
     }
 
     if (WRITE_VERBS.has(method)) {
       const allowed = method === 'POST' && allowPosts.some((p) => path.startsWith(p));
       if (!allowed) {
-        opts.onViolation?.({ method, path });
+        opts.onViolation?.({ method, path, rateLimitPolicy });
         throw new ReadOnlyViolation(method, path, rateLimitPolicy);
       }
     }

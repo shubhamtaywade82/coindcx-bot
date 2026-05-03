@@ -1,11 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import axios from 'axios';
 import nock from 'nock';
 import {
   applyReadOnlyGuard,
   ReadOnlyViolation,
   DENY_PATHS,
-  WRITE_PATH_RATE_LIMIT_POLICY,
+  getWriteRateLimitPolicy,
 } from '../../src/safety/read-only-guard';
 
 describe('ReadOnlyGuard', () => {
@@ -71,7 +71,7 @@ describe('ReadOnlyGuard', () => {
     const violation = err as ReadOnlyViolation;
     expect(violation.path).toBe('/exchange/v1/orders/cancel_all');
     expect(violation.rateLimitPolicy).toEqual(
-      WRITE_PATH_RATE_LIMIT_POLICY['/exchange/v1/orders/cancel_all'],
+      getWriteRateLimitPolicy('/exchange/v1/orders/cancel_all'),
     );
   });
 
@@ -83,7 +83,7 @@ describe('ReadOnlyGuard', () => {
     expect(onViolation).toHaveBeenCalledWith({
       method: 'POST',
       path: '/exchange/v1/orders/cancel_all',
-      rateLimitPolicy: WRITE_PATH_RATE_LIMIT_POLICY['/exchange/v1/orders/cancel_all'],
+      rateLimitPolicy: getWriteRateLimitPolicy('/exchange/v1/orders/cancel_all'),
     });
   });
 });
