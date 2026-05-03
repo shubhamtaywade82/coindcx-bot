@@ -99,11 +99,11 @@ describe('ReadOnlyGuard', () => {
 
   it('allows signed-read futures transactions path', async () => {
     nock('https://api.coindcx.com')
-      .post('/exchange/v1/derivatives/futures/transactions')
+      .post('/exchange/v1/derivatives/futures/positions/transactions')
       .reply(200, []);
     const client = axios.create({ baseURL: 'https://api.coindcx.com' });
     applyReadOnlyGuard(client);
-    const response = await client.post('/exchange/v1/derivatives/futures/transactions', {});
+    const response = await client.post('/exchange/v1/derivatives/futures/positions/transactions', {});
     expect(response.status).toBe(200);
   });
 

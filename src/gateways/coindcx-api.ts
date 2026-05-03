@@ -130,10 +130,11 @@ export class CoinDCXApi {
       'Balances',
       (timestamp) => ({ timestamp }),
       async ({ body, headers }) => {
-        const response = await http.get(this.futuresPath('wallet_details', '/exchange/v1/derivatives/futures/wallets'), {
-          data: body,
-          headers,
-        });
+        const response = await http.post(
+          this.futuresPath('wallet_details', '/exchange/v1/derivatives/futures/wallets'),
+          body,
+          { headers },
+        );
         return response.data;
       },
     );
@@ -374,7 +375,7 @@ export class CoinDCXApi {
         margin_currency_short_name: ['USDT', 'INR'],
       }),
       async ({ body, headers }) => {
-        const path = this.futuresPath('get_trades', '/exchange/v1/derivatives/futures/trade_history');
+        const path = this.futuresPath('get_trades', '/exchange/v1/derivatives/futures/trades');
         const response = await http.post(
           path,
           body,
@@ -386,17 +387,17 @@ export class CoinDCXApi {
   }
 
   static async getFuturesActiveInstruments() {
-    return this.fetchPublic(
+    return this.fetchApiGet(
       'futures active instruments',
-      this.futuresPath('get_active_instruments', '/exchange/v1/derivatives/futures/instruments/active'),
+      this.futuresPath('get_active_instruments', '/exchange/v1/derivatives/futures/data/active_instruments'),
     );
   }
 
   static async getFuturesInstrumentDetails(instrument?: string) {
     const value = instrument?.trim();
-    return this.fetchPublic(
+    return this.fetchApiGet(
       'futures instrument details',
-      this.futuresPath('get_instrument_details', '/exchange/v1/derivatives/futures/instruments/details'),
+      this.futuresPath('get_instrument_details', '/exchange/v1/derivatives/futures/data/instrument'),
       value ? { instrument: value } : undefined,
     );
   }
@@ -404,9 +405,9 @@ export class CoinDCXApi {
   static async getFuturesInstrumentTradeHistory(instrument: string, limit = 100) {
     const value = instrument.trim();
     if (!value) throw new Error('getFuturesInstrumentTradeHistory requires instrument');
-    return this.fetchPublic(
+    return this.fetchApiGet(
       'futures instrument trade history',
-      this.futuresPath('get_instrument_trade_history', '/exchange/v1/derivatives/futures/instruments/trade_history'),
+      this.futuresPath('get_instrument_trade_history', '/exchange/v1/derivatives/futures/data/trades'),
       { instrument: value, limit: this.normalizeLimit(limit) },
     );
   }
@@ -414,10 +415,14 @@ export class CoinDCXApi {
   static async getFuturesInstrumentOrderBook(instrument: string) {
     const value = instrument.trim();
     if (!value) throw new Error('getFuturesInstrumentOrderBook requires instrument');
+    const pathTemplate = this.futuresPath(
+      'get_instrument_orderbook',
+      '/market_data/v3/orderbook/{instrument}-futures/50',
+    );
+    const path = pathTemplate.replace('{instrument}', encodeURIComponent(value));
     return this.fetchPublic(
       'futures instrument orderbook',
-      this.futuresPath('get_instrument_orderbook', '/exchange/v1/derivatives/futures/instruments/orderbook'),
-      { instrument: value },
+      path,
     );
   }
 
@@ -434,8 +439,8 @@ export class CoinDCXApi {
     const from = Math.trunc(opts.from ?? to - stepSeconds * limit);
     return this.fetchPublic(
       'futures instrument candles',
-      this.futuresPath('get_instrument_candlesticks', '/exchange/v1/derivatives/futures/instruments/candlesticks'),
-      { instrument: value, resolution, from, to },
+      this.futuresPath('get_instrument_candlesticks', '/market_data/candlesticks'),
+      { pair: value, resolution, from, to, pcode: 'f' },
     );
   }
 
@@ -449,13 +454,13 @@ export class CoinDCXApi {
       'FuturesPositionDetails',
       (timestamp) => ({
         timestamp,
-        ...(positionId ? { position_id: positionId } : {}),
-        ...(pair ? { pair } : {}),
+        ...(positionId ? { position_id: positionId, position_ids: [positionId] } : {}),
+        ...(pair ? { pair, pairs: [pair] } : {}),
       }),
       async ({ body, headers }) => {
         const path = this.futuresPath(
           'get_positions_by_pair_or_position_id',
-          '/exchange/v1/derivatives/futures/positions/get',
+          '/exchange/v1/derivatives/futures/positions',
         );
         const response = await http.post(path, body, { headers });
         return response.data;
@@ -472,7 +477,7 @@ export class CoinDCXApi {
         limit: this.normalizeLimit(opts.limit),
       }),
       async ({ body, headers }) => {
-        const path = this.futuresPath('get_transactions', '/exchange/v1/derivatives/futures/transactions');
+        const path = this.futuresPath('get_transactions', '/exchange/v1/derivatives/futures/positions/transactions');
         const response = await http.post(path, body, { headers });
         return response.data;
       },
@@ -482,16 +487,23 @@ export class CoinDCXApi {
   static async getFuturesCurrentPrices() {
     return this.fetchPublic(
       'futures current prices',
-      this.futuresPath('get_current_prices_rt', '/exchange/v1/derivatives/futures/current_prices'),
+      this.futuresPath('get_current_prices_rt', '/market_data/v3/current_prices/futures/rt'),
     );
   }
 
   static async getFuturesPairStats(pair?: string) {
     const value = pair?.trim();
-    return this.fetchPublic(
-      'futures pair stats',
-      this.futuresPath('get_pair_stats', '/exchange/v1/derivatives/futures/pair_stats'),
-      value ? { pair: value } : undefined,
+    return this.withClockSkewRetry(
+      'FuturesPairStats',
+      (timestamp) => ({
+        timestamp,
+        ...(value ? { pair: value } : {}),
+      }),
+      async ({ body, headers }) => {
+        const path = this.futuresPath('get_pair_stats', '/api/v1/derivatives/futures/data/stats');
+        const response = await http.post(path, body, { headers });
+        return response.data;
+      },
     );
   }
 
@@ -502,7 +514,7 @@ export class CoinDCXApi {
       async ({ body, headers }) => {
         const path = this.futuresPath(
           'get_cross_margin_details',
-          '/exchange/v1/derivatives/futures/cross_margin/details',
+          '/exchange/v1/derivatives/futures/positions/cross_margin_details',
         );
         const response = await http.post(path, body, { headers });
         return response.data;
@@ -632,7 +644,7 @@ export class CoinDCXApi {
       async ({ body, headers }) => {
         const path = this.futuresPath(
           'cancel_all_open_orders',
-          '/exchange/v1/derivatives/futures/orders/cancel_all',
+          '/exchange/v1/derivatives/futures/positions/cancel_all_open_orders',
         );
         const response = await http.post(path, body, { headers });
         return response.data;
@@ -656,7 +668,7 @@ export class CoinDCXApi {
       async ({ body, headers }) => {
         const path = this.futuresPath(
           'cancel_all_open_orders_for_position',
-          '/exchange/v1/derivatives/futures/orders/cancel_all_for_position',
+          '/exchange/v1/derivatives/futures/positions/cancel_all_open_orders_for_position',
         );
         const response = await http.post(path, body, { headers });
         return response.data;
@@ -697,7 +709,7 @@ export class CoinDCXApi {
       async ({ body, headers }) => {
         const path = this.futuresPath(
           'create_take_profit_stop_loss_orders',
-          '/exchange/v1/derivatives/futures/orders/create_tpsl',
+          '/exchange/v1/derivatives/futures/positions/create_tpsl',
         );
         const response = await http.post(path, body, { headers });
         return response.data;
@@ -770,7 +782,7 @@ export class CoinDCXApi {
       async ({ body, headers }) => {
         const path = this.futuresPath(
           'get_currency_conversion',
-          '/exchange/v1/derivatives/futures/currency_conversion',
+          '/api/v1/derivatives/futures/data/conversions',
         );
         const response = await http.post(path, body, { headers });
         return response.data;
@@ -805,6 +817,17 @@ export class CoinDCXApi {
   private static async fetchPublic(label: string, path: string, params?: Record<string, unknown>) {
     try {
       const response = await publicHttp.get(path, params ? { params } : undefined);
+      return response.data;
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error(`Error fetching ${label}:`, error);
+      return [];
+    }
+  }
+
+  private static async fetchApiGet(label: string, path: string, params?: Record<string, unknown>) {
+    try {
+      const response = await http.get(path, params ? { params } : undefined);
       return response.data;
     } catch (error) {
       // eslint-disable-next-line no-console

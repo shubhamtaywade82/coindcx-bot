@@ -30,7 +30,16 @@ export interface FuturesEndpointSpec {
 }
 
 const SPEC_PATH = resolve(process.cwd(), 'config/coindcx_futures_endpoints.yml');
-const PATH_PREFIX = '/exchange/v1/derivatives/futures/';
+const EXCHANGE_PATH_PREFIX = '/exchange/v1/derivatives/futures/';
+const API_V1_PATH_PREFIX = '/api/v1/derivatives/futures/';
+const PUBLIC_MARKET_DATA_PREFIX = '/market_data/';
+const ABSOLUTE_PUBLIC_MARKET_DATA_PREFIX = 'https://public.coindcx.com/market_data/';
+const ALLOWED_PATH_PREFIXES = [
+  EXCHANGE_PATH_PREFIX,
+  API_V1_PATH_PREFIX,
+  PUBLIC_MARKET_DATA_PREFIX,
+  ABSOLUTE_PUBLIC_MARKET_DATA_PREFIX,
+] as const;
 const TRUSTED_DOCS_HOST = 'docs.coindcx.com';
 const VALID_METHODS: readonly EndpointMethod[] = ['UNKNOWN', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 const UNTRUSTED_REFERENCE_PATTERN = /(gist\.github\.com|raw\.githubusercontent\.com|pastebin\.com)/i;
@@ -95,9 +104,9 @@ function parseEndpoint(entry: unknown, idx: number): FuturesEndpointEntry {
   const row = asObject(entry, `endpoints[${idx}]`);
   const method = asMethod(row.method, `endpoints[${idx}].method`);
   const path = asString(row.path, `endpoints[${idx}].path`);
-  if (method !== 'UNKNOWN' && !path.startsWith(PATH_PREFIX)) {
+  if (method !== 'UNKNOWN' && !ALLOWED_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))) {
     throw new Error(
-      `Invalid futures endpoint spec: endpoints[${idx}].path must start with "${PATH_PREFIX}" when method is concrete`,
+      `Invalid futures endpoint spec: endpoints[${idx}].path must start with one of ${ALLOWED_PATH_PREFIXES.join(', ')} when method is concrete`,
     );
   }
   if (method === 'UNKNOWN' && path !== 'TBD') {

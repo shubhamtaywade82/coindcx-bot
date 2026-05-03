@@ -8,7 +8,7 @@ export interface WriteRateLimitPolicy {
 
 export const WRITE_RATE_LIMIT_POLICIES: readonly WriteRateLimitPolicy[] = [
   { pathPrefix: '/exchange/v1/orders/cancel_all', maxRequests: 30, windowMs: 60_000 },
-  { pathPrefix: '/exchange/v1/derivatives/futures/orders/cancel_all', maxRequests: 30, windowMs: 60_000 },
+  { pathPrefix: '/exchange/v1/derivatives/futures/positions/cancel_all_open_orders', maxRequests: 30, windowMs: 60_000 },
 ];
 
 export function getWriteRateLimitPolicy(path: string): WriteRateLimitPolicy | undefined {
@@ -41,9 +41,9 @@ export const DENY_PATHS: readonly string[] = [
   '/exchange/v1/derivatives/futures/orders/create',
   '/exchange/v1/derivatives/futures/orders/cancel',
   '/exchange/v1/derivatives/futures/orders/edit',
-  '/exchange/v1/derivatives/futures/orders/cancel_all',
-  '/exchange/v1/derivatives/futures/orders/cancel_all_for_position',
-  '/exchange/v1/derivatives/futures/orders/create_tpsl',
+  '/exchange/v1/derivatives/futures/positions/cancel_all_open_orders',
+  '/exchange/v1/derivatives/futures/positions/cancel_all_open_orders_for_position',
+  '/exchange/v1/derivatives/futures/positions/create_tpsl',
   '/exchange/v1/derivatives/futures/positions/exit',
   '/exchange/v1/derivatives/futures/positions/add_margin',
   '/exchange/v1/derivatives/futures/positions/remove_margin',
@@ -64,15 +64,14 @@ export interface GuardOptions {
 /** CoinDCX uses POST for some authenticated read endpoints. Allowlist below. */
 const SIGNED_READ_POST_PATHS: readonly string[] = [
   '/exchange/v1/derivatives/futures/positions',
-  '/exchange/v1/derivatives/futures/positions/get',
   '/exchange/v1/derivatives/futures/orders',
-  '/exchange/v1/derivatives/futures/trade_history',
-  '/exchange/v1/derivatives/futures/orders/status',
+  '/exchange/v1/derivatives/futures/trades',
   '/exchange/v1/derivatives/futures/wallets',
   '/exchange/v1/derivatives/futures/wallets/transactions',
-  '/exchange/v1/derivatives/futures/transactions',
-  '/exchange/v1/derivatives/futures/cross_margin/details',
-  '/exchange/v1/derivatives/futures/currency_conversion',
+  '/exchange/v1/derivatives/futures/positions/transactions',
+  '/exchange/v1/derivatives/futures/positions/cross_margin_details',
+  '/api/v1/derivatives/futures/data/stats',
+  '/api/v1/derivatives/futures/data/conversions',
   '/exchange/v1/margin/fetch_orders',
   '/exchange/v1/funding/fetch_orders',
   '/exchange/v1/users/balances',

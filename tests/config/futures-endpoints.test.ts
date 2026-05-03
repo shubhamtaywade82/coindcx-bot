@@ -39,4 +39,24 @@ describe('futures endpoints spec', () => {
       `endpoint "${catalog.endpoints[0]!.key}" paramsSpec must not reference third-party gist/snippet URLs`,
     );
   });
+
+  it('allows concrete api v1 and public market-data path prefixes', () => {
+    const catalog = loadFuturesEndpointCatalogFromPath(SPEC_PATH);
+    catalog.endpoints[0] = {
+      ...catalog.endpoints[0]!,
+      method: 'POST',
+      path: '/api/v1/derivatives/futures/data/stats',
+      status: 'captured',
+      paramsSpec: 'pair optional',
+    };
+    catalog.endpoints[1] = {
+      ...catalog.endpoints[1]!,
+      method: 'GET',
+      path: '/market_data/v3/current_prices/futures/rt',
+      status: 'captured',
+      paramsSpec: 'none',
+    };
+    const issues = validateFuturesEndpointCatalog(catalog);
+    expect(issues).toEqual([]);
+  });
 });

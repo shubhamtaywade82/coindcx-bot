@@ -23,7 +23,7 @@ describe('CoinDCX api gateway', () => {
     await expect(__httpForTests.post('/exchange/v1/derivatives/futures/orders/create', {})).rejects.toBeInstanceOf(ReadOnlyViolation);
     await expect(__httpForTests.post('/exchange/v1/derivatives/futures/orders/cancel', {})).rejects.toBeInstanceOf(ReadOnlyViolation);
     await expect(__httpForTests.post('/exchange/v1/derivatives/futures/orders/edit', {})).rejects.toBeInstanceOf(ReadOnlyViolation);
-    await expect(__httpForTests.post('/exchange/v1/derivatives/futures/orders/cancel_all', {})).rejects.toBeInstanceOf(ReadOnlyViolation);
+    await expect(__httpForTests.post('/exchange/v1/derivatives/futures/positions/cancel_all_open_orders', {})).rejects.toBeInstanceOf(ReadOnlyViolation);
     await expect(__httpForTests.post('/exchange/v1/derivatives/futures/positions/exit', {})).rejects.toBeInstanceOf(ReadOnlyViolation);
   });
 

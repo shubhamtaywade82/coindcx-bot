@@ -10,24 +10,24 @@ describe('futures endpoint resolver', () => {
       'list_positions',
       {
         catalog: {
-        catalogVersion: 1,
-        source: {
-          docsHost: 'docs.coindcx.com',
-          requiresAuthenticatedCapture: true,
-          captureStatus: 'captured',
-          capturedAt: '2026-05-03T00:00:00.000Z',
-          capturedBy: 'test',
-        },
-        endpoints: [
-          {
-            key: 'list_positions',
-            label: 'List positions',
-            method: 'POST',
-            path: '/exchange/v1/derivatives/futures/positions/list',
-            paramsSpec: 'captured',
-            status: 'captured',
+          catalogVersion: 1,
+          source: {
+            docsHost: 'docs.coindcx.com',
+            requiresAuthenticatedCapture: true,
+            captureStatus: 'captured',
+            capturedAt: '2026-05-03T00:00:00.000Z',
+            capturedBy: 'test',
           },
-        ],
+          endpoints: [
+            {
+              key: 'list_positions',
+              label: 'List positions',
+              method: 'POST',
+              path: '/exchange/v1/derivatives/futures/positions/list',
+              paramsSpec: 'captured',
+              status: 'captured',
+            },
+          ],
         },
       },
     );
@@ -37,6 +37,11 @@ describe('futures endpoint resolver', () => {
   it('falls back to defaults when catalog path is not concrete', () => {
     const path = resolveFuturesEndpointPath('list_orders');
     expect(path).toBe(DEFAULT_FUTURES_ENDPOINTS.list_orders);
+  });
+
+  it('uses docs-aligned defaults for positions cancel-all key', () => {
+    const path = resolveFuturesEndpointPath('cancel_all_open_orders');
+    expect(path).toBe('/exchange/v1/derivatives/futures/positions/cancel_all_open_orders');
   });
 
   it('throws for unknown key', () => {

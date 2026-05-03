@@ -16,11 +16,11 @@ describe('CoinDCXApi new endpoints', () => {
     );
   });
 
-  it('getFuturesTradeHistory posts to /futures/trade_history with from_timestamp', async () => {
+  it('getFuturesTradeHistory posts to /futures/trades with from_timestamp', async () => {
     const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: [] });
     await CoinDCXApi.getFuturesTradeHistory({ fromTimestamp: 12345 });
     expect(spy).toHaveBeenCalledWith(
-      '/exchange/v1/derivatives/futures/trade_history',
+      '/exchange/v1/derivatives/futures/trades',
       expect.objectContaining({ from_timestamp: 12345 }),
       expect.any(Object),
     );
@@ -150,12 +150,16 @@ describe('CoinDCXApi new endpoints', () => {
     expect(data).toEqual([{ id: 'l1' }]);
   });
 
-  it('getFuturesPositionByIdOrPair posts to futures positions/get', async () => {
+  it('getFuturesPositionByIdOrPair posts to futures positions with pair filters', async () => {
     const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: [{ id: 'p1' }] });
     const data = await CoinDCXApi.getFuturesPositionByIdOrPair({ pair: 'B-BTC_USDT' });
     expect(spy).toHaveBeenCalledWith(
-      '/exchange/v1/derivatives/futures/positions/get',
-      expect.objectContaining({ pair: 'B-BTC_USDT', timestamp: expect.any(Number) }),
+      '/exchange/v1/derivatives/futures/positions',
+      expect.objectContaining({
+        pair: 'B-BTC_USDT',
+        pairs: ['B-BTC_USDT'],
+        timestamp: expect.any(Number),
+      }),
       expect.any(Object),
     );
     expect(data).toEqual([{ id: 'p1' }]);
@@ -165,7 +169,7 @@ describe('CoinDCXApi new endpoints', () => {
     const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: [{ id: 'tx1' }] });
     const data = await CoinDCXApi.getFuturesTransactions({ page: 2, limit: 25 });
     expect(spy).toHaveBeenCalledWith(
-      '/exchange/v1/derivatives/futures/transactions',
+      '/exchange/v1/derivatives/futures/positions/transactions',
       expect.objectContaining({ page: 2, limit: 25, timestamp: expect.any(Number) }),
       expect.any(Object),
     );
@@ -176,7 +180,7 @@ describe('CoinDCXApi new endpoints', () => {
     const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: { cross: 'ok' } });
     const data = await CoinDCXApi.getFuturesCrossMarginDetails();
     expect(spy).toHaveBeenCalledWith(
-      '/exchange/v1/derivatives/futures/cross_margin/details',
+      '/exchange/v1/derivatives/futures/positions/cross_margin_details',
       expect.objectContaining({ timestamp: expect.any(Number) }),
       expect.any(Object),
     );
@@ -198,7 +202,7 @@ describe('CoinDCXApi new endpoints', () => {
     const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: { amount: 100 } });
     const data = await CoinDCXApi.getFuturesCurrencyConversion('usdt', 'inr', 100);
     expect(spy).toHaveBeenCalledWith(
-      '/exchange/v1/derivatives/futures/currency_conversion',
+      '/api/v1/derivatives/futures/data/conversions',
       expect.objectContaining({
         from_currency: 'USDT',
         to_currency: 'INR',
@@ -213,17 +217,101 @@ describe('CoinDCXApi new endpoints', () => {
   it('getFuturesCurrentPrices fetches futures current prices from public endpoint', async () => {
     const spy = vi.spyOn(__publicHttpForTests, 'get').mockResolvedValue({ data: { prices: {} } });
     const data = await CoinDCXApi.getFuturesCurrentPrices();
-    expect(spy).toHaveBeenCalledWith('/exchange/v1/derivatives/futures/current_prices', undefined);
+    expect(spy).toHaveBeenCalledWith('/market_data/v3/current_prices/futures/rt', undefined);
     expect(data).toEqual({ prices: {} });
   });
 
-  it('getFuturesPairStats fetches futures pair stats from public endpoint', async () => {
-    const spy = vi.spyOn(__publicHttpForTests, 'get').mockResolvedValue({ data: [{ pair: 'B-BTC_USDT' }] });
+  it('getFuturesPairStats posts futures pair stats to api v1 endpoint', async () => {
+    const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: [{ pair: 'B-BTC_USDT' }] });
     const data = await CoinDCXApi.getFuturesPairStats('B-BTC_USDT');
-    expect(spy).toHaveBeenCalledWith('/exchange/v1/derivatives/futures/pair_stats', {
-      params: { pair: 'B-BTC_USDT' },
-    });
+    expect(spy).toHaveBeenCalledWith(
+      '/api/v1/derivatives/futures/data/stats',
+      expect.objectContaining({ pair: 'B-BTC_USDT', timestamp: expect.any(Number) }),
+      expect.any(Object),
+    );
     expect(data).toEqual([{ pair: 'B-BTC_USDT' }]);
+  });
+
+  it('getFuturesActiveInstruments gets futures data active instruments endpoint', async () => {
+    const spy = vi.spyOn(__httpForTests, 'get').mockResolvedValue({ data: [{ instrument: 'B-BTC_USDT' }] });
+    const data = await CoinDCXApi.getFuturesActiveInstruments();
+    expect(spy).toHaveBeenCalledWith('/exchange/v1/derivatives/futures/data/active_instruments', undefined);
+    expect(data).toEqual([{ instrument: 'B-BTC_USDT' }]);
+  });
+
+  it('getFuturesInstrumentDetails gets futures data instrument endpoint', async () => {
+    const spy = vi.spyOn(__httpForTests, 'get').mockResolvedValue({ data: { instrument: 'B-BTC_USDT' } });
+    const data = await CoinDCXApi.getFuturesInstrumentDetails('B-BTC_USDT');
+    expect(spy).toHaveBeenCalledWith('/exchange/v1/derivatives/futures/data/instrument', {
+      params: { instrument: 'B-BTC_USDT' },
+    });
+    expect(data).toEqual({ instrument: 'B-BTC_USDT' });
+  });
+
+  it('getFuturesInstrumentTradeHistory gets futures data trades endpoint', async () => {
+    const spy = vi.spyOn(__httpForTests, 'get').mockResolvedValue({ data: [{ id: 'ft1' }] });
+    const data = await CoinDCXApi.getFuturesInstrumentTradeHistory('B-BTC_USDT', 12);
+    expect(spy).toHaveBeenCalledWith('/exchange/v1/derivatives/futures/data/trades', {
+      params: { instrument: 'B-BTC_USDT', limit: 12 },
+    });
+    expect(data).toEqual([{ id: 'ft1' }]);
+  });
+
+  it('getFuturesInstrumentOrderBook gets v3 orderbook endpoint with instrument path', async () => {
+    const spy = vi.spyOn(__publicHttpForTests, 'get').mockResolvedValue({ data: { bids: [], asks: [] } });
+    const data = await CoinDCXApi.getFuturesInstrumentOrderBook('B-BTC_USDT');
+    expect(spy).toHaveBeenCalledWith('/market_data/v3/orderbook/B-BTC_USDT-futures/50', undefined);
+    expect(data).toEqual({ bids: [], asks: [] });
+  });
+
+  it('getFuturesInstrumentCandles gets market_data candlesticks with pcode=f', async () => {
+    const spy = vi.spyOn(__publicHttpForTests, 'get').mockResolvedValue({ data: [] });
+    await CoinDCXApi.getFuturesInstrumentCandles('B-BTC_USDT', {
+      resolution: '1',
+      from: 1000,
+      to: 1100,
+      limit: 10,
+    });
+    expect(spy).toHaveBeenCalledWith('/market_data/candlesticks', {
+      params: { pair: 'B-BTC_USDT', resolution: '1', from: 1000, to: 1100, pcode: 'f' },
+    });
+  });
+
+  it('getBalances posts futures wallet details endpoint with signed body', async () => {
+    const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: [{ currency: 'USDT' }] });
+    const data = await CoinDCXApi.getBalances();
+    expect(spy).toHaveBeenCalledWith(
+      '/exchange/v1/derivatives/futures/wallets',
+      expect.objectContaining({ timestamp: expect.any(Number) }),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'X-AUTH-APIKEY': expect.any(String),
+          'X-AUTH-SIGNATURE': expect.any(String),
+        }),
+      }),
+    );
+    expect(data).toEqual([{ currency: 'USDT' }]);
+  });
+
+  it('getFuturesCrossMarginDetails posts to positions cross_margin_details path', async () => {
+    const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: { mode: 'cross' } });
+    const data = await CoinDCXApi.getFuturesCrossMarginDetails();
+    expect(spy).toHaveBeenCalledWith(
+      '/exchange/v1/derivatives/futures/positions/cross_margin_details',
+      expect.objectContaining({ timestamp: expect.any(Number) }),
+      expect.any(Object),
+    );
+    expect(data).toEqual({ mode: 'cross' });
+  });
+
+  it('getFuturesPairStats omits pair filter when pair is not provided', async () => {
+    const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: [] });
+    await CoinDCXApi.getFuturesPairStats();
+    expect(spy).toHaveBeenCalledWith(
+      '/api/v1/derivatives/futures/data/stats',
+      expect.not.objectContaining({ pair: expect.anything() }),
+      expect.any(Object),
+    );
   });
 
   it('blocks futures create order write path via ReadOnlyGuard', async () => {

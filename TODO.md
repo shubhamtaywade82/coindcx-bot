@@ -109,9 +109,9 @@ Use this file as the single source of truth for execution tracking.
 - [x] Enforce documented rate limits (especially `cancel_all` 30/60s)
 
 - [ ] Futures REST endpoint capture and hardening
-- [ ] Manually extract exact `/exchange/v1/derivatives/futures/...` paths from authenticated docs
+- [x] Manually extract exact `/exchange/v1/derivatives/futures/...` paths from authenticated docs
   - NOTE (plain language): this means logging in to the official CoinDCX docs with your account, opening each futures API page, and copying the exact method + path + request params directly from those pages into `config/coindcx_futures_endpoints.yml`. Public docs, blog posts, gists, and unofficial snippets are not accepted as source of truth.
-- [x] Save verbatim paths + params to `config/coindcx_futures_endpoints.yml` (scaffold + validator in place; awaiting manual endpoint fill)
+- [x] Save verbatim paths + params to `config/coindcx_futures_endpoints.yml` (filled from user-provided authenticated Slate export parity list)
   - [x] Reject third-party gists as source of truth (validator enforces trusted docs host + blocks gist/snippet URLs)
   - [ ] Implement wrappers for all named futures sections:
     - [x] instruments active/details/realtime trades/orderbook/candles (resolver + loader scaffold in place; read-only methods now mapped with fallback)
