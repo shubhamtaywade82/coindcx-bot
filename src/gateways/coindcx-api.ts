@@ -841,7 +841,12 @@ export class CoinDCXApi {
     }
   }
 
-  static async getCandles(pair: string, interval: string, limit = 100) {
+  static async getCandles(
+    pair: string,
+    interval: string,
+    limit = 100,
+    range?: { fromMs?: number; toMs?: number },
+  ) {
     // CoinDCX futures candlesticks: public.coindcx.com/market_data/candlesticks
     // resolution units: minutes (e.g. 1, 5, 15, 60, 240, "1D")
     const intervalToResolution: Record<string, string> = {
@@ -850,11 +855,19 @@ export class CoinDCXApi {
     };
     const resolution = intervalToResolution[interval] ?? interval;
     const stepSeconds = resolution === '1D' ? 86_400 : Number(resolution) * 60;
-    const to = Math.floor(Date.now() / 1000);
-    const from = to - stepSeconds * limit;
+    const boundedLimit = this.normalizeCandlestickLimit(limit, 100);
+    const hasExplicitRange = range?.fromMs !== undefined || range?.toMs !== undefined;
+    const nowSec = Math.floor(Date.now() / 1000);
+    const fallbackToSec = hasExplicitRange
+      ? Math.floor((range?.toMs ?? Date.now()) / 1000)
+      : nowSec;
+    const fallbackFromSec = fallbackToSec - stepSeconds * boundedLimit;
+    const to = Math.max(0, Math.floor((range?.toMs ?? fallbackToSec * 1000) / 1000));
+    const from = Math.max(0, Math.floor((range?.fromMs ?? fallbackFromSec * 1000) / 1000));
+    const [fromSec, toSec] = from <= to ? [from, to] : [to, from];
     try {
       const response = await publicHttp.get('/market_data/candlesticks', {
-        params: { pair, from, to, resolution, pcode: 'f' },
+        params: { pair, from: fromSec, to: toSec, resolution, pcode: 'f' },
         headers: {
           'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
           'Accept': 'application/json'

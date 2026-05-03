@@ -290,6 +290,24 @@ describe('CoinDCXApi new endpoints', () => {
     });
   });
 
+  it('getCandles honors explicit time range instead of Date.now window', async () => {
+    const spy = vi.spyOn(__publicHttpForTests, 'get').mockResolvedValue({ data: [] });
+    await CoinDCXApi.getCandles('B-BTC_USDT', '1m', 100, {
+      fromMs: 1714600000 * 1000,
+      toMs: 1714600600 * 1000,
+    });
+    expect(spy).toHaveBeenCalledWith('/market_data/candlesticks', {
+      params: {
+        pair: 'B-BTC_USDT',
+        from: 1714600000,
+        to: 1714600600,
+        resolution: '1',
+        pcode: 'f',
+      },
+      headers: expect.any(Object),
+    });
+  });
+
   it('getBalances posts futures wallet details endpoint with signed body', async () => {
     const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: [{ currency: 'USDT' }] });
     const data = await CoinDCXApi.getBalances();

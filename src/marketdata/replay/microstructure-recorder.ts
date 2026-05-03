@@ -3,6 +3,7 @@ import type { ReadStream, WriteStream } from 'node:fs';
 import { createGzip } from 'node:zlib';
 import { pipeline } from 'node:stream/promises';
 import { join } from 'node:path';
+import { toCoinDcxFuturesInstrument } from '../../utils/format';
 
 export interface MicrostructureRecorderOptions {
   outDir: string;
@@ -72,7 +73,7 @@ export class MicrostructureRecorder {
   async record(channel: string, raw: unknown): Promise<void> {
     if (!this.options.channels.includes(channel)) return;
     const rawPair = extractPair(raw);
-    if (rawPair && rawPair !== this.options.pair) return;
+    if (rawPair && rawPair !== toCoinDcxFuturesInstrument(this.options.pair)) return;
     const line = JSON.stringify({
       ts: Date.now(),
       pair: rawPair ?? this.options.pair,
@@ -139,7 +140,8 @@ function extractPair(raw: unknown): string | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
   const record = raw as Record<string, unknown>;
   const value = record.pair ?? record.s;
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
+  if (typeof value !== 'string' || value.length === 0) return undefined;
+  return toCoinDcxFuturesInstrument(value);
 }
 
 async function endStream(stream: WriteStream): Promise<void> {

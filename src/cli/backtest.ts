@@ -75,7 +75,10 @@ async function main() {
       pair, tf, fromMs, toMs,
       fetcher: async (p, t, fm, tm) => {
         const limit = Math.max(1, Math.min(1000, Math.ceil((tm - fm) / tfMs(t))));
-        const raw: any[] = await CoinDCXApi.getCandles(p, t, limit);
+        const raw: any[] = await CoinDCXApi.getCandles(p, t, limit, {
+          fromMs: fm,
+          toMs: tm,
+        });
         return raw.map((row: any[]) => ({
           ts: Number(row[0]),
           o: Number(row[1]),
@@ -113,7 +116,10 @@ async function main() {
             toMs: windowToMs,
             fetcher: async (p, t, fm, tm) => {
               const limit = Math.max(1, Math.min(1000, Math.ceil((tm - fm) / tfMs(t))));
-              const raw: any[] = await CoinDCXApi.getCandles(p, t, limit);
+              const raw: any[] = await CoinDCXApi.getCandles(p, t, limit, {
+                fromMs: fm,
+                toMs: tm,
+              });
               return raw.map((row: any[]) => ({
                 ts: Number(row[0]),
                 o: Number(row[1]),

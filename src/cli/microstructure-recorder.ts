@@ -5,6 +5,7 @@ import { loadConfig } from '../config';
 import { CoinDCXWs } from '../gateways/coindcx-ws';
 import { createLogger } from '../logging/logger';
 import { MicrostructureRecorder } from '../marketdata/replay/microstructure-recorder';
+import { toCoinDcxFuturesInstrument } from '../utils/format';
 
 function parseArgs(argv: string[]): Record<string, string> {
   const out: Record<string, string> = {};
@@ -38,15 +39,17 @@ async function main(): Promise<void> {
   const pairs = [...pairSet.values()];
   const recorderByPair = new Map(
     pairs.map((pair) => {
+      const normalizedPair = toCoinDcxFuturesInstrument(pair);
       const recorder = new MicrostructureRecorder({
-        outDir: join(outputDir, sanitizePair(pair)),
-        pair: pair,
+        outDir: join(outputDir, sanitizePair(normalizedPair)),
+        pair: normalizedPair,
         channels: ['depth-snapshot', 'depth-update', 'new-trade'],
         flushMs: cfg.BACKTEST_RECORDER_FLUSH_MS,
         rotateMb: cfg.BACKTEST_RECORDER_ROTATE_MB,
         compress: cfg.BACKTEST_RECORDER_COMPRESS,
       });
-      return [sanitizePair(pair), recorder] as const;
+      recorder.start();
+      return [sanitizePair(normalizedPair), recorder] as const;
     }),
   );
   const ws = new CoinDCXWs();
@@ -71,7 +74,7 @@ async function main(): Promise<void> {
   ws.on('new-trade', onTrade);
 
   for (const pair of pairs) {
-    ws.subscribePair(pair);
+    ws.subscribePair(toCoinDcxFuturesInstrument(pair));
   }
   ws.connect();
 
@@ -80,7 +83,7 @@ async function main(): Promise<void> {
       mod: 'cli.microstructure_recorder',
       outputDir,
       durationMs,
-      pairs,
+      pairs: pairs.map((pair) => toCoinDcxFuturesInstrument(pair)),
     },
     'microstructure recorder started',
   );
@@ -133,7 +136,8 @@ function extractPair(raw: unknown): string | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
   const row = raw as Record<string, unknown>;
   const pair = row.s ?? row.pair;
-  return typeof pair === 'string' && pair.trim().length > 0 ? pair : undefined;
+  if (typeof pair !== 'string' || pair.trim().length === 0) return undefined;
+  return toCoinDcxFuturesInstrument(pair);
 }
 
 function sanitizePair(pair: string): string {
