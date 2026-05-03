@@ -133,6 +133,10 @@ export class CoinDCXApi {
     );
   }
 
+  static async getSpotBalances() {
+    return this.getUserBalances();
+  }
+
   static async getUserInfo() {
     return this.withClockSkewRetry(
       'UserInfo',
@@ -196,9 +200,40 @@ export class CoinDCXApi {
     );
   }
 
+  static async getOrderStatus(opts: { id?: string; clientOrderId?: string }) {
+    const id = opts.id?.trim();
+    const clientOrderId = opts.clientOrderId?.trim();
+    if (!id && !clientOrderId) {
+      throw new Error('getOrderStatus requires id or clientOrderId');
+    }
+    return this.withClockSkewRetry(
+      'OrderStatus',
+      (timestamp) => ({
+        timestamp,
+        ...(id ? { id } : {}),
+        ...(clientOrderId ? { client_order_id: clientOrderId } : {}),
+      }),
+      async ({ body, headers }) => {
+        const response = await http.post('/exchange/v1/orders/status', body, { headers });
+        return response.data;
+      },
+    );
+  }
+
   static async getSpotOrderStatusMultiple(ids: string[]) {
     return this.withClockSkewRetry(
       'SpotOrderStatusMultiple',
+      (timestamp) => ({ timestamp, id: ids }),
+      async ({ body, headers }) => {
+        const response = await http.post('/exchange/v1/orders/status_multiple', body, { headers });
+        return response.data;
+      },
+    );
+  }
+
+  static async getOrderStatusMultiple(ids: string[]) {
+    return this.withClockSkewRetry(
+      'OrderStatusMultiple',
       (timestamp) => ({ timestamp, id: ids }),
       async ({ body, headers }) => {
         const response = await http.post('/exchange/v1/orders/status_multiple', body, { headers });
@@ -218,6 +253,10 @@ export class CoinDCXApi {
     );
   }
 
+  static async getActiveOrders(market: string) {
+    return this.getSpotActiveOrders(market);
+  }
+
   static async getSpotActiveOrdersCount() {
     return this.withClockSkewRetry(
       'SpotActiveOrdersCount',
@@ -227,6 +266,10 @@ export class CoinDCXApi {
         return response.data;
       },
     );
+  }
+
+  static async getActiveOrdersCount() {
+    return this.getSpotActiveOrdersCount();
   }
 
   static async getFuturesTradeHistory(opts: { fromTimestamp?: number; size?: number } = {}) {

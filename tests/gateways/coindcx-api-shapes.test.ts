@@ -51,9 +51,9 @@ describe('CoinDCXApi new endpoints', () => {
     expect(data).toEqual({ bids: [], asks: [] });
   });
 
-  it('getSpotBalances posts to users/balances', async () => {
+  it('getUserBalances posts to users/balances', async () => {
     const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: [{ currency: 'USDT' }] });
-    const data = await CoinDCXApi.getSpotBalances();
+    const data = await CoinDCXApi.getUserBalances();
     expect(spy).toHaveBeenCalledWith(
       '/exchange/v1/users/balances',
       expect.objectContaining({ timestamp: expect.any(Number) }),
@@ -73,31 +73,31 @@ describe('CoinDCXApi new endpoints', () => {
     expect(data).toEqual({ user: 'abc' });
   });
 
-  it('getOrderStatus posts to orders/status with id or client_order_id', async () => {
+  it('getSpotOrderStatus posts to orders/status with id payload', async () => {
     const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: { status: 'filled' } });
-    const data = await CoinDCXApi.getOrderStatus({ clientOrderId: 'cid-1' });
+    const data = await CoinDCXApi.getSpotOrderStatus('cid-1');
     expect(spy).toHaveBeenCalledWith(
       '/exchange/v1/orders/status',
-      expect.objectContaining({ client_order_id: 'cid-1' }),
+      expect.objectContaining({ id: 'cid-1' }),
       expect.any(Object),
     );
     expect(data).toEqual({ status: 'filled' });
   });
 
-  it('getOrderStatusMultiple posts to orders/status_multiple', async () => {
+  it('getSpotOrderStatusMultiple posts to orders/status_multiple', async () => {
     const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: [{ status: 'open' }] });
-    const data = await CoinDCXApi.getOrderStatusMultiple(['o1', 'o2']);
+    const data = await CoinDCXApi.getSpotOrderStatusMultiple(['o1', 'o2']);
     expect(spy).toHaveBeenCalledWith(
       '/exchange/v1/orders/status_multiple',
-      expect.objectContaining({ ids: ['o1', 'o2'] }),
+      expect.objectContaining({ id: ['o1', 'o2'] }),
       expect.any(Object),
     );
     expect(data).toEqual([{ status: 'open' }]);
   });
 
-  it('getActiveOrders posts to orders/active_orders with market', async () => {
+  it('getSpotActiveOrders posts to orders/active_orders with market', async () => {
     const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: [{ id: 'o1' }] });
-    const data = await CoinDCXApi.getActiveOrders('BTCUSDT');
+    const data = await CoinDCXApi.getSpotActiveOrders('BTCUSDT');
     expect(spy).toHaveBeenCalledWith(
       '/exchange/v1/orders/active_orders',
       expect.objectContaining({ market: 'BTCUSDT' }),
@@ -106,9 +106,9 @@ describe('CoinDCXApi new endpoints', () => {
     expect(data).toEqual([{ id: 'o1' }]);
   });
 
-  it('getActiveOrdersCount posts to orders/active_orders_count', async () => {
+  it('getSpotActiveOrdersCount posts to orders/active_orders_count', async () => {
     const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: { count: 2 } });
-    const data = await CoinDCXApi.getActiveOrdersCount();
+    const data = await CoinDCXApi.getSpotActiveOrdersCount();
     expect(spy).toHaveBeenCalledWith(
       '/exchange/v1/orders/active_orders_count',
       expect.objectContaining({ timestamp: expect.any(Number) }),
