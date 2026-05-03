@@ -30,14 +30,18 @@ class FakeBooks {
 describe('CoinDcxFusion microstructure integration', () => {
   it('includes layer-1 microstructure metrics in fusion snapshots', () => {
     const ws = new EventEmitter();
-    const candles: Candle[] = [
-      { timestamp: 1, open: 1, high: 2, low: 1, close: 2, volume: 10 },
-      { timestamp: 2, open: 2, high: 3, low: 2, close: 3, volume: 11 },
-      { timestamp: 3, open: 3, high: 4, low: 3, close: 4, volume: 12 },
-      { timestamp: 4, open: 4, high: 5, low: 4, close: 5, volume: 13 },
-      { timestamp: 5, open: 5, high: 6, low: 5, close: 6, volume: 14 },
-      { timestamp: 6, open: 6, high: 7, low: 6, close: 7, volume: 15 },
-    ];
+    const now = 2_500_000;
+    const candles: Candle[] = Array.from({ length: 80 }, (_unused, index) => {
+      const close = 100 + (index * 0.2);
+      return {
+        timestamp: now - ((80 - index) * 60_000),
+        open: close - 0.1,
+        high: close + 0.8,
+        low: close - 0.8,
+        close,
+        volume: 10 + (index % 7),
+      };
+    });
     const mtf = new FakeMtfStore(
       new Map([
         [
@@ -67,7 +71,6 @@ describe('CoinDcxFusion microstructure integration', () => {
         ],
       ]),
     ) as any;
-    const now = 2_500_000;
     const tradeFlow = {
       metrics: vi.fn().mockReturnValue({
         pair: 'B-X_USDT',
@@ -110,6 +113,9 @@ describe('CoinDcxFusion microstructure integration', () => {
       expect(snapshot?.microstructure.cvd.cvd).toBe(12);
       expect(snapshot?.microstructure.sweep.detected).toBe(true);
       expect(snapshot?.microstructure.aggressorRatio.ratio).toBe(3);
+      expect(snapshot?.intraday.emaStack.ema9).toBeGreaterThan(0);
+      expect(snapshot?.intraday.atrPercentileRank.percentile).toBeGreaterThanOrEqual(0);
+      expect(snapshot?.intraday.atrPercentileRank.percentile).toBeLessThanOrEqual(1);
     } finally {
       vi.useRealTimers();
     }

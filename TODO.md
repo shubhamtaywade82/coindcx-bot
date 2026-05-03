@@ -176,13 +176,13 @@ Use this file as the single source of truth for execution tracking.
   - [x] Sweep detection (`<= 200ms` burst cluster)
   - [x] Iceberg/spoof persistence heuristics
 
-- [ ] Layer 2 Intraday indicators (1m-15m)
-  - [ ] Anchored VWAP contexts (session/daily/swing)
-  - [ ] TTM squeeze detection and breakout trigger
-  - [ ] EMA stack (9/21/50) rule set
-  - [ ] RSI divergence detector
-  - [ ] ATR percentile rank over 200 bars
-  - [ ] Rolling order-flow imbalance
+- [x] Layer 2 Intraday indicators (1m-15m)
+  - [x] Anchored VWAP contexts (session/daily/swing)
+  - [x] TTM squeeze detection and breakout trigger
+  - [x] EMA stack (9/21/50) rule set
+  - [x] RSI divergence detector
+  - [x] ATR percentile rank over 200 bars
+  - [x] Rolling order-flow imbalance
 
 - [ ] Layer 3 Swing indicators (1H-4H-1D)
   - [ ] Market structure shift (fractal swing based)

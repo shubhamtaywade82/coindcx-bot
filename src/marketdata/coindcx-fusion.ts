@@ -11,6 +11,7 @@ import {
   resolveOpenInterest,
 } from './data-gap-policy';
 import { computeMicrostructureMetrics, type MicrostructureMetrics } from './microstructure';
+import { computeIntradayIndicators, type IntradayIndicators } from './intraday-indicators';
 
 export interface L2Snapshot {
   pair: string;
@@ -52,6 +53,7 @@ export interface FusionSnapshot {
   };
   tradeMetrics?: TradeMetrics;
   microstructure: MicrostructureMetrics;
+  intraday: IntradayIndicators;
   generatedAt: number;
 }
 
@@ -230,6 +232,13 @@ export class CoinDcxFusion extends EventEmitter {
       microstructure: computeMicrostructureMetrics({
         pair,
         top,
+        tradeFlow: this.trades,
+        nowMs: Date.now(),
+      }),
+      intraday: computeIntradayIndicators({
+        pair,
+        candles1m: mtf.timeframes['1m'] || [],
+        candles15m: mtf.timeframes['15m'] || [],
         tradeFlow: this.trades,
         nowMs: Date.now(),
       }),
