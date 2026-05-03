@@ -87,7 +87,7 @@ Use this file as the single source of truth for execution tracking.
   - [ ] `X-AUTH-APIKEY`
   - [ ] `X-AUTH-SIGNATURE` using HMAC-SHA256(secret, canonical JSON body)
   - [ ] `timestamp` in body
-  - [ ] Canonical JSON serialization validation tests
+  - [x] Canonical JSON serialization validation tests
   - [ ] Clock-skew handling and retry guard
 
 - [ ] Build and persist `MarketCatalog` from `/exchange/v1/markets_details`
