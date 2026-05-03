@@ -81,7 +81,7 @@ describe('CoinDCXApi auth signing', () => {
     const firstBody = postSpy.mock.calls[0]?.[1] as Record<string, unknown>;
     const secondBody = postSpy.mock.calls[1]?.[1] as Record<string, unknown>;
     expect(firstBody.timestamp).toBe(1_710_000_000_000);
-    expect(secondBody.timestamp).toBe(Date.parse('Sun, 03 May 2026 08:00:00 GMT'));
+    expect(secondBody.timestamp).toBe(Date.parse('Sun, 03 May 2026 08:42:23 GMT'));
 
     const secondConfig = postSpy.mock.calls[1]?.[2] as { headers?: RequestHeaders } | undefined;
     const secondHeaders = secondConfig?.headers ?? {};

@@ -59,15 +59,23 @@ export class CoinDCXApi {
 
   private static async fetchServerTimestamp(): Promise<number> {
     const response = await axios.get(`${config.apiBaseUrl}/exchange/v1/markets`, { timeout: 5_000 });
-    const header = response.headers?.date;
-    if (typeof header !== 'string') {
-      throw new Error('Clock-sync failed: missing Date header');
-    }
-    const serverMs = Date.parse(header);
-    if (Number.isNaN(serverMs)) {
-      throw new Error(`Clock-sync failed: invalid Date header "${header}"`);
-    }
+    const serverMs = this.parseDateHeader(response.headers);
+    if (serverMs === undefined) throw new Error('Clock-sync failed: missing or invalid Date header');
     return serverMs;
+  }
+
+  private static parseDateHeader(headers: unknown): number | undefined {
+    if (!headers || typeof headers !== 'object') return undefined;
+    const raw =
+      (headers as Record<string, unknown>)['date'] ??
+      (headers as Record<string, unknown>)['Date'];
+    if (typeof raw !== 'string') return undefined;
+    const parsed = Date.parse(raw);
+    return Number.isNaN(parsed) ? undefined : parsed;
+  }
+
+  private static readServerTimestampFromError(error: any): number | undefined {
+    return this.parseDateHeader(error?.response?.headers);
   }
 
   private static formatApiError(endpoint: string, error: any): Error {
@@ -89,7 +97,8 @@ export class CoinDCXApi {
         throw this.formatApiError(endpoint, error);
       }
       try {
-        const serverTimestamp = await this.fetchServerTimestamp();
+        const serverTimestamp =
+          this.readServerTimestampFromError(error) ?? await this.fetchServerTimestamp();
         const retryRequest = this.buildSignedRequest(bodyBuilder(serverTimestamp));
         return await execute(retryRequest);
       } catch (retryError: any) {
