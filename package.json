@@ -25,11 +25,9 @@
   "type": "commonjs",
   "dependencies": {
     "@types/blessed": "^0.1.27",
-    "@types/crypto-js": "^4.2.2",
     "axios": "^1.15.2",
     "blessed": "^0.1.81",
     "blessed-contrib": "^4.11.0",
-    "crypto-js": "^4.2.0",
     "dotenv": "^17.4.2",
     "node-pg-migrate": "^8.0.4",
     "ntp-client": "^0.5.3",

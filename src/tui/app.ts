@@ -80,6 +80,7 @@ export class TuiApp {
       output: process.stdout,
       fullUnicode: true,
       keys: true,
+      mouse: false,
       // Removed grabKeys: true as it can sometimes interfere with input bubbling in some terminals
     });
 
@@ -87,7 +88,7 @@ export class TuiApp {
     this.grid = new contrib.grid({ rows: 12, cols: 12, screen: this.screen });
 
     // Initialize logPanel early so this.log() works
-    this.logPanel = this.grid.set(11, 0, 1, 12, blessed.log, {
+    this.logPanel = this.grid.set(10, 0, 2, 12, blessed.log, {
       label: ' ◉ System Logs ',
       border: { type: 'line', fg: 'gray' },
       scrollable: true,
@@ -139,8 +140,13 @@ export class TuiApp {
       style: { fg: 'white' }
     });
 
+    const signalsPanel = this.grid.set(3, 9, 5, 3, blessed.box, { label: ' ⚡ Signals ' });
     this.signalsBox = blessed.box({
-      parent: this.grid.set(3, 9, 5, 3, blessed.box, { label: ' ⚡ Signals ' }),
+      parent: signalsPanel,
+      top: 0,
+      left: 0,
+      width: '100%',
+      height: '100%',
       tags: true,
       scrollable: true,
       alwaysScroll: true,
@@ -148,34 +154,54 @@ export class TuiApp {
       content: ' {gray-fg}Awaiting strategy signals...{/gray-fg}',
     });
 
-    // ── Row 7-9: Active Positions (Full Width) ──
+    // ── Row 8: Active Positions (single grid row — was two; freed row for logs + bottom bar) ──
+    const positionsPanel = this.grid.set(8, 0, 1, 12, blessed.box, { label: ' Active Positions ' });
     this.positionsTable = blessed.box({
-      parent: this.grid.set(8, 0, 2, 12, blessed.box, { label: ' Active Positions ' }),
+      parent: positionsPanel,
+      top: 0,
+      left: 0,
+      width: '100%',
+      height: '100%',
       tags: true,
       scrollable: true,
       alwaysScroll: true,
-      scrollbar: { ch: ' ' }
+      scrollbar: { ch: ' ' },
     });
 
-    // ── Row 9-11: Account & Risk ──
+    // ── Row 9: Balances / Orders / Risk (5 + 4 + 3 cols) ──
+    const balancePanel = this.grid.set(9, 0, 1, 5, blessed.box, { label: ' Balances ' });
     this.balanceTable = blessed.box({
-      parent: this.grid.set(10, 0, 1, 6, blessed.box, { label: ' Balances ' }),
+      parent: balancePanel,
+      top: 0,
+      left: 0,
+      width: '100%',
+      height: '100%',
       tags: true,
       scrollable: true,
       alwaysScroll: true,
-      scrollbar: { ch: ' ' }
-    });
-    
-    this.orderTable = blessed.box({
-      parent: this.grid.set(10, 6, 1, 3, blessed.box, { label: ' Orders ' }),
-      tags: true,
-      scrollable: true,
-      alwaysScroll: true,
-      scrollbar: { ch: ' ' }
+      scrollbar: { ch: ' ' },
     });
 
+    const ordersPanel = this.grid.set(9, 5, 1, 4, blessed.box, { label: ' Orders ' });
+    this.orderTable = blessed.box({
+      parent: ordersPanel,
+      top: 0,
+      left: 0,
+      width: '100%',
+      height: '100%',
+      tags: true,
+      scrollable: true,
+      alwaysScroll: true,
+      scrollbar: { ch: ' ' },
+    });
+
+    const riskPanel = this.grid.set(9, 9, 1, 3, blessed.box, { label: ' 🛡 Risk ' });
     this.riskBox = blessed.box({
-      parent: this.grid.set(10, 9, 1, 3, blessed.box, { label: ' 🛡 Risk ' }),
+      parent: riskPanel,
+      top: 0,
+      left: 0,
+      width: '100%',
+      height: '100%',
       tags: true,
       scrollable: true,
       alwaysScroll: true,
@@ -194,9 +220,8 @@ export class TuiApp {
       const keyName = key.name;
       const fullKey = key.full || key.name;
 
-      // Diagnostic logging
-      if (this.logPanel) {
-        this.log(`[DEBUG] Key: ${keyName} | Full: ${fullKey} | Ch: ${ch || 'none'}`);
+      if (config.LOG_LEVEL === 'debug' && this.logPanel) {
+        this.log(`[DEBUG] Key: ${keyName} | Full: ${fullKey} | Ch: ${ch || 'none'}`, 'debug');
       }
 
       // 1. Exit
@@ -513,7 +538,9 @@ export class TuiApp {
     const spread = bestAsk > 0 && bestBid > 0 ? (bestAsk - bestBid).toFixed(2) : '—';
     
     const trend = this.trendByPair.get(target) || '';
-    const ltpRow = ` {yellow-fg}{bold}${this.padLeft(formatPrice(lastPrice), 12)}{/bold}{/yellow-fg} ${trend}  {gray-fg}SPR: ${spread}{/gray-fg}\n`;
+    const ltpRow =
+      ` {yellow-fg}{bold}${this.padLeft(formatPrice(lastPrice), 12)}{/bold}{/yellow-fg} ${trend}\n` +
+      ` {gray-fg}SPR:{/gray-fg} {cyan-fg}${spread}{/cyan-fg}\n`;
     if (!isNaN(currentPrice)) this.lastLtpByPair.set(target, currentPrice);
 
     // ── Bids (Green) ──
@@ -637,11 +664,11 @@ export class TuiApp {
         : 'yellow';
     const bkLabel = m.bookImbalance ?? 'neutral';
     const bkStr = m.bestBid !== undefined
-      ? ` {gray-fg}bb{/gray-fg}{green-fg}${m.bestBid.toFixed(2)}{/green-fg} {gray-fg}ba{/gray-fg}{red-fg}${m.bestAsk?.toFixed(2) ?? '—'}{/red-fg} {gray-fg}spr${(m.spread ?? 0).toFixed(2)}{/gray-fg}`
+      ? ` {gray-fg}bb{/gray-fg}{green-fg}${m.bestBid.toFixed(2)}{/green-fg} {gray-fg}ba{/gray-fg}{red-fg}${m.bestAsk?.toFixed(2) ?? '—'}{/red-fg} {gray-fg}SPR:{/gray-fg} {cyan-fg}${(m.spread ?? 0).toFixed(2)}{/cyan-fg}`
       : '';
 
     return `\n\n {gray-fg}─── MTF ───────────────────────────────{/gray-fg}\n ` +
-      `${barStr('1m', m.tf1m)}  ${barStr('15m', m.tf15m)}  ${barStr('1h', m.tf1h)}\n ` +
+      `${barStr('1m', m.tf1m)}    ${barStr('15m', m.tf15m)}    ${barStr('1h', m.tf1h)}\n ` +
       `{${bkColor}-fg}${bkLabel}{/${bkColor}-fg}${bkStr}`;
   }
 
@@ -659,6 +686,18 @@ export class TuiApp {
     return ' '.repeat(width - len) + str;
   }
 
+  private stripTags(s: string): string {
+    return s.replace(/\{[^}]+\}/g, '');
+  }
+
+  /** Short display symbol for signals/risk (e.g. B-ETH_USDT → ETH). */
+  private formatSignalSymbol(pair?: string): string {
+    if (!pair || pair === '—') return '—';
+    const c = cleanPair(pair);
+    const base = c.endsWith('USDT') ? c.slice(0, -4) : c;
+    return base.slice(0, 10) || '—';
+  }
+
   updatePositions(rows: string[][]) {
     // SYM(6) SIDE(5) QTY(10) ENT(10) LAST(10) MARK(10) SL(6) PNL(10)
     const header = ` {yellow-fg}${this.padLeft('SYM', 6)} ${this.padLeft('SIDE', 5)} ${this.padRight('QTY', 10)} ${this.padRight('ENT', 10)} ${this.padRight('LAST', 10)} ${this.padRight('MARK', 10)} ${this.padRight('SL', 6)} ${this.padRight('PNL', 10)}{/yellow-fg}\n`;
@@ -667,7 +706,10 @@ export class TuiApp {
       const pnlVal = parseFloat(r[7] || '0');
       const pnlColor = pnlVal > 0 ? 'green' : pnlVal < 0 ? 'red' : 'white';
       
-      return ` ${this.padLeft(r[0] || '', 6)} ${this.padLeft(r[1] || '', 5)} ${this.padRight(r[2] || '', 10)} ${this.padRight(r[3] || '', 10)} ${this.padRight(r[4] || '', 10)} ${this.padRight(r[5] || '', 10)} ${this.padRight(r[6] || '', 6)} {${pnlColor}-fg}${this.padRight(r[7] || '', 10)}{/${pnlColor}-fg}`;
+      const pnlCell = r[7] || '';
+      const pnlPlain = this.stripTags(pnlCell);
+      const pnlPadded = this.padRight(pnlPlain, 10);
+      return ` ${this.padLeft(r[0] || '', 6)} ${this.padLeft(r[1] || '', 5)} ${this.padRight(r[2] || '', 10)} ${this.padRight(r[3] || '', 10)} ${this.padRight(r[4] || '', 10)} ${this.padRight(r[5] || '', 10)} ${this.padRight(r[6] || '', 6)} {${pnlColor}-fg}${pnlPadded}{/${pnlColor}-fg}`;
     }).join('\n');
 
     this.positionsTable.setContent(header + content);
@@ -679,10 +721,11 @@ export class TuiApp {
     const header = ` {green-fg}${this.padLeft('ASSET', 6)} ${this.padRight('VALUE', 10)} ${this.padRight('WALLET', 10)} ${this.padRight('PNL', 10)} ${this.padRight('%', 6)} ${this.padRight('AVAIL', 10)} ${this.padRight('LOCK', 10)} ${this.padRight('UTIL%', 8)}{/green-fg}\n`;
     
     const content = rows.map(r => {
-      const pnlValue = parseFloat(r[3] || '0');
+      const pnlPlain = this.stripTags(r[3] || '');
+      const pnlValue = parseFloat(pnlPlain.replace(/[^0-9.+-Ee]/g, '')) || 0;
       const pnlColor = pnlValue > 0 ? 'green' : pnlValue < 0 ? 'red' : 'white';
-      
-      return ` ${this.padLeft(r[0] || '', 6)} ${this.padRight(r[1] || '', 10)} ${this.padRight(r[2] || '', 10)} {${pnlColor}-fg}${this.padRight(r[3] || '', 10)}{/${pnlColor}-fg} ${this.padRight(r[4] || '', 6)} ${this.padRight(r[5] || '', 10)} ${this.padRight(r[6] || '', 10)} ${this.padRight(r[7] || '', 8)}`;
+      const pnlPadded = this.padRight(pnlPlain, 10);
+      return ` ${this.padLeft(r[0] || '', 6)} ${this.padRight(r[1] || '', 10)} ${this.padRight(r[2] || '', 10)} {${pnlColor}-fg}${pnlPadded}{/${pnlColor}-fg} ${this.padRight(r[4] || '', 6)} ${this.padRight(r[5] || '', 10)} ${this.padRight(r[6] || '', 10)} ${this.padRight(r[7] || '', 8)}`;
     }).join('\n');
 
     this.balanceTable.setContent(header + content);
@@ -691,6 +734,21 @@ export class TuiApp {
 
   updateOrders(rows: string[][]) {
     const header = ` {magenta-fg}${this.padLeft('T', 2)} ${this.padLeft('PAIR', 10)} ${this.padLeft('ST', 8)} ${this.padRight('LAT', 6)}{/magenta-fg}\n`;
+
+    const isPlaceholderRow =
+      rows.length > 0 &&
+      rows.length === 1 &&
+      rows[0].every((c) => !c || c === '—' || c === 'Connecting...');
+
+    if (isPlaceholderRow) {
+      const msg =
+        rows[0][1] === 'Connecting...'
+          ? ' {gray-fg}Connecting…{/gray-fg}'
+          : ' {gray-fg}No open orders{/gray-fg}';
+      this.orderTable.setContent(header + msg);
+      this.render();
+      return;
+    }
 
     const content = rows.map(r => {
       return ` ${this.padLeft(r[0] || '', 2)} ${this.padLeft(r[1] || '', 10)} ${this.padLeft(r[2] || '', 8)} ${this.padRight(r[3] || '', 6)}`;
@@ -780,7 +838,7 @@ export class TuiApp {
     }
     const lines = this.recentSignals.map(s => {
       const t = new Date(s.ts).toLocaleTimeString();
-      const sym = s.pair?.replace('USDT', '').replace('B-', '').slice(0, 8) ?? '—';
+      const sym = this.formatSignalSymbol(s.pair);
       if (s.type === 'strategy.error') {
         return ` {red-fg}${t}{/red-fg} {red-fg}ERR{/red-fg} ${sym} ${s.reason ?? ''}`;
       }
@@ -790,7 +848,7 @@ export class TuiApp {
       const color = s.side === 'LONG' ? 'green' : s.side === 'SHORT' ? 'red' : 'yellow';
       const tag = (s.side ?? '?').slice(0, 4).padEnd(4);
       const conf = `${((s.conf ?? 0) * 100).toFixed(0)}%`.padStart(4);
-      return ` {gray-fg}${t}{/gray-fg} {${color}-fg}${tag}{/${color}-fg} ${sym.padEnd(8)} ${conf}`;
+      return ` {gray-fg}${t}{/gray-fg} {${color}-fg}${tag}{/${color}-fg} ${this.padRight(sym, 10)} ${conf}`;
     });
     this.signalsBox.setContent(lines.join('\n'));
     this.render();
@@ -808,10 +866,10 @@ export class TuiApp {
     }
     const lines = this.recentRisk.map(r => {
       const t = new Date(r.ts).toLocaleTimeString();
-      const sym = r.pair?.replace('USDT', '').replace('B-', '').slice(0, 8) ?? '—';
+      const sym = this.formatSignalSymbol(r.pair);
       const sideTag = r.side === 'LONG' ? '{green-fg}L{/green-fg}' : r.side === 'SHORT' ? '{red-fg}S{/red-fg}' : '?';
       const ruleTag = (r.rules[0] ?? 'risk').slice(0, 16);
-      return ` {gray-fg}${t}{/gray-fg} ${sideTag} ${sym.padEnd(8)} {yellow-fg}${ruleTag}{/yellow-fg}`;
+      return ` {gray-fg}${t}{/gray-fg} ${sideTag} ${this.padRight(sym, 10)} {yellow-fg}${ruleTag}{/yellow-fg}`;
     });
     this.riskBox.setContent(header + lines.join('\n'));
     this.render();
