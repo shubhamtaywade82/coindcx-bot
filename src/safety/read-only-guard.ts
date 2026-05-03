@@ -1,8 +1,30 @@
 import type { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 
+export interface WriteRateLimitPolicy {
+  pathPrefix: string;
+  maxRequests: number;
+  windowMs: number;
+}
+
+export const WRITE_RATE_LIMIT_POLICIES: readonly WriteRateLimitPolicy[] = [
+  { pathPrefix: '/exchange/v1/orders/cancel_all', maxRequests: 30, windowMs: 60_000 },
+  { pathPrefix: '/exchange/v1/derivatives/futures/orders/cancel_all', maxRequests: 30, windowMs: 60_000 },
+];
+
+export function getWriteRateLimitPolicy(path: string): WriteRateLimitPolicy | undefined {
+  return WRITE_RATE_LIMIT_POLICIES.find((p) => path.startsWith(p.pathPrefix));
+}
+
 export class ReadOnlyViolation extends Error {
-  constructor(public readonly method: string, public readonly path: string) {
-    super(`Read-only violation: ${method} ${path}`);
+  constructor(
+    public readonly method: string,
+    public readonly path: string,
+    public readonly rateLimitPolicy?: WriteRateLimitPolicy,
+  ) {
+    const suffix = rateLimitPolicy
+      ? ` (rate-limit policy: ${rateLimitPolicy.maxRequests}/${Math.floor(rateLimitPolicy.windowMs / 1000)}s)`
+      : '';
+    super(`Read-only violation: ${method} ${path}${suffix}`);
     this.name = 'ReadOnlyViolation';
   }
 }
@@ -60,17 +82,18 @@ export function applyReadOnlyGuard(client: AxiosInstance, opts: GuardOptions = {
   client.interceptors.request.use((req: InternalAxiosRequestConfig) => {
     const method = (req.method ?? 'get').toUpperCase();
     const path = req.url ?? '';
+    const rateLimitPolicy = method === 'POST' ? getWriteRateLimitPolicy(path) : undefined;
 
     if (deny.some((p) => path.startsWith(p))) {
       opts.onViolation?.({ method, path });
-      throw new ReadOnlyViolation(method, path);
+      throw new ReadOnlyViolation(method, path, rateLimitPolicy);
     }
 
     if (WRITE_VERBS.has(method)) {
       const allowed = method === 'POST' && allowPosts.some((p) => path.startsWith(p));
       if (!allowed) {
         opts.onViolation?.({ method, path });
-        throw new ReadOnlyViolation(method, path);
+        throw new ReadOnlyViolation(method, path, rateLimitPolicy);
       }
     }
     return req;

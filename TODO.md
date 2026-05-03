@@ -106,7 +106,7 @@ Use this file as the single source of truth for execution tracking.
   - [x] deny-list policy tests cover wallet transfer write routes
   - [x] Optional product surfaces (read-only fetch subset): margin/funding fetch endpoints
   - [ ] Optional product surfaces (write subset remains blocked): margin create/exit/edit, lend/settle
-  - [ ] Enforce documented rate limits (especially `cancel_all` 30/60s)
+- [x] Enforce documented rate limits (especially `cancel_all` 30/60s)
 
 - [ ] Futures REST endpoint capture and hardening
   - [ ] Manually extract exact `/exchange/v1/derivatives/futures/...` paths from authenticated docs

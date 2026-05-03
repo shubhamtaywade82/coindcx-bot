@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import axios from 'axios';
 import nock from 'nock';
-import { applyReadOnlyGuard, ReadOnlyViolation, DENY_PATHS } from '../../src/safety/read-only-guard';
+import {
+  applyReadOnlyGuard,
+  ReadOnlyViolation,
+  DENY_PATHS,
+  WRITE_PATH_RATE_LIMIT_POLICY,
+} from '../../src/safety/read-only-guard';
 
 describe('ReadOnlyGuard', () => {
   it('blocks POST to non-allowlisted path', async () => {
@@ -51,5 +56,34 @@ describe('ReadOnlyGuard', () => {
     await client.post('/x', {}).catch(() => {});
     expect(captured.method).toBe('POST');
     expect(captured.path).toBe('/x');
+  });
+
+  it('exposes cancel_all rate-limit policy metadata on violation', async () => {
+    const client = axios.create({ baseURL: 'https://api.coindcx.com' });
+    applyReadOnlyGuard(client);
+    let err: unknown;
+    try {
+      await client.post('/exchange/v1/orders/cancel_all', { market: 'BTCUSDT' });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(ReadOnlyViolation);
+    const violation = err as ReadOnlyViolation;
+    expect(violation.path).toBe('/exchange/v1/orders/cancel_all');
+    expect(violation.rateLimitPolicy).toEqual(
+      WRITE_PATH_RATE_LIMIT_POLICY['/exchange/v1/orders/cancel_all'],
+    );
+  });
+
+  it('includes policy metadata in onViolation callback for cancel_all', async () => {
+    const client = axios.create({ baseURL: 'https://api.coindcx.com' });
+    const onViolation = vi.fn();
+    applyReadOnlyGuard(client, { onViolation });
+    await client.post('/exchange/v1/orders/cancel_all', { market: 'BTCUSDT' }).catch(() => {});
+    expect(onViolation).toHaveBeenCalledWith({
+      method: 'POST',
+      path: '/exchange/v1/orders/cancel_all',
+      rateLimitPolicy: WRITE_PATH_RATE_LIMIT_POLICY['/exchange/v1/orders/cancel_all'],
+    });
   });
 });
