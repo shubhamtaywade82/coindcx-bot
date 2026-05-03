@@ -62,6 +62,7 @@ describe('CoinDCXWs handshake and event receipt', () => {
     expect(joinedChannels).toContain('currentPrices@spot@10s');
     expect(joinedChannels).toContain('currentPrices@futures@rt');
     expect(joinedChannels).toContain(`${config.pairs[0]}@orderbook@20-futures`);
+    expect(joinedChannels).toContain(`${config.pairs[0]}@priceStats`);
 
     const privateJoin = joinCalls.find(([, payload]) => (payload as { channelName?: string }).channelName === 'coindcx');
     expect(privateJoin).toBeDefined();
@@ -85,14 +86,26 @@ describe('CoinDCXWs handshake and event receipt', () => {
 
     const candles: unknown[] = [];
     const positions: unknown[] = [];
+    const orders: unknown[] = [];
+    const trades: unknown[] = [];
+    const spotPrices: unknown[] = [];
+    const priceStats: unknown[] = [];
     const snapshots: Array<Record<string, unknown>> = [];
 
     ws.on('candlestick', (data) => candles.push(data));
     ws.on('df-position-update', (data) => positions.push(data));
+    ws.on('order-update', (data) => orders.push(data));
+    ws.on('trade-update', (data) => trades.push(data));
+    ws.on('currentPrices', (data) => spotPrices.push(data));
+    ws.on('priceStats', (data) => priceStats.push(data));
     ws.on('depth-snapshot', (data) => snapshots.push(data as Record<string, unknown>));
 
     mockedSocketIo.socket.trigger('candlestick', { data: { pair: 'B-BTC_USDT', interval: '1m' } });
-    mockedSocketIo.socket.trigger('df-position-update', { data: { id: 'p1', pair: 'B-BTC_USDT' } });
+    mockedSocketIo.socket.trigger('position-update', { data: { id: 'p1', pair: 'B-BTC_USDT' } });
+    mockedSocketIo.socket.trigger('df-order-update', { data: { id: 'o1' } });
+    mockedSocketIo.socket.trigger('df-trade-update', { data: { id: 't1' } });
+    mockedSocketIo.socket.trigger('currentPrices@spot#update', { data: { prices: { BTCUSDT: 1 } } });
+    mockedSocketIo.socket.trigger('price-change', { data: { pair: 'B-BTC_USDT', change: 0.2 } });
     mockedSocketIo.socket.trigger('depth-snapshot', {
       channel: 'B-BTC_USDT@orderbook@20-futures',
       data: { bids: [['1', '2']], asks: [['3', '4']] },
@@ -101,7 +114,36 @@ describe('CoinDCXWs handshake and event receipt', () => {
 
     expect(candles).toEqual([{ pair: 'B-BTC_USDT', interval: '1m' }]);
     expect(positions).toEqual([{ id: 'p1', pair: 'B-BTC_USDT' }]);
+    expect(orders).toEqual([{ id: 'o1' }]);
+    expect(trades).toEqual([{ id: 't1' }]);
+    expect(spotPrices).toEqual([{ prices: { BTCUSDT: 1 } }]);
+    expect(priceStats).toEqual([{ pair: 'B-BTC_USDT', change: 0.2 }]);
     expect(snapshots).toHaveLength(1);
     expect(snapshots[0]?.s).toBe('B-BTC_USDT');
+  });
+
+  it('supports pair-level subscribe and unsubscribe multiplexing', () => {
+    const ws = new CoinDCXWs();
+    ws.connect();
+    mockedSocketIo.socket.trigger('connect');
+    ws.unsubscribePair('B-ETH_USDT');
+    mockedSocketIo.socket.emit.mockClear();
+
+    ws.subscribePair('B-ETH_USDT');
+    ws.unsubscribePair('B-ETH_USDT');
+
+    const joinCalls = mockedSocketIo.socket.emit.mock.calls
+      .filter(([event]) => event === 'join')
+      .map(([, payload]) => (payload as { channelName: string }).channelName);
+    const leaveCalls = mockedSocketIo.socket.emit.mock.calls
+      .filter(([event]) => event === 'leave')
+      .map(([, payload]) => (payload as { channelName: string }).channelName);
+
+    expect(joinCalls).toContain('B-ETH_USDT@trades');
+    expect(joinCalls).toContain('B-ETH_USDT@priceStats');
+    expect(joinCalls).toContain('B-ETH_USDT@orderbook@20-futures');
+    expect(leaveCalls).toContain('B-ETH_USDT@trades');
+    expect(leaveCalls).toContain('B-ETH_USDT@priceStats');
+    expect(leaveCalls).toContain('B-ETH_USDT@orderbook@20-futures');
   });
 });

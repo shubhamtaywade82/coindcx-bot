@@ -6,6 +6,8 @@ import { assertSocketIoClientVersion } from './socketio-version-guard';
 
 export class CoinDCXWs extends EventEmitter {
   private socket: any;
+  private isConnected = false;
+  private readonly subscribedPairs = new Set<string>();
   public skipPrivate: boolean = false;
 
   constructor() {
@@ -22,6 +24,7 @@ export class CoinDCXWs extends EventEmitter {
     this.setupSocketListeners();
 
     this.socket.on('connect', () => {
+      this.isConnected = true;
       this.emit('connected');
       this.joinPublicChannels();
       if (config.apiKey && config.apiSecret && !this.skipPrivate) {
@@ -30,6 +33,7 @@ export class CoinDCXWs extends EventEmitter {
     });
 
     this.socket.on('disconnect', (reason: string) => {
+      this.isConnected = false;
       this.emit('disconnected', reason);
     });
 
@@ -39,23 +43,61 @@ export class CoinDCXWs extends EventEmitter {
   }
 
   private joinPublicChannels() {
-    config.pairs.forEach((pair) => {
-      this.emit('debug', `Joining channels for ${pair}`);
-      // Spot (no spot orderbook — it shares the same `depth-snapshot` event name as futures and
-      // would overwrite the per-pair L2 book with a different microstructure / wrong venue.)
-      this.socket.emit('join', { channelName: `${pair}_1m` });
-      this.socket.emit('join', { channelName: `${pair}@trades` });
-      this.socket.emit('join', { channelName: `${pair}@prices` });
-
-      // Futures (L2 + trades + prices for configured instruments)
-      this.socket.emit('join', { channelName: `${pair}_1m-futures` });
-      this.socket.emit('join', { channelName: `${pair}@orderbook@20-futures` });
-      this.socket.emit('join', { channelName: `${pair}@trades-futures` });
-      this.socket.emit('join', { channelName: `${pair}@prices-futures` });
-    });
+    config.pairs.forEach((pair) => this.subscribePair(pair));
 
     this.socket.emit('join', { channelName: 'currentPrices@spot@10s' });
     this.socket.emit('join', { channelName: 'currentPrices@futures@rt' });
+  }
+
+  private joinPairChannels(pair: string): void {
+    this.emit('debug', `Joining channels for ${pair}`);
+    // Spot (no spot orderbook — it shares the same `depth-snapshot` event name as futures and
+    // would overwrite the per-pair L2 book with a different microstructure / wrong venue.)
+    this.socket.emit('join', { channelName: `${pair}_1m` });
+    this.socket.emit('join', { channelName: `${pair}@trades` });
+    this.socket.emit('join', { channelName: `${pair}@prices` });
+    // Some environments expose priceStats as a separate stream name.
+    this.socket.emit('join', { channelName: `${pair}@priceStats` });
+
+    // Futures (L2 + trades + prices for configured instruments)
+    this.socket.emit('join', { channelName: `${pair}_1m-futures` });
+    this.socket.emit('join', { channelName: `${pair}@orderbook@20-futures` });
+    this.socket.emit('join', { channelName: `${pair}@trades-futures` });
+    this.socket.emit('join', { channelName: `${pair}@prices-futures` });
+  }
+
+  private leavePairChannels(pair: string): void {
+    this.emit('debug', `Leaving channels for ${pair}`);
+    this.socket.emit('leave', { channelName: `${pair}_1m` });
+    this.socket.emit('leave', { channelName: `${pair}@trades` });
+    this.socket.emit('leave', { channelName: `${pair}@prices` });
+    this.socket.emit('leave', { channelName: `${pair}@priceStats` });
+    this.socket.emit('leave', { channelName: `${pair}_1m-futures` });
+    this.socket.emit('leave', { channelName: `${pair}@orderbook@20-futures` });
+    this.socket.emit('leave', { channelName: `${pair}@trades-futures` });
+    this.socket.emit('leave', { channelName: `${pair}@prices-futures` });
+  }
+
+  subscribePair(pair: string): void {
+    const normalizedPair = pair.trim().toUpperCase();
+    if (!normalizedPair || this.subscribedPairs.has(normalizedPair)) {
+      return;
+    }
+    this.subscribedPairs.add(normalizedPair);
+    if (this.isConnected) {
+      this.joinPairChannels(normalizedPair);
+    }
+  }
+
+  unsubscribePair(pair: string): void {
+    const normalizedPair = pair.trim().toUpperCase();
+    if (!normalizedPair || !this.subscribedPairs.has(normalizedPair)) {
+      return;
+    }
+    this.subscribedPairs.delete(normalizedPair);
+    if (this.isConnected) {
+      this.leavePairChannels(normalizedPair);
+    }
   }
 
   private joinPrivateChannel() {
@@ -110,6 +152,8 @@ export class CoinDCXWs extends EventEmitter {
       'depth-update',
       'new-trade',
       'price-change',
+      'priceStats',
+      'currentPrices',
       'currentPrices@spot#update',
       'currentPrices@futures#update',
     ];
@@ -119,24 +163,36 @@ export class CoinDCXWs extends EventEmitter {
         const data = this.normalizePublicEventPayload(event, response);
         if (data === null) return;
         this.emit(event, data);
+        if (event === 'currentPrices@spot#update' || event === 'currentPrices@futures#update') {
+          this.emit('currentPrices', data);
+        }
+        if (event === 'price-change') {
+          this.emit('priceStats', data);
+        }
         if (!['depth-update', 'depth-snapshot'].includes(event)) {
           this.emit('debug', `${event}: ${JSON.stringify(data).substring(0, 100)}`);
         }
       });
     });
 
-    // ── Private Events (CoinDCX derivatives use df- prefix) ──
-    const privateEvents = [
-      'balance-update',
-      'df-position-update',
-      'df-order-update',
-    ];
+    // ── Private Events (`coindcx` may emit either base or df- prefixed names) ──
+    const privateEventAliases: Record<string, readonly string[]> = {
+      'balance-update': ['balance-update'],
+      'position-update': ['position-update', 'df-position-update'],
+      'df-position-update': ['df-position-update'],
+      'order-update': ['order-update', 'df-order-update'],
+      'df-order-update': ['df-order-update', 'order-update'],
+      'trade-update': ['trade-update', 'df-trade-update'],
+      'df-trade-update': ['df-trade-update', 'trade-update'],
+    };
 
-    privateEvents.forEach((event) => {
+    Object.keys(privateEventAliases).forEach((event) => {
       this.socket.on(event, (response: any) => {
         const data = response.data || response;
         this.emit('debug', `PRIVATE ${event}: ${JSON.stringify(data).substring(0, 100)}`);
-        this.emit(event, data);
+        for (const alias of privateEventAliases[event] ?? [event]) {
+          this.emit(alias, data);
+        }
       });
     });
   }

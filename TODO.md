@@ -110,6 +110,7 @@ Use this file as the single source of truth for execution tracking.
 
 - [ ] Futures REST endpoint capture and hardening
 - [ ] Manually extract exact `/exchange/v1/derivatives/futures/...` paths from authenticated docs
+  - NOTE (plain language): this means logging in to the official CoinDCX docs with your account, opening each futures API page, and copying the exact method + path + request params directly from those pages into `config/coindcx_futures_endpoints.yml`. Public docs, blog posts, gists, and unofficial snippets are not accepted as source of truth.
 - [x] Save verbatim paths + params to `config/coindcx_futures_endpoints.yml` (scaffold + validator in place; awaiting manual endpoint fill)
   - [x] Reject third-party gists as source of truth (validator enforces trusted docs host + blocks gist/snippet URLs)
   - [ ] Implement wrappers for all named futures sections:
@@ -125,10 +126,10 @@ Use this file as the single source of truth for execution tracking.
     - [x] change margin type (wrapper added; write endpoint remains blocked by ReadOnlyGuard)
     - [x] currency conversion (read wrapper mapped via futures resolver)
 
-- [ ] Spot websocket channels and handlers
-  - [ ] Private: `balance-update`, `order-update`, `trade-update` on `coindcx`
-  - [ ] Public: candlestick, depth-snapshot, depth-update, currentPrices, priceStats, new-trade, price-change
-  - [ ] Join/leave multiplexing support
+- [x] Spot websocket channels and handlers
+  - [x] Private: `balance-update`, `order-update`, `trade-update` on `coindcx` (with df-* compatibility aliases)
+  - [x] Public: candlestick, depth-snapshot, depth-update, currentPrices, priceStats, new-trade, price-change
+  - [x] Join/leave multiplexing support
 
 - [ ] Futures websocket coverage
   - [ ] Confirm exact futures channel strings in authenticated docs body
