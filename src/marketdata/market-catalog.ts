@@ -93,6 +93,7 @@ export interface MarketCatalogOptions {
   pool: Pool;
   logger: AppLogger;
   bus: SignalBus;
+  fetchMarketDetails?: () => Promise<unknown>;
   refreshMs?: number;
   staleAlertMs?: number;
 }
@@ -103,6 +104,7 @@ export class MarketCatalog {
   private readonly byEcode = new Map<string, MarketCatalogEntry[]>();
   private readonly refreshMs: number;
   private readonly staleAlertMs: number;
+  private readonly fetchMarketDetails: () => Promise<unknown>;
   private timer?: NodeJS.Timeout;
   private stopped = false;
   private staleAlertActive = false;
@@ -111,6 +113,7 @@ export class MarketCatalog {
   constructor(private readonly opts: MarketCatalogOptions) {
     this.refreshMs = opts.refreshMs ?? 15 * 60_000;
     this.staleAlertMs = opts.staleAlertMs ?? 30 * 60_000;
+    this.fetchMarketDetails = opts.fetchMarketDetails ?? (() => CoinDCXApi.getMarketDetails());
   }
 
   async start(): Promise<void> {
@@ -172,7 +175,7 @@ export class MarketCatalog {
   }
 
   private async pullAndPersist(): Promise<CatalogRow[]> {
-    const fetched = await CoinDCXApi.getMarketDetails();
+    const fetched = await this.fetchMarketDetails();
     const list: MarketDetailsRecord[] = Array.isArray(fetched) ? fetched : [];
     const refreshedAt = new Date().toISOString();
 
