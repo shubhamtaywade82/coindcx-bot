@@ -3,6 +3,7 @@ import { MultiTimeframeStore, type MtfSnapshot } from './multi-timeframe-store';
 import { BookManager } from './book/book-manager';
 import type { Candle } from '../ai/state-builder';
 import type { AppLogger } from '../logging/logger';
+import { toCoinDcxFuturesInstrument } from '../utils/format';
 
 export interface L2Snapshot {
   pair: string;
@@ -62,8 +63,9 @@ export class CoinDcxFusion extends EventEmitter {
       const prices = data.prices || data;
       if (!prices || typeof prices !== 'object') return;
 
-      Object.entries(prices).forEach(([pair, info]: [string, any]) => {
+      Object.entries(prices).forEach(([rawPair, info]: [string, any]) => {
         if (!info || typeof info !== 'object') return;
+        const pair = toCoinDcxFuturesInstrument(rawPair);
         this.ltpState.set(pair, {
           price: parseFloat(info.ls || info.mp || '0'),
           bid: parseFloat(info.b || '0'), // Some feeds might have bid/ask
@@ -79,7 +81,8 @@ export class CoinDcxFusion extends EventEmitter {
     // We can also listen to depth updates from ws if we want to trigger on every tick,
     // but maybe it's better to trigger on ltp or candle updates.
     this.ws.on('depth-update', (data: any) => {
-      if (data?.s) this.maybeGenerateFusion(data.s);
+      const s = data?.s ?? data?.pair;
+      if (s) this.maybeGenerateFusion(toCoinDcxFuturesInstrument(s));
     });
 
     this.mtf.on('update', ({ pair }) => {

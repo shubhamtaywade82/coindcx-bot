@@ -50,6 +50,16 @@ describe('F4 strategy config defaults', () => {
   });
 });
 
+describe('COINDCX_PAIRS normalization', () => {
+  it('normalizes shorthand symbols to B-*_USDT wire ids', () => {
+    const cfg = ConfigSchema.parse({
+      ...validEnv,
+      COINDCX_PAIRS: 'SOLUSDT,B-ETH_USDT',
+    });
+    expect(cfg.COINDCX_PAIRS).toEqual(['B-SOL_USDT', 'B-ETH_USDT']);
+  });
+});
+
 describe('F3 account config defaults', () => {
   it('parses with F3 defaults', () => {
     const cfg = ConfigSchema.parse(validEnv);

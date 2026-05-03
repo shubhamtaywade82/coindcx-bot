@@ -36,6 +36,23 @@ export function cleanPair(pair: string): string {
   return pair.replace(/^B-/, '').replace('_', '');
 }
 
+/**
+ * CoinDCX futures instrument id as used in WS channels and REST (`B-BASE_USDT`).
+ * Accepts common shorthand (`SOLUSDT`, `SOL_USDT`) so env/config matches exchange wire format.
+ */
+export function toCoinDcxFuturesInstrument(raw: string): string {
+  const s = raw.trim();
+  if (!s) return s;
+  const u = s.toUpperCase();
+  if (/^B-[A-Z0-9]+_USDT$/.test(u)) return u;
+  if (/^[A-Z0-9]+_USDT$/.test(u)) return `B-${u}`;
+  if (/^[A-Z0-9]+USDT$/.test(u)) {
+    const base = u.slice(0, -4);
+    return `B-${base}_USDT`;
+  }
+  return s;
+}
+
 export function formatQty(value: string | number | undefined, decimals: number = 4): string {
   if (value === undefined || value === null || value === '') return '—';
   const num = typeof value === 'string' ? parseFloat(value) : value;

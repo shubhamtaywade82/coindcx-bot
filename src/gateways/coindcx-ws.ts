@@ -89,7 +89,6 @@ export class CoinDCXWs extends EventEmitter {
       this.socket.on(event, (response: any) => {
         const data = response.data || response;
         this.emit(event, data);
-        // Throttled debug — only log non-noisy events in detail
         if (!['depth-update', 'depth-snapshot'].includes(event)) {
           this.emit('debug', `${event}: ${JSON.stringify(data).substring(0, 100)}`);
         }

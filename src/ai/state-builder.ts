@@ -11,6 +11,17 @@ export interface Candle {
   volume: number;
 }
 
+export interface BookSnapshot {
+  bestBid: number;
+  bestAsk: number;
+  spread: number;
+  bidDepth1pct: number;
+  askDepth1pct: number;
+  imbalance: 'bid-heavy' | 'ask-heavy' | 'neutral';
+  bidWallPrice: number | null;
+  askWallPrice: number | null;
+}
+
 export interface MarketStateHtf {
   trend: string;
   swing_high: number;
@@ -53,6 +64,7 @@ export interface MarketState {
   confluence: MarketStateConfluence;
   liquidity: MarketStateLiquidity;
   state: MarketStateFlags;
+  book?: BookSnapshot;
   position?: {
     side: 'long' | 'short' | 'flat';
     entry: number;
@@ -66,7 +78,14 @@ export interface MarketState {
 export class MarketStateBuilder {
   constructor(private logger: AppLogger, private pool?: Pool) {}
 
-  async build(htfCandles: Candle[], ltfCandles: Candle[], fusion: FusionSnapshot | null, positions: any[], pair?: string): Promise<MarketState | null> {
+  async build(
+    htfCandles: Candle[],
+    ltfCandles: Candle[],
+    bookSnapshot: BookSnapshot | null,
+    fusion: FusionSnapshot | null,
+    positions: any[],
+    pair?: string,
+  ): Promise<MarketState | null> {
     if (ltfCandles.length < 10) return null;
 
     const activePos = positions.find(p => p.pair === pair);
@@ -118,6 +137,7 @@ export class MarketStateBuilder {
         is_post_sweep: liquidity.event === 'sweep',
         is_pre_expansion: smc.displacement.present && !smc.mitigation.status.includes('full')
       },
+      ...(bookSnapshot ? { book: bookSnapshot } : {}),
       position: positionData,
       pine_signals,
       fusion: fusion ?? undefined

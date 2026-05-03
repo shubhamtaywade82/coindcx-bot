@@ -13,9 +13,6 @@ export function parsePineAlert(raw: string): Partial<Signal> | null {
     }
 
     if (data.type) {
-      const isBuy = data.type.includes('BUY') || data.type.includes('BULL');
-      const isSell = data.type.includes('SELL') || data.type.includes('BEAR');
-      
       return {
         ts: new Date().toISOString(),
         strategy: 'pine.dtw',
@@ -55,7 +52,6 @@ export function parsePineAlert(raw: string): Partial<Signal> | null {
   // Handle HTF Volume Spike & Divergence
   if (raw.includes('Conviction') || raw.includes('Div')) {
     const isBull = raw.toLowerCase().includes('bull');
-    const isBear = raw.toLowerCase().includes('bear');
     const isConviction = raw.toLowerCase().includes('conviction');
 
     return {

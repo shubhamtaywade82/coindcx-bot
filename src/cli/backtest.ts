@@ -87,7 +87,7 @@ async function main() {
   console.error(`[backtest] strategy=${strategyId} pair=${pair} source=${sourceKind} from=${args.from} to=${args.to}`);
   const summary = await runBacktest({
     strategy, pair, dataSource,
-    buildMarketState: (htf, ltf, p) => stateBuilder.build(htf, ltf, null, [], p),
+    buildMarketState: (htf, ltf, p) => stateBuilder.build(htf, ltf, null, null, [], p),
     pessimistic: cfg.BACKTEST_PESSIMISTIC,
     outCsv: out,
   });

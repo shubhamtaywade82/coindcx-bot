@@ -16,6 +16,22 @@ interface AiPanelState {
   management?: string;
 }
 
+interface MtfBar {
+  close: number;
+  volume: number;
+  trend: 'up' | 'down' | 'sideways';
+}
+
+interface MtfPanelState {
+  tf1m?: MtfBar;
+  tf15m?: MtfBar;
+  tf1h?: MtfBar;
+  bookImbalance?: 'bid-heavy' | 'ask-heavy' | 'neutral';
+  bestBid?: number;
+  bestAsk?: number;
+  spread?: number;
+}
+
 type SystemLogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 export class TuiApp {
@@ -37,6 +53,7 @@ export class TuiApp {
   private recentRisk: Array<{ ts: number; pair: string; side?: string; rules: string[] }> = [];
   private riskStats = { drawdownPeak: 0, drawdownPct: 0, liveCount: 0 };
   private aiByPair = new Map<string, AiPanelState>();
+  private mtfByPair = new Map<string, MtfPanelState>();
   private bookByPair = new Map<string, { asks: string[][]; bids: string[][]; lastPrice: string }>();
   private lastLtpByPair = new Map<string, number>();
   private trendByPair = new Map<string, string>();
@@ -435,9 +452,7 @@ export class TuiApp {
     if (metrics) this.fusionByPair.set(target, metrics);
     if (target !== this.focusedPair) return;
 
-    // Equalize bids and asks count (max 10)
-    const count = Math.min(asks.length, bids.length, 10);
-    if (count === 0) {
+    if (asks.length === 0 && bids.length === 0) {
       this.tradeTable.setContent(' {gray-fg}Waiting for book data...{/gray-fg}');
       this.render();
       return;
@@ -447,8 +462,8 @@ export class TuiApp {
 
     // ── Compute max amount across all visible levels for bar scaling ──
     const parseAmt = (s: string) => parseFloat(s.replace(/,/g, '')) || 0;
-    const askSlice = asks.slice(0, count);
-    const bidSlice = bids.slice(0, count);
+    const askSlice = asks.slice(0, Math.min(10, asks.length));
+    const bidSlice = bids.slice(0, Math.min(10, bids.length));
     const allAmounts = [
       ...askSlice.map(r => parseAmt(r[1])),
       ...bidSlice.map(r => parseAmt(r[1])),
@@ -544,6 +559,28 @@ export class TuiApp {
     if (pair === this.focusedPair) this.renderAi();
   }
 
+  updateMtf(data: {
+    pair: string;
+    tf1m?: MtfBar;
+    tf15m?: MtfBar;
+    tf1h?: MtfBar;
+    bookImbalance?: 'bid-heavy' | 'ask-heavy' | 'neutral';
+    bestBid?: number;
+    bestAsk?: number;
+    spread?: number;
+  }): void {
+    this.mtfByPair.set(data.pair, {
+      tf1m: data.tf1m,
+      tf15m: data.tf15m,
+      tf1h: data.tf1h,
+      bookImbalance: data.bookImbalance,
+      bestBid: data.bestBid,
+      bestAsk: data.bestAsk,
+      spread: data.spread,
+    });
+    if (data.pair === this.focusedPair) this.renderAi();
+  }
+
   private renderAi(): void {
     const data = this.aiByPair.get(this.focusedPair);
     if (!data) {
@@ -567,9 +604,45 @@ export class TuiApp {
     const levelsStr = Array.isArray(data.levels) && data.levels.length > 0 
       ? `\n\n {white-fg}LEVELS TO MONITOR:{/white-fg}\n${data.levels.map((l: string) => ` • ${l}`).join('\n')}` 
       : '';
-    const content = `\n {bold}${data.verdict}{/bold}\n\n {${color}-fg}SIGNAL: ${sig}{/${color}-fg}\n {gray-fg}CONF: ${(data.confidence * 100).toFixed(0)}%{/gray-fg}${setup ? `\n${setup}` : ''}${mgmt}${levelsStr}${reason}`;
+    const mtfSection = this.buildMtfSection(this.focusedPair);
+    const content = `\n {bold}${data.verdict}{/bold}\n\n {${color}-fg}SIGNAL: ${sig}{/${color}-fg}\n {gray-fg}CONF: ${(data.confidence * 100).toFixed(0)}%{/gray-fg}${setup ? `\n${setup}` : ''}${mgmt}${levelsStr}${reason}${mtfSection}`;
     this.aiBox.setContent(content);
     this.render();
+  }
+
+  private buildMtfSection(pair: string): string {
+    const m = this.mtfByPair.get(pair);
+    if (!m) return '';
+
+    const trendChar = (bar?: MtfBar): string => {
+      if (!bar) return '{gray-fg}?{/gray-fg}';
+      if (bar.trend === 'up')       return '{green-fg}▲{/green-fg}';
+      if (bar.trend === 'down')     return '{red-fg}▼{/red-fg}';
+      return '{yellow-fg}─{/yellow-fg}';
+    };
+    const barStr = (label: string, bar?: MtfBar): string => {
+      if (!bar) return `{gray-fg}${label}:—{/gray-fg}`;
+      const vol = bar.volume >= 1_000_000
+        ? `${(bar.volume / 1_000_000).toFixed(1)}M`
+        : bar.volume >= 1_000
+          ? `${(bar.volume / 1_000).toFixed(1)}K`
+          : bar.volume.toFixed(0);
+      return `${label}:${trendChar(bar)}{gray-fg}${bar.close.toFixed(2)} v${vol}{/gray-fg}`;
+    };
+
+    const bkColor = m.bookImbalance === 'bid-heavy'
+      ? 'green'
+      : m.bookImbalance === 'ask-heavy'
+        ? 'red'
+        : 'yellow';
+    const bkLabel = m.bookImbalance ?? 'neutral';
+    const bkStr = m.bestBid !== undefined
+      ? ` {gray-fg}bb{/gray-fg}{green-fg}${m.bestBid.toFixed(2)}{/green-fg} {gray-fg}ba{/gray-fg}{red-fg}${m.bestAsk?.toFixed(2) ?? '—'}{/red-fg} {gray-fg}spr${(m.spread ?? 0).toFixed(2)}{/gray-fg}`
+      : '';
+
+    return `\n\n {gray-fg}─── MTF ───────────────────────────────{/gray-fg}\n ` +
+      `${barStr('1m', m.tf1m)}  ${barStr('15m', m.tf15m)}  ${barStr('1h', m.tf1h)}\n ` +
+      `{${bkColor}-fg}${bkLabel}{/${bkColor}-fg}${bkStr}`;
   }
 
   private padLeft(str: string, width: number) {

@@ -4,11 +4,10 @@ import { CoinDCXApi } from './gateways/coindcx-api';
 import { config } from './config/config';
 import { formatPrice, formatPnl, formatChange, cleanPair, formatQty, formatTime } from './utils/format';
 import { bootstrap } from './lifecycle/bootstrap';
-import { WebhookGateway } from './gateways/webhook';
 import { installSignalHandlers } from './lifecycle/shutdown';
 import type { Context } from './lifecycle/context';
 import { IntegrityController } from './marketdata/integrity-controller';
-import { MultiTimeframeStore } from './marketdata/multi-timeframe-store';
+import { MultiTimeframeStore as MtfFusionStore } from './marketdata/multi-timeframe-store';
 import { CoinDcxFusion } from './marketdata/coindcx-fusion';
 import { AccountReconcileController } from './account/reconcile-controller';
 import { AccountPersistence } from './account/persistence';
@@ -17,6 +16,7 @@ import { StrategyController } from './strategy/controller';
 import { SmcRule } from './strategy/strategies/smc-rule';
 import { MaCross } from './strategy/strategies/ma-cross';
 import { LlmPulse } from './strategy/strategies/llm-pulse';
+import { BearishSmc } from './strategy/strategies/bearish-smc';
 import { PassthroughRiskFilter } from './strategy/risk/risk-filter';
 import { CompositeRiskFilter } from './strategy/risk/composite-filter';
 import { MinConfidenceRule } from './strategy/risk/rules/min-confidence';
@@ -26,7 +26,9 @@ import { PerPairCooldownRule } from './strategy/risk/rules/cooldown';
 import { OpposingPairCorrelationRule } from './strategy/risk/rules/correlation';
 import { DrawdownGateRule } from './strategy/risk/rules/drawdown-gate';
 import type { RiskFilter } from './strategy/types';
-import type { Candle } from './ai/state-builder';
+import type { Candle, BookSnapshot } from './ai/state-builder';
+import { MultiTimeframeStore as CandleMtfStore, DEFAULT_TF_CONFIGS } from './marketdata/candles/multi-timeframe-store';
+import type { OrderBook } from './marketdata/book/orderbook';
 import ntp from 'ntp-client';
 import axios from 'axios';
 
@@ -56,11 +58,67 @@ export const state = {
   positions: new Map<string, any>(),
   orders: new Map<string, any>(),
   balanceMap: new Map<string, { balance: string; locked: string }>(),
-  orderBooks: new Map<string, { asks: Map<string, string>, bids: Map<string, string> }>(),
   hasValidAuth: true,
   usdtInrRate: 88.5, // Fallback rate
   selectedSymbol: 'SOLUSDT' // Initial focus
 };
+
+// ══════════════════════════════════════════════════════
+// ── Helpers ──
+// ══════════════════════════════════════════════════════
+
+/** Extract bid/ask metrics from an L2 OrderBook for strategy context. */
+function computeBookSnapshot(book: OrderBook): BookSnapshot {
+  const top = book.topN(20);
+  const bestBid = parseFloat(top.bids[0]?.price ?? '0');
+  const bestAsk = parseFloat(top.asks[0]?.price ?? '0');
+  const spread = bestAsk > 0 && bestBid > 0 ? bestAsk - bestBid : 0;
+
+  // Depth within 1% of best price
+  const bidDepth = top.bids
+    .filter(l => bestBid > 0 && parseFloat(l.price) >= bestBid * 0.99)
+    .reduce((s, l) => s + parseFloat(l.qty), 0);
+  const askDepth = top.asks
+    .filter(l => bestAsk > 0 && parseFloat(l.price) <= bestAsk * 1.01)
+    .reduce((s, l) => s + parseFloat(l.qty), 0);
+
+  // Largest single level (wall)
+  const bidWall = top.bids.reduce<{ price: string; qty: string } | undefined>(
+    (mx, l) => (!mx || parseFloat(l.qty) > parseFloat(mx.qty) ? l : mx), undefined,
+  );
+  const askWall = top.asks.reduce<{ price: string; qty: string } | undefined>(
+    (mx, l) => (!mx || parseFloat(l.qty) > parseFloat(mx.qty) ? l : mx), undefined,
+  );
+
+  const imbalance: BookSnapshot['imbalance'] =
+    bidDepth > askDepth * 1.2 ? 'bid-heavy' :
+    askDepth > bidDepth * 1.2 ? 'ask-heavy' :
+    'neutral';
+
+  return {
+    bestBid,
+    bestAsk,
+    spread,
+    bidDepth1pct: bidDepth,
+    askDepth1pct: askDepth,
+    imbalance,
+    bidWallPrice: bidWall ? parseFloat(bidWall.price) : null,
+    askWallPrice: askWall ? parseFloat(askWall.price) : null,
+  };
+}
+
+/** Determine simple trend from last N candles. */
+function candleTrend(candles: Candle[], n = 3): 'up' | 'down' | 'sideways' {
+  if (candles.length < n) return 'sideways';
+  const slice = candles.slice(-n);
+  const higherHighs = slice.every((c, i) => i === 0 || c.high >= slice[i - 1].high);
+  const higherLows  = slice.every((c, i) => i === 0 || c.low  >= slice[i - 1].low);
+  const lowerHighs  = slice.every((c, i) => i === 0 || c.high <= slice[i - 1].high);
+  const lowerLows   = slice.every((c, i) => i === 0 || c.low  <= slice[i - 1].low);
+  if (higherHighs && higherLows) return 'up';
+  if (lowerHighs  && lowerLows)  return 'down';
+  return 'sideways';
+}
 
 // ══════════════════════════════════════════════════════
 // ── Main ──
@@ -118,7 +176,7 @@ async function runApp(ctx: Context) {
   });
   integrity.start();
 
-  const mtf = new MultiTimeframeStore(ctx.logger.child({ mod: 'mtf' }));
+  const mtf = new MtfFusionStore(ctx.logger.child({ mod: 'mtf' }));
   const fusion = new CoinDcxFusion(ctx.logger.child({ mod: 'fusion' }), ws as any, mtf, integrity.books);
   
   for (const pair of ctx.config.COINDCX_PAIRS) {
@@ -165,38 +223,55 @@ async function runApp(ctx: Context) {
     },
   });
 
-  ws.on('depth-snapshot', (raw: any) => integrity.ingest('depth-snapshot', safeParse(raw)));
-  ws.on('depth-update',   (raw: any) => integrity.ingest('depth-update',   safeParse(raw)));
+  ws.on('depth-snapshot', (raw: any) => {
+    integrity.ingest('depth-snapshot', safeParse(raw));
+    refreshBookDisplay();
+  });
+  ws.on('depth-update', (raw: any) => {
+    integrity.ingest('depth-update', safeParse(raw));
+    refreshBookDisplay();
+  });
   ws.on('new-trade',      (raw: any) => integrity.ingest('new-trade',      safeParse(raw)));
   ws.on('currentPrices@futures#update', (raw: any) => integrity.ingest('currentPrices@futures#update', safeParse(raw)));
   ws.on('currentPrices@spot#update',    (raw: any) => integrity.ingest('currentPrices@spot#update',    safeParse(raw)));
 
   // ── F4 Strategy Framework ──
-  const candleStore = new Map<string, { ltf: Candle[]; htf: Candle[] }>();
-  const ensureCandles = (pair: string) => {
-    if (!candleStore.has(pair)) candleStore.set(pair, { ltf: [], htf: [] });
-    return candleStore.get(pair)!;
-  };
   const enabledIds = new Set(ctx.config.STRATEGY_ENABLED_IDS);
   const configuredPairs: string[] = ctx.config.COINDCX_PAIRS as unknown as string[];
 
-  const mapCandles = (raw: any) => (Array.isArray(raw) ? raw : []).map((c: any) => ({
-    timestamp: c[0], open: parseFloat(c[1]), high: parseFloat(c[2]),
-    low: parseFloat(c[3]), close: parseFloat(c[4]), volume: parseFloat(c[5])
-  }));
-
-  async function refreshPairCandles(rawPair: string): Promise<{ htf: number; ltf: number }> {
-    const [rawHtf, rawLtf] = await Promise.all([
-      CoinDCXApi.getCandles(rawPair, '1h', 50),
-      CoinDCXApi.getCandles(rawPair, '15m', 50)
-    ]);
-    const htfCandles = mapCandles(rawHtf);
-    const ltfCandles = mapCandles(rawLtf);
-    const store = ensureCandles(rawPair);
-    store.htf = htfCandles;
-    store.ltf = ltfCandles;
-    return { htf: htfCandles.length, ltf: ltfCandles.length };
+  /** Fetch candles from REST, normalise to Candle[], oldest-first. */
+  async function fetchCandlesForStore(pair: string, tf: string, limit: number): Promise<Candle[]> {
+    const raw = await CoinDCXApi.getCandles(pair, tf, limit);
+    if (!Array.isArray(raw)) return [];
+    return raw.map((c: any) => ({
+      timestamp: c[0],
+      open: parseFloat(c[1]),
+      high: parseFloat(c[2]),
+      low: parseFloat(c[3]),
+      close: parseFloat(c[4]),
+      volume: parseFloat(c[5]),
+    }));
   }
+
+  const mtfStore = new CandleMtfStore({
+    configs: DEFAULT_TF_CONFIGS,
+    fetchCandles: fetchCandlesForStore,
+    logger: ctx.logger,
+  });
+
+  // Seed all configured pairs in parallel
+  await Promise.all(
+    configuredPairs.map(async (rawPair) => {
+      try {
+        await mtfStore.seed(rawPair);
+        const ltfCount = mtfStore.get(rawPair, '15m').length;
+        const htfCount = mtfStore.get(rawPair, '1h').length;
+        tui.log(`{gray-fg}[MTF] Seeded ${cleanPair(rawPair)}: 1m=${mtfStore.get(rawPair, '1m').length} 15m=${ltfCount} 1h=${htfCount}{/gray-fg}`);
+      } catch (err: any) {
+        tui.log(`{red-fg}⚠ [MTF] Seed failed for ${rawPair}: ${err.message}{/red-fg}`, 'error');
+      }
+    }),
+  );
 
   const buildRiskFilter = (): RiskFilter => {
     if (ctx.config.RISK_FILTER_MODE === 'passthrough') return new PassthroughRiskFilter();
@@ -221,16 +296,20 @@ async function runApp(ctx: Context) {
     ws,
     signalBus: ctx.bus,
     riskFilter: buildRiskFilter(),
-    buildMarketState: (htf, ltf, pair) => ctx.stateBuilder.build(htf, ltf, fusion.getLatest(pair), [], pair),
+    buildMarketState: (htf, ltf, pair) => {
+      const book = integrity.books.get(pair);
+      const bookSnap = book && book.state() === 'live' ? computeBookSnapshot(book) : null;
+      return ctx.stateBuilder.build(htf, ltf, bookSnap, fusion.getLatest(pair), [], pair);
+    },
     candleProvider: {
-      ltf: pair => mtf.getSnapshot(pair)?.timeframes['15m'] ?? [],
-      htf: pair => mtf.getSnapshot(pair)?.timeframes['1h'] ?? [],
+      ltf: pair => mtfStore.get(pair, '15m'),
+      htf: pair => mtfStore.get(pair, '1h'),
     },
     fusionProvider: pair => fusion.getLatest(pair),
     accountSnapshot: () => account.snapshot(),
     recentFills: (n = 20) => account.fills.recent(n),
     extractPair: (raw: any) => raw?.pair ?? raw?.s,
-    beforeEvaluate: async (id, pair, trigger) => {
+    beforeEvaluate: async (id, pair, _trigger) => {
       if (id === 'llm.pulse.v1') {
         tui.updateAi({
           verdict: ' {yellow-fg}Analyzing market pulse...{/yellow-fg}',
@@ -266,9 +345,10 @@ async function runApp(ctx: Context) {
   // Override star expansion to use configured pairs.
   (strategyController as any).expandStarPairs = () => configuredPairs;
 
-  if (enabledIds.has('smc.rule.v1')) strategyController.register(new SmcRule());
-  if (enabledIds.has('ma.cross.v1')) strategyController.register(new MaCross());
-  if (enabledIds.has('llm.pulse.v1')) strategyController.register(new LlmPulse(ctx.analyzer));
+  if (enabledIds.has('smc.rule.v1'))    strategyController.register(new SmcRule());
+  if (enabledIds.has('ma.cross.v1'))    strategyController.register(new MaCross());
+  if (enabledIds.has('llm.pulse.v1'))   strategyController.register(new LlmPulse(ctx.analyzer));
+  if (enabledIds.has('bearish.smc.v1')) strategyController.register(new BearishSmc());
   strategyController.start();
 
   setInterval(() => {
@@ -278,8 +358,56 @@ async function runApp(ctx: Context) {
     tui.updateBookState(book ? book.state() : '—');
   }, 1000);
 
+  /** Push fresh MTF + book metrics into the TUI AI panel for the given pair. */
+  function pushMtfToTui(pair: string): void {
+    const c1m  = mtfStore.get(pair, '1m');
+    const c15m = mtfStore.get(pair, '15m');
+    const c1h  = mtfStore.get(pair, '1h');
+    const last1m  = c1m[c1m.length - 1];
+    const last15m = c15m[c15m.length - 1];
+    const last1h  = c1h[c1h.length - 1];
+
+    const book = integrity.books.get(pair);
+    const snap = book && book.state() === 'live' ? computeBookSnapshot(book) : undefined;
+
+    tui.updateMtf({
+      pair,
+      tf1m:  last1m  ? { close: last1m.close,  volume: last1m.volume,  trend: candleTrend(c1m) }  : undefined,
+      tf15m: last15m ? { close: last15m.close, volume: last15m.volume, trend: candleTrend(c15m) } : undefined,
+      tf1h:  last1h  ? { close: last1h.close,  volume: last1h.volume,  trend: candleTrend(c1h) }  : undefined,
+      bookImbalance: snap?.imbalance,
+      bestBid: snap?.bestBid,
+      bestAsk: snap?.bestAsk,
+      spread: snap?.spread,
+    });
+  }
+
+  // ── WS candlestick → MTF store (registered here, after mtfStore is initialized) ──
+  // CoinDCX fires `candlestick` with response.data = [{open,close,high,low,volume,open_time,pair,duration,...}]
+  ws.on('candlestick', (raw: any) => {
+    const candles = Array.isArray(raw) ? raw : [];
+    for (const c of candles) {
+      if (!c.pair || !c.duration) continue;
+      mtfStore.applyWsCandle(c.pair, c.duration as string, c);
+    }
+  });
+
+  // Push MTF panel updates whenever a candle bar arrives for the focused pair
+  mtfStore.on('update', ({ pair }: { pair: string }) => {
+    if (pair === tui.focusedPair) pushMtfToTui(pair);
+  });
+
+  // Also push on focus change so switching pairs immediately shows current data
+  tui.setOnFocusChange((pair: string) => {
+    refreshBookDisplay();
+    refreshHeader();
+    pushMtfToTui(pair);
+  });
+
+  // Paint the MTF panel immediately with seeded data so it's not blank at startup
+  pushMtfToTui(tui.focusedPair);
+
   const MAX_TRADES = 50;
-  const CANDLE_REFRESH_MS = 60_000;
 
   function log(msg: any) {
     if (typeof msg === 'string') {
@@ -310,6 +438,20 @@ async function runApp(ctx: Context) {
     return tui.focusedPairClean;
   }
 
+  function logCandleStatus(): void {
+    for (const rawPair of configuredPairs) {
+      const symbol = cleanPair(rawPair);
+      const c1m  = mtfStore.get(rawPair, '1m').length;
+      const c15m = mtfStore.get(rawPair, '15m').length;
+      const c1h  = mtfStore.get(rawPair, '1h').length;
+      if (c15m > 0 && c1h > 0) {
+        tui.log(`{gray-fg}[MTF] ${symbol}: 1m=${c1m} 15m=${c15m} 1h=${c1h}{/gray-fg}`);
+      } else {
+        tui.log(`{red-fg}⚠ [MTF] No candles for ${rawPair} (1m=${c1m} 15m=${c15m} 1h=${c1h}){/red-fg}`, 'error');
+      }
+    }
+  }
+
   async function seedInitialAiPulse(): Promise<void> {
     if (!enabledIds.has('llm.pulse.v1')) return;
     tui.log(`{gray-fg}[AI] Starting initial analysis for ${configuredPairs.length} pairs...{/gray-fg}`);
@@ -325,6 +467,7 @@ async function runApp(ctx: Context) {
   }
 
   // ── Strategy Market Data Loop ──
+  logCandleStatus();
   void seedInitialAiPulse();
 
   // ── Institutional Signal Sink ──
@@ -585,12 +728,6 @@ async function runApp(ctx: Context) {
     });
   }
 
-  // ── On Focus Change: re-filter trades + update header ──
-  tui.setOnFocusChange(() => {
-    refreshBookDisplay();
-    refreshHeader();
-  });
-
   // ── Set initial placeholders ──
   tui.updateOrderBook([], [], 'Connecting...');
   tui.updatePositions([['—', 'Connecting...', '—', '—', '—', '—', '—', '—']]);
@@ -727,52 +864,6 @@ async function runApp(ctx: Context) {
     if (clean === getFocusedCleanPair()) {
       refreshBookDisplay();
     }
-  });
-  // ── depth-snapshot ──
-  ws.on('depth-snapshot', (raw) => {
-    const data = safeParse(raw);
-    if (!data || !data.s) return;
-    const pair = cleanPair(data.s);
-
-    const asks = new Map<string, string>();
-    const bids = new Map<string, string>();
-
-    const rawAsks = Array.isArray(data.asks) ? data.asks : (data.asks ? Object.entries(data.asks) : []);
-    const rawBids = Array.isArray(data.bids) ? data.bids : (data.bids ? Object.entries(data.bids) : []);
-
-    rawAsks.forEach(([p, q]: [any, any]) => asks.set(p.toString(), q.toString()));
-    rawBids.forEach(([p, q]: [any, any]) => bids.set(p.toString(), q.toString()));
-
-    state.orderBooks.set(pair, { asks, bids });
-    if (pair === getFocusedCleanPair()) refreshBookDisplay();
-  });
-
-  // ── depth-update ──
-  ws.on('depth-update', (raw) => {
-    const data = safeParse(raw);
-    if (!data || !data.s) return;
-    const pair = cleanPair(data.s);
-    let book = state.orderBooks.get(pair);
-
-    if (!book) {
-       book = { asks: new Map(), bids: new Map() };
-       state.orderBooks.set(pair, book);
-    }
-
-    const rawAsks = Array.isArray(data.asks) ? data.asks : (data.asks ? Object.entries(data.asks) : []);
-    const rawBids = Array.isArray(data.bids) ? data.bids : (data.bids ? Object.entries(data.bids) : []);
-
-    rawAsks.forEach(([p, q]: [any, any]) => {
-      if (parseFloat(q) === 0) book!.asks.delete(p.toString());
-      else book!.asks.set(p.toString(), q.toString());
-    });
-
-    rawBids.forEach(([p, q]: [any, any]) => {
-      if (parseFloat(q) === 0) book!.bids.delete(p.toString());
-      else book!.bids.set(p.toString(), q.toString());
-    });
-
-    if (pair === getFocusedCleanPair()) refreshBookDisplay();
   });
 
   // ── currentPrices@spot#update: { prices: { "ATOMUSDT": "2.01", ... } } ──
