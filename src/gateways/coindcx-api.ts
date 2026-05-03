@@ -188,7 +188,7 @@ export class CoinDCXApi {
   }
 
   static async getMarkets() {
-    return this.fetchPublic('markets', '/exchange/v1/markets', {});
+    return this.fetchPublic('markets', '/exchange/v1/markets');
   }
 
   static async getMarketDetails() {
@@ -207,9 +207,9 @@ export class CoinDCXApi {
     return this.getPublicOrderBook(pair);
   }
 
-  private static async fetchPublic(label: string, path: string, params: Record<string, unknown> = {}) {
+  private static async fetchPublic(label: string, path: string, params?: Record<string, unknown>) {
     try {
-      const response = await publicHttp.get(path, { params });
+      const response = await publicHttp.get(path, params ? { params } : undefined);
       return response.data;
     } catch (error) {
       // eslint-disable-next-line no-console
