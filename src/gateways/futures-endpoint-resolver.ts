@@ -28,6 +28,9 @@ export function resolveFuturesEndpointPath(
   opts: ResolveFuturesEndpointOptions = {},
 ): string {
   const catalog = opts.catalog ?? getCatalog();
+  if (catalog && !catalog.endpoints.some((endpoint) => endpoint.key === key)) {
+    throw new Error(`Unknown futures endpoint key: "${key}"`);
+  }
   const entry = catalog?.endpoints.find((endpoint) => endpoint.key === key);
   if (entry && isCapturedPath(entry.path)) {
     return entry.path;
