@@ -149,4 +149,92 @@ describe('CoinDCXApi new endpoints', () => {
     );
     expect(data).toEqual([{ id: 'l1' }]);
   });
+
+  it('getFuturesPositionByIdOrPair posts to futures positions/get', async () => {
+    const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: [{ id: 'p1' }] });
+    const data = await CoinDCXApi.getFuturesPositionByIdOrPair({ pair: 'B-BTC_USDT' });
+    expect(spy).toHaveBeenCalledWith(
+      '/exchange/v1/derivatives/futures/positions/get',
+      expect.objectContaining({ pair: 'B-BTC_USDT', timestamp: expect.any(Number) }),
+      expect.any(Object),
+    );
+    expect(data).toEqual([{ id: 'p1' }]);
+  });
+
+  it('getFuturesTransactions posts to futures transactions endpoint', async () => {
+    const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: [{ id: 'tx1' }] });
+    const data = await CoinDCXApi.getFuturesTransactions({ page: 2, limit: 25 });
+    expect(spy).toHaveBeenCalledWith(
+      '/exchange/v1/derivatives/futures/transactions',
+      expect.objectContaining({ page: 2, limit: 25, timestamp: expect.any(Number) }),
+      expect.any(Object),
+    );
+    expect(data).toEqual([{ id: 'tx1' }]);
+  });
+
+  it('getFuturesCrossMarginDetails posts to futures cross margin details endpoint', async () => {
+    const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: { cross: 'ok' } });
+    const data = await CoinDCXApi.getFuturesCrossMarginDetails();
+    expect(spy).toHaveBeenCalledWith(
+      '/exchange/v1/derivatives/futures/cross_margin/details',
+      expect.objectContaining({ timestamp: expect.any(Number) }),
+      expect.any(Object),
+    );
+    expect(data).toEqual({ cross: 'ok' });
+  });
+
+  it('getFuturesWalletTransactions posts to futures wallet transactions endpoint', async () => {
+    const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: [{ id: 'wtx1' }] });
+    const data = await CoinDCXApi.getFuturesWalletTransactions({ page: 3, limit: 40 });
+    expect(spy).toHaveBeenCalledWith(
+      '/exchange/v1/derivatives/futures/wallets/transactions',
+      expect.objectContaining({ page: 3, limit: 40, timestamp: expect.any(Number) }),
+      expect.any(Object),
+    );
+    expect(data).toEqual([{ id: 'wtx1' }]);
+  });
+
+  it('getFuturesCurrencyConversion posts to futures currency conversion endpoint', async () => {
+    const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: { amount: 100 } });
+    const data = await CoinDCXApi.getFuturesCurrencyConversion('usdt', 'inr', 100);
+    expect(spy).toHaveBeenCalledWith(
+      '/exchange/v1/derivatives/futures/currency_conversion',
+      expect.objectContaining({
+        from_currency: 'USDT',
+        to_currency: 'INR',
+        amount: 100,
+        timestamp: expect.any(Number),
+      }),
+      expect.any(Object),
+    );
+    expect(data).toEqual({ amount: 100 });
+  });
+
+  it('getFuturesCurrentPrices fetches futures current prices from public endpoint', async () => {
+    const spy = vi.spyOn(__publicHttpForTests, 'get').mockResolvedValue({ data: { prices: {} } });
+    const data = await CoinDCXApi.getFuturesCurrentPrices();
+    expect(spy).toHaveBeenCalledWith('/exchange/v1/derivatives/futures/current_prices', undefined);
+    expect(data).toEqual({ prices: {} });
+  });
+
+  it('getFuturesPairStats fetches futures pair stats from public endpoint', async () => {
+    const spy = vi.spyOn(__publicHttpForTests, 'get').mockResolvedValue({ data: [{ pair: 'B-BTC_USDT' }] });
+    const data = await CoinDCXApi.getFuturesPairStats('B-BTC_USDT');
+    expect(spy).toHaveBeenCalledWith('/exchange/v1/derivatives/futures/pair_stats', {
+      params: { pair: 'B-BTC_USDT' },
+    });
+    expect(data).toEqual([{ pair: 'B-BTC_USDT' }]);
+  });
+
+  it('blocks futures create order write path via ReadOnlyGuard', async () => {
+    await expect(CoinDCXApi.createFuturesOrder({ pair: 'B-BTC_USDT' })).rejects.toThrow(
+      /Read-only violation/,
+    );
+  });
+
+  it('blocks futures cancel all write path via ReadOnlyGuard', async () => {
+    await expect(CoinDCXApi.cancelAllFuturesOpenOrders('B-BTC_USDT')).rejects.toThrow(
+      /Read-only violation/,
+    );
+  });
 });

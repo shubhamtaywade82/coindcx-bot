@@ -86,4 +86,32 @@ describe('ReadOnlyGuard', () => {
       rateLimitPolicy: getWriteRateLimitPolicy('/exchange/v1/orders/cancel_all'),
     });
   });
+
+  it('allows signed-read futures wallet transactions path', async () => {
+    nock('https://api.coindcx.com')
+      .post('/exchange/v1/derivatives/futures/wallets/transactions')
+      .reply(200, []);
+    const client = axios.create({ baseURL: 'https://api.coindcx.com' });
+    applyReadOnlyGuard(client);
+    const response = await client.post('/exchange/v1/derivatives/futures/wallets/transactions', {});
+    expect(response.status).toBe(200);
+  });
+
+  it('allows signed-read futures transactions path', async () => {
+    nock('https://api.coindcx.com')
+      .post('/exchange/v1/derivatives/futures/transactions')
+      .reply(200, []);
+    const client = axios.create({ baseURL: 'https://api.coindcx.com' });
+    applyReadOnlyGuard(client);
+    const response = await client.post('/exchange/v1/derivatives/futures/transactions', {});
+    expect(response.status).toBe(200);
+  });
+
+  it('blocks futures wallet transfer write path', async () => {
+    const client = axios.create({ baseURL: 'https://api.coindcx.com' });
+    applyReadOnlyGuard(client);
+    await expect(
+      client.post('/exchange/v1/derivatives/futures/wallets/transfer', { amount: 10 }),
+    ).rejects.toBeInstanceOf(ReadOnlyViolation);
+  });
 });

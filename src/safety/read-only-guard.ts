@@ -42,7 +42,13 @@ export const DENY_PATHS: readonly string[] = [
   '/exchange/v1/derivatives/futures/orders/cancel',
   '/exchange/v1/derivatives/futures/orders/edit',
   '/exchange/v1/derivatives/futures/orders/cancel_all',
+  '/exchange/v1/derivatives/futures/orders/cancel_all_for_position',
+  '/exchange/v1/derivatives/futures/orders/create_tpsl',
   '/exchange/v1/derivatives/futures/positions/exit',
+  '/exchange/v1/derivatives/futures/positions/add_margin',
+  '/exchange/v1/derivatives/futures/positions/remove_margin',
+  '/exchange/v1/derivatives/futures/positions/margin_type',
+  '/exchange/v1/derivatives/futures/wallets/transfer',
 ];
 
 export interface GuardOptions {
@@ -58,10 +64,15 @@ export interface GuardOptions {
 /** CoinDCX uses POST for some authenticated read endpoints. Allowlist below. */
 const SIGNED_READ_POST_PATHS: readonly string[] = [
   '/exchange/v1/derivatives/futures/positions',
+  '/exchange/v1/derivatives/futures/positions/get',
   '/exchange/v1/derivatives/futures/orders',
   '/exchange/v1/derivatives/futures/trade_history',
   '/exchange/v1/derivatives/futures/orders/status',
   '/exchange/v1/derivatives/futures/wallets',
+  '/exchange/v1/derivatives/futures/wallets/transactions',
+  '/exchange/v1/derivatives/futures/transactions',
+  '/exchange/v1/derivatives/futures/cross_margin/details',
+  '/exchange/v1/derivatives/futures/currency_conversion',
   '/exchange/v1/margin/fetch_orders',
   '/exchange/v1/funding/fetch_orders',
   '/exchange/v1/users/balances',

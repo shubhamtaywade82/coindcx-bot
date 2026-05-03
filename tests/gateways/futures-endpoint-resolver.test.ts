@@ -9,6 +9,7 @@ describe('futures endpoint resolver', () => {
     const path = resolveFuturesEndpointPath(
       'list_positions',
       {
+        catalog: {
         catalogVersion: 1,
         source: {
           docsHost: 'docs.coindcx.com',
@@ -27,6 +28,7 @@ describe('futures endpoint resolver', () => {
             status: 'captured',
           },
         ],
+        },
       },
     );
     expect(path).toBe('/exchange/v1/derivatives/futures/positions/list');
@@ -40,6 +42,6 @@ describe('futures endpoint resolver', () => {
   it('throws for unknown key', () => {
     expect(() =>
       resolveFuturesEndpointPath('not_a_real_key' as keyof typeof DEFAULT_FUTURES_ENDPOINTS),
-    ).toThrow(/Unknown futures endpoint key/);
+    ).toThrow(/Unknown futures endpoint key "not_a_real_key"\./);
   });
 });

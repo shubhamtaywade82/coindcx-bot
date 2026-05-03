@@ -94,6 +94,14 @@ export class CoinDCXApi {
     return new Error(`${endpoint} API [${status || 'timeout'}]: ${msg}`);
   }
 
+  private static normalizePage(page?: number): number {
+    return Math.max(1, Math.trunc(page ?? 1));
+  }
+
+  private static normalizeLimit(limit?: number, fallback = 100): number {
+    return Math.max(1, Math.trunc(limit ?? fallback));
+  }
+
   private static async withClockSkewRetry<T>(
     endpoint: string,
     bodyBuilder: (timestamp: number) => Record<string, any>,
@@ -372,6 +380,399 @@ export class CoinDCXApi {
           body,
           { headers },
         );
+        return response.data;
+      },
+    );
+  }
+
+  static async getFuturesActiveInstruments() {
+    return this.fetchPublic(
+      'futures active instruments',
+      this.futuresPath('get_active_instruments', '/exchange/v1/derivatives/futures/instruments/active'),
+    );
+  }
+
+  static async getFuturesInstrumentDetails(instrument?: string) {
+    const value = instrument?.trim();
+    return this.fetchPublic(
+      'futures instrument details',
+      this.futuresPath('get_instrument_details', '/exchange/v1/derivatives/futures/instruments/details'),
+      value ? { instrument: value } : undefined,
+    );
+  }
+
+  static async getFuturesInstrumentTradeHistory(instrument: string, limit = 100) {
+    const value = instrument.trim();
+    if (!value) throw new Error('getFuturesInstrumentTradeHistory requires instrument');
+    return this.fetchPublic(
+      'futures instrument trade history',
+      this.futuresPath('get_instrument_trade_history', '/exchange/v1/derivatives/futures/instruments/trade_history'),
+      { instrument: value, limit: this.normalizeLimit(limit) },
+    );
+  }
+
+  static async getFuturesInstrumentOrderBook(instrument: string) {
+    const value = instrument.trim();
+    if (!value) throw new Error('getFuturesInstrumentOrderBook requires instrument');
+    return this.fetchPublic(
+      'futures instrument orderbook',
+      this.futuresPath('get_instrument_orderbook', '/exchange/v1/derivatives/futures/instruments/orderbook'),
+      { instrument: value },
+    );
+  }
+
+  static async getFuturesInstrumentCandles(
+    instrument: string,
+    opts: { resolution?: string; from?: number; to?: number; limit?: number } = {},
+  ) {
+    const value = instrument.trim();
+    if (!value) throw new Error('getFuturesInstrumentCandles requires instrument');
+    const resolution = opts.resolution ?? '1';
+    const to = Math.trunc(opts.to ?? Date.now() / 1000);
+    const stepSeconds = resolution === '1D' ? 86_400 : Math.max(1, Number(resolution)) * 60;
+    const limit = this.normalizeLimit(opts.limit ?? 300);
+    const from = Math.trunc(opts.from ?? to - stepSeconds * limit);
+    return this.fetchPublic(
+      'futures instrument candles',
+      this.futuresPath('get_instrument_candlesticks', '/exchange/v1/derivatives/futures/instruments/candlesticks'),
+      { instrument: value, resolution, from, to },
+    );
+  }
+
+  static async getFuturesPositionByIdOrPair(opts: { positionId?: string; pair?: string }) {
+    const positionId = opts.positionId?.trim();
+    const pair = opts.pair?.trim();
+    if (!positionId && !pair) {
+      throw new Error('getFuturesPositionByIdOrPair requires positionId or pair');
+    }
+    return this.withClockSkewRetry(
+      'FuturesPositionDetails',
+      (timestamp) => ({
+        timestamp,
+        ...(positionId ? { position_id: positionId } : {}),
+        ...(pair ? { pair } : {}),
+      }),
+      async ({ body, headers }) => {
+        const path = this.futuresPath(
+          'get_positions_by_pair_or_position_id',
+          '/exchange/v1/derivatives/futures/positions/get',
+        );
+        const response = await http.post(path, body, { headers });
+        return response.data;
+      },
+    );
+  }
+
+  static async getFuturesTransactions(opts: { page?: number; limit?: number } = {}) {
+    return this.withClockSkewRetry(
+      'FuturesTransactions',
+      (timestamp) => ({
+        timestamp,
+        page: this.normalizePage(opts.page),
+        limit: this.normalizeLimit(opts.limit),
+      }),
+      async ({ body, headers }) => {
+        const path = this.futuresPath('get_transactions', '/exchange/v1/derivatives/futures/transactions');
+        const response = await http.post(path, body, { headers });
+        return response.data;
+      },
+    );
+  }
+
+  static async getFuturesCurrentPrices() {
+    return this.fetchPublic(
+      'futures current prices',
+      this.futuresPath('get_current_prices_rt', '/exchange/v1/derivatives/futures/current_prices'),
+    );
+  }
+
+  static async getFuturesPairStats(pair?: string) {
+    const value = pair?.trim();
+    return this.fetchPublic(
+      'futures pair stats',
+      this.futuresPath('get_pair_stats', '/exchange/v1/derivatives/futures/pair_stats'),
+      value ? { pair: value } : undefined,
+    );
+  }
+
+  static async getFuturesCrossMarginDetails() {
+    return this.withClockSkewRetry(
+      'FuturesCrossMarginDetails',
+      (timestamp) => ({ timestamp }),
+      async ({ body, headers }) => {
+        const path = this.futuresPath(
+          'get_cross_margin_details',
+          '/exchange/v1/derivatives/futures/cross_margin/details',
+        );
+        const response = await http.post(path, body, { headers });
+        return response.data;
+      },
+    );
+  }
+
+  static async getFuturesWalletTransactions(opts: { page?: number; limit?: number } = {}) {
+    return this.withClockSkewRetry(
+      'FuturesWalletTransactions',
+      (timestamp) => ({
+        timestamp,
+        page: this.normalizePage(opts.page),
+        limit: this.normalizeLimit(opts.limit),
+      }),
+      async ({ body, headers }) => {
+        const path = this.futuresPath(
+          'wallet_transactions',
+          '/exchange/v1/derivatives/futures/wallets/transactions',
+        );
+        const response = await http.post(path, body, { headers });
+        return response.data;
+      },
+    );
+  }
+
+  static async createFuturesOrder(order: Record<string, unknown>) {
+    return this.withClockSkewRetry(
+      'FuturesCreateOrder',
+      (timestamp) => ({ timestamp, ...order }),
+      async ({ body, headers }) => {
+        const path = this.futuresPath('create_order', '/exchange/v1/derivatives/futures/orders/create');
+        const response = await http.post(path, body, { headers });
+        return response.data;
+      },
+    );
+  }
+
+  static async cancelFuturesOrder(orderId: string) {
+    const id = orderId.trim();
+    if (!id) {
+      throw new Error('cancelFuturesOrder requires orderId');
+    }
+    return this.withClockSkewRetry(
+      'FuturesCancelOrder',
+      (timestamp) => ({ timestamp, id }),
+      async ({ body, headers }) => {
+        const path = this.futuresPath('cancel_order', '/exchange/v1/derivatives/futures/orders/cancel');
+        const response = await http.post(path, body, { headers });
+        return response.data;
+      },
+    );
+  }
+
+  static async editFuturesOrder(order: Record<string, unknown>) {
+    return this.withClockSkewRetry(
+      'FuturesEditOrder',
+      (timestamp) => ({ timestamp, ...order }),
+      async ({ body, headers }) => {
+        const path = this.futuresPath('edit_order', '/exchange/v1/derivatives/futures/orders/edit');
+        const response = await http.post(path, body, { headers });
+        return response.data;
+      },
+    );
+  }
+
+  static async addFuturesMargin(opts: { positionId?: string; pair?: string; amount: number }) {
+    const positionId = opts.positionId?.trim();
+    const pair = opts.pair?.trim();
+    const amount = Number(opts.amount);
+    if (!positionId && !pair) {
+      throw new Error('addFuturesMargin requires positionId or pair');
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error('addFuturesMargin requires amount > 0');
+    }
+    return this.withClockSkewRetry(
+      'FuturesAddMargin',
+      (timestamp) => ({
+        timestamp,
+        amount,
+        ...(positionId ? { position_id: positionId } : {}),
+        ...(pair ? { pair } : {}),
+      }),
+      async ({ body, headers }) => {
+        const path = this.futuresPath('add_margin', '/exchange/v1/derivatives/futures/positions/add_margin');
+        const response = await http.post(path, body, { headers });
+        return response.data;
+      },
+    );
+  }
+
+  static async removeFuturesMargin(opts: { positionId?: string; pair?: string; amount: number }) {
+    const positionId = opts.positionId?.trim();
+    const pair = opts.pair?.trim();
+    const amount = Number(opts.amount);
+    if (!positionId && !pair) {
+      throw new Error('removeFuturesMargin requires positionId or pair');
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error('removeFuturesMargin requires amount > 0');
+    }
+    return this.withClockSkewRetry(
+      'FuturesRemoveMargin',
+      (timestamp) => ({
+        timestamp,
+        amount,
+        ...(positionId ? { position_id: positionId } : {}),
+        ...(pair ? { pair } : {}),
+      }),
+      async ({ body, headers }) => {
+        const path = this.futuresPath('remove_margin', '/exchange/v1/derivatives/futures/positions/remove_margin');
+        const response = await http.post(path, body, { headers });
+        return response.data;
+      },
+    );
+  }
+
+  static async cancelAllFuturesOpenOrders(pair?: string) {
+    const value = pair?.trim();
+    return this.withClockSkewRetry(
+      'FuturesCancelAllOpenOrders',
+      (timestamp) => ({
+        timestamp,
+        ...(value ? { pair: value } : {}),
+      }),
+      async ({ body, headers }) => {
+        const path = this.futuresPath(
+          'cancel_all_open_orders',
+          '/exchange/v1/derivatives/futures/orders/cancel_all',
+        );
+        const response = await http.post(path, body, { headers });
+        return response.data;
+      },
+    );
+  }
+
+  static async cancelAllFuturesOpenOrdersForPosition(opts: { positionId?: string; pair?: string }) {
+    const positionId = opts.positionId?.trim();
+    const pair = opts.pair?.trim();
+    if (!positionId && !pair) {
+      throw new Error('cancelAllFuturesOpenOrdersForPosition requires positionId or pair');
+    }
+    return this.withClockSkewRetry(
+      'FuturesCancelAllOpenOrdersForPosition',
+      (timestamp) => ({
+        timestamp,
+        ...(positionId ? { position_id: positionId } : {}),
+        ...(pair ? { pair } : {}),
+      }),
+      async ({ body, headers }) => {
+        const path = this.futuresPath(
+          'cancel_all_open_orders_for_position',
+          '/exchange/v1/derivatives/futures/orders/cancel_all_for_position',
+        );
+        const response = await http.post(path, body, { headers });
+        return response.data;
+      },
+    );
+  }
+
+  static async exitFuturesPosition(opts: { positionId?: string; pair?: string; quantity?: number }) {
+    const positionId = opts.positionId?.trim();
+    const pair = opts.pair?.trim();
+    const quantity = opts.quantity;
+    if (!positionId && !pair) {
+      throw new Error('exitFuturesPosition requires positionId or pair');
+    }
+    if (quantity !== undefined && (!Number.isFinite(quantity) || quantity <= 0)) {
+      throw new Error('exitFuturesPosition quantity must be > 0 when provided');
+    }
+    return this.withClockSkewRetry(
+      'FuturesExitPosition',
+      (timestamp) => ({
+        timestamp,
+        ...(positionId ? { position_id: positionId } : {}),
+        ...(pair ? { pair } : {}),
+        ...(quantity !== undefined ? { quantity } : {}),
+      }),
+      async ({ body, headers }) => {
+        const path = this.futuresPath('exit_position', '/exchange/v1/derivatives/futures/positions/exit');
+        const response = await http.post(path, body, { headers });
+        return response.data;
+      },
+    );
+  }
+
+  static async createFuturesTakeProfitStopLossOrders(order: Record<string, unknown>) {
+    return this.withClockSkewRetry(
+      'FuturesCreateTakeProfitStopLossOrders',
+      (timestamp) => ({ timestamp, status: 'untriggered', ...order }),
+      async ({ body, headers }) => {
+        const path = this.futuresPath(
+          'create_take_profit_stop_loss_orders',
+          '/exchange/v1/derivatives/futures/orders/create_tpsl',
+        );
+        const response = await http.post(path, body, { headers });
+        return response.data;
+      },
+    );
+  }
+
+  static async transferFuturesWallet(opts: { fromWallet: string; toWallet: string; amount: number }) {
+    const fromWallet = opts.fromWallet.trim();
+    const toWallet = opts.toWallet.trim();
+    const amount = Number(opts.amount);
+    if (!fromWallet || !toWallet) {
+      throw new Error('transferFuturesWallet requires fromWallet and toWallet');
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error('transferFuturesWallet requires amount > 0');
+    }
+    return this.withClockSkewRetry(
+      'FuturesWalletTransfer',
+      (timestamp) => ({ timestamp, from_wallet: fromWallet, to_wallet: toWallet, amount }),
+      async ({ body, headers }) => {
+        const path = this.futuresPath('wallet_transfer', '/exchange/v1/derivatives/futures/wallets/transfer');
+        const response = await http.post(path, body, { headers });
+        return response.data;
+      },
+    );
+  }
+
+  static async changeFuturesPositionMarginType(opts: { positionId?: string; pair?: string; marginType: string }) {
+    const positionId = opts.positionId?.trim();
+    const pair = opts.pair?.trim();
+    const marginType = opts.marginType.trim();
+    if (!positionId && !pair) {
+      throw new Error('changeFuturesPositionMarginType requires positionId or pair');
+    }
+    if (!marginType) {
+      throw new Error('changeFuturesPositionMarginType requires marginType');
+    }
+    return this.withClockSkewRetry(
+      'FuturesChangePositionMarginType',
+      (timestamp) => ({
+        timestamp,
+        margin_type: marginType,
+        ...(positionId ? { position_id: positionId } : {}),
+        ...(pair ? { pair } : {}),
+      }),
+      async ({ body, headers }) => {
+        const path = this.futuresPath(
+          'change_position_margin_type',
+          '/exchange/v1/derivatives/futures/positions/margin_type',
+        );
+        const response = await http.post(path, body, { headers });
+        return response.data;
+      },
+    );
+  }
+
+  static async getFuturesCurrencyConversion(fromCurrency: string, toCurrency: string, amount: number) {
+    const from = fromCurrency.trim().toUpperCase();
+    const to = toCurrency.trim().toUpperCase();
+    if (!from || !to) {
+      throw new Error('getFuturesCurrencyConversion requires fromCurrency and toCurrency');
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error('getFuturesCurrencyConversion requires amount > 0');
+    }
+    return this.withClockSkewRetry(
+      'FuturesCurrencyConversion',
+      (timestamp) => ({ timestamp, from_currency: from, to_currency: to, amount }),
+      async ({ body, headers }) => {
+        const path = this.futuresPath(
+          'get_currency_conversion',
+          '/exchange/v1/derivatives/futures/currency_conversion',
+        );
+        const response = await http.post(path, body, { headers });
         return response.data;
       },
     );

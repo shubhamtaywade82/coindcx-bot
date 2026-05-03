@@ -116,14 +116,14 @@ Use this file as the single source of truth for execution tracking.
     - [x] instruments active/details/realtime trades/orderbook/candles (resolver + loader scaffold in place; read-only methods now mapped with fallback)
     - [x] orders list/create/cancel/edit (list/read path wired via resolver; write paths remain blocked by ReadOnlyGuard)
     - [x] positions list/get/update leverage (list/get read path wired via resolver; update remains blocked)
-    - [ ] add/remove margin
-    - [ ] cancel-all variants + exit position
-    - [ ] TP/SL order create (`untriggered` status support)
-    - [ ] transactions/trades/current prices/pair stats
-    - [ ] cross margin details
-    - [ ] wallet transfer/details/transactions
-    - [ ] change margin type
-    - [ ] currency conversion
+    - [x] add/remove margin (wrappers added; write endpoints remain blocked by ReadOnlyGuard)
+    - [x] cancel-all variants + exit position (wrappers added; write endpoints remain blocked by ReadOnlyGuard)
+    - [x] TP/SL order create (`untriggered` status support; write endpoint remains blocked by ReadOnlyGuard)
+    - [x] transactions/trades/current prices/pair stats (read wrappers mapped via futures resolver)
+    - [x] cross margin details (read wrapper mapped via futures resolver)
+    - [x] wallet transfer/details/transactions (details + transactions read wrappers mapped; transfer wrapper added and blocked by ReadOnlyGuard)
+    - [x] change margin type (wrapper added; write endpoint remains blocked by ReadOnlyGuard)
+    - [x] currency conversion (read wrapper mapped via futures resolver)
 
 - [ ] Spot websocket channels and handlers
   - [ ] Private: `balance-update`, `order-update`, `trade-update` on `coindcx`
