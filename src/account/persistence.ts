@@ -16,6 +16,8 @@ export interface ChangelogRow {
 export interface PersistenceOptions {
   pool: Pool;
   retryMax: number;
+  onError?: (err: Error, op: 'write' | 'flush', queueDepth: number) => void;
+  onQueueOverflow?: (dropped: number, queueDepth: number) => void;
 }
 
 const POSITION_SQL = `INSERT INTO positions
@@ -96,7 +98,8 @@ export class AccountPersistence {
       try {
         await this.opts.pool.query(w.sql, w.params);
         this.queue.shift();
-      } catch {
+      } catch (err) {
+        this.opts.onError?.(err as Error, 'flush', this.queue.length);
         return;
       }
     }
@@ -109,9 +112,15 @@ export class AccountPersistence {
   private async write(sql: string, params: any[]): Promise<void> {
     try {
       await this.opts.pool.query(sql, params);
-    } catch {
+    } catch (err) {
       this.queue.push({ sql, params });
-      while (this.queue.length > this.opts.retryMax) this.queue.shift();
+      let dropped = 0;
+      while (this.queue.length > this.opts.retryMax) {
+        this.queue.shift();
+        dropped += 1;
+      }
+      this.opts.onError?.(err as Error, 'write', this.queue.length);
+      if (dropped > 0) this.opts.onQueueOverflow?.(dropped, this.queue.length);
     }
   }
 }

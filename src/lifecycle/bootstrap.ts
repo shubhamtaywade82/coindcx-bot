@@ -53,6 +53,7 @@ export async function bootstrap(): Promise<Context> {
     pool,
     bufferMax: config.AUDIT_BUFFER_MAX,
     onDrop: (n) => logger.warn({ mod: 'audit', dropped: n }, 'audit overflow'),
+    onError: (err, depth) => logger.warn({ mod: 'audit', err: err.message, depth }, 'audit drain failed'),
   });
   audit.start();
 

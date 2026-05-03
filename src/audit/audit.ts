@@ -6,6 +6,7 @@ export interface AuditOptions {
   bufferMax: number;
   drainMs?: number;
   onDrop?: (count: number) => void;
+  onError?: (err: Error, queueDepth: number) => void;
 }
 
 const INSERT_SQL =
@@ -64,7 +65,8 @@ export class Audit {
             JSON.stringify(ev.payload),
           ]);
           this.queue.shift();
-        } catch {
+        } catch (err) {
+          this.opts.onError?.(err as Error, this.queue.length);
           return;
         }
       }

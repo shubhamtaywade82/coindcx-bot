@@ -190,7 +190,12 @@ async function runApp(ctx: Context) {
   });
 
   // ── F3 Account Reconciler ──
-  const accountPersistence = new AccountPersistence({ pool: ctx.pool, retryMax: 1000 });
+  const accountPersistence = new AccountPersistence({
+    pool: ctx.pool,
+    retryMax: 1000,
+    onError: (err, op, depth) => ctx.logger.warn({ mod: 'persistence', op, depth, err: err.message }, 'persistence write failed; queued for retry'),
+    onQueueOverflow: (dropped, depth) => ctx.logger.error({ mod: 'persistence', dropped, depth }, 'persistence retry queue overflow; events lost'),
+  });
   const accountBudget = new RestBudget({ globalPerMin: 60, pairPerMin: 60, timeoutMs: 1000 });
   const account = new AccountReconcileController({
     restApi: {
@@ -741,8 +746,8 @@ async function runApp(ctx: Context) {
       if (usdtInrTicker && usdtInrTicker.last_price) {
         state.usdtInrRate = parseFloat(usdtInrTicker.last_price);
       }
-    } catch (_err) {
-      // Ignore ticker fetch errors
+    } catch (err: any) {
+      ctx.logger.warn({ mod: 'tui', err: err?.message }, 'USDT/INR ticker fetch failed');
     }
 
     if (!state.hasValidAuth) return;
