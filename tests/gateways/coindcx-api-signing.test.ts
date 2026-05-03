@@ -59,6 +59,7 @@ describe('CoinDCXApi auth signing', () => {
   });
 
   it('retries signed request once when server reports timestamp skew', async () => {
+    const serverDateHeader = 'Sun, 03 May 2026 08:00:00 GMT';
     const dateSpy = vi.spyOn(Date, 'now')
       .mockReturnValueOnce(1_710_000_000_000)
       .mockReturnValueOnce(1_710_000_000_250);
@@ -67,7 +68,7 @@ describe('CoinDCXApi auth signing', () => {
         response: {
           status: 400,
           data: { message: 'Request timestamp expired due to clock skew' },
-          headers: { date: 'Sun, 03 May 2026 08:00:00 GMT' },
+          headers: { date: serverDateHeader },
         },
         message: 'bad request',
       })
@@ -81,7 +82,7 @@ describe('CoinDCXApi auth signing', () => {
     const firstBody = postSpy.mock.calls[0]?.[1] as Record<string, unknown>;
     const secondBody = postSpy.mock.calls[1]?.[1] as Record<string, unknown>;
     expect(firstBody.timestamp).toBe(1_710_000_000_000);
-    expect(secondBody.timestamp).toBe(Date.parse('Sun, 03 May 2026 08:42:23 GMT'));
+    expect(secondBody.timestamp).toBe(Date.parse(serverDateHeader));
 
     const secondConfig = postSpy.mock.calls[1]?.[2] as { headers?: RequestHeaders } | undefined;
     const secondHeaders = secondConfig?.headers ?? {};
