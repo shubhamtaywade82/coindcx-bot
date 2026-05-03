@@ -127,8 +127,7 @@ export async function bootstrap(): Promise<Context> {
     refreshMs: 15 * 60_000,
     staleAlertMs: 60 * 60_000,
   });
-  await marketCatalog.refreshNow('startup');
-  marketCatalog.start();
+  await marketCatalog.start();
 
   logger.info({ mod: 'boot', sinks: config.SIGNAL_SINKS, webhook: !!webhook }, 'boot complete');
 
