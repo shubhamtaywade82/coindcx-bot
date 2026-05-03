@@ -45,6 +45,27 @@ Read-only institutional-grade observation + signal-emitter bot for CoinDCX. **Ne
 
 Probe live feeds: `npm run probe -- --pair B-SOL_USDT --duration 60`
 
+### Websocket sidecar (transport-only, no strategy logic)
+
+For B2 transport topology, run the websocket sidecar to normalize exchange events and publish to Redis Streams:
+
+`npm run sidecar:ws`
+
+Behavior:
+
+- subscribes using `CoinDCXWs` transport and reconnects on disconnect
+- normalizes events into stream families:
+  - `market.*` (candles, orderbook, trades, prices, ltp)
+  - `account.*` (balances, positions, orders, trades)
+- publishes to Redis Streams with key pattern:
+  - `sidecar:<stream>:<pair>`
+  - example: `sidecar:market.orderbook.update:btcusdt`
+  - pair-less events use `all`
+
+Config:
+
+- `REDIS_URL` (default `redis://127.0.0.1:6379`)
+
 ## Live operation (read-only observer)
 
 Bot is structurally read-only:

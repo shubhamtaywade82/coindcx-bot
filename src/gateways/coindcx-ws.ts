@@ -8,6 +8,7 @@ export class CoinDCXWs extends EventEmitter {
   private socket: any;
   private isConnected = false;
   private readonly subscribedPairs = new Set<string>();
+  private readonly joinedGlobalChannels = new Set<string>();
   public skipPrivate: boolean = false;
 
   constructor() {
@@ -42,11 +43,43 @@ export class CoinDCXWs extends EventEmitter {
     });
   }
 
-  private joinPublicChannels() {
-    config.pairs.forEach((pair) => this.subscribePair(pair));
+  disconnect(): void {
+    if (!this.socket) return;
+    this.socket.disconnect();
+    this.isConnected = false;
+  }
 
-    this.socket.emit('join', { channelName: 'currentPrices@spot@10s' });
-    this.socket.emit('join', { channelName: 'currentPrices@futures@rt' });
+  reconnect(): void {
+    if (this.socket?.connected) return;
+    if (this.socket?.connect) {
+      this.socket.connect();
+      return;
+    }
+    this.connect();
+  }
+
+  private joinPublicChannels() {
+    config.pairs.forEach((pair) => {
+      const normalizedPair = pair.trim().toUpperCase();
+      if (normalizedPair) this.subscribedPairs.add(normalizedPair);
+    });
+    this.subscribedPairs.forEach((pair) => this.joinPairChannels(pair));
+    this.joinGlobalChannel('currentPrices@spot@10s');
+    this.joinGlobalChannel('currentPrices@futures@rt');
+  }
+
+  getSubscribedPairs(): string[] {
+    return Array.from(this.subscribedPairs.values());
+  }
+
+  getGlobalChannels(): string[] {
+    return Array.from(this.joinedGlobalChannels.values());
+  }
+
+  private joinGlobalChannel(channelName: string): void {
+    if (!channelName || this.joinedGlobalChannels.has(channelName)) return;
+    this.joinedGlobalChannels.add(channelName);
+    this.socket.emit('join', { channelName });
   }
 
   private joinPairChannels(pair: string): void {

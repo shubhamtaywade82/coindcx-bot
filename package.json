@@ -19,6 +19,7 @@
     "db:rollback": "ts-node src/db/migrate.ts down",
     "probe": "ts-node src/cli/probe.ts",
     "probe:account": "ts-node src/cli/probe-account.ts",
+    "sidecar:ws": "ts-node src/cli/ws-sidecar.ts",
     "backtest": "ts-node src/cli/backtest.ts"
   },
   "keywords": [],
@@ -31,6 +32,7 @@
     "blessed": "^0.1.81",
     "blessed-contrib": "^4.11.0",
     "dotenv": "^17.4.2",
+    "ioredis": "^5.10.1",
     "js-yaml": "^4.1.1",
     "node-pg-migrate": "^8.0.4",
     "ntp-client": "^0.5.3",

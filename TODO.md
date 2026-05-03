@@ -144,10 +144,10 @@ Use this file as the single source of truth for execution tracking.
 
 ### B2. Architecture and Runtime Topology
 
-- [ ] Implement Node websocket sidecar (transport only, no strategy logic)
-  - [ ] Normalize events
-  - [ ] Publish to Redis Streams (`market.*`, `account.*`)
-  - [ ] Reconnect and resubscribe all channels on disconnect
+- [x] Implement Node websocket sidecar (transport only, no strategy logic)
+  - [x] Normalize events
+  - [x] Publish to Redis Streams (`market.*`, `account.*`)
+  - [x] Reconnect and resubscribe all channels on disconnect
 
 - [ ] Core runtime modules present and wired
   - [ ] SignalEngine

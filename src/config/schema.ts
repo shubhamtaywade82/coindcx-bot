@@ -29,6 +29,7 @@ export const ConfigSchema = z.object({
   API_BASE_URL: z.string().url().default('https://api.coindcx.com'),
   PUBLIC_BASE_URL: z.string().url().default('https://public.coindcx.com'),
   SOCKET_BASE_URL: z.string().url().default('wss://stream.coindcx.com'),
+  REDIS_URL: z.string().url().default('redis://127.0.0.1:6379'),
   /** Local: http://127.0.0.1:11434 — Ollama Cloud: https://ollama.com (see OLLAMA_API_KEY). */
   OLLAMA_URL: z.string().url().default('http://127.0.0.1:11434'),
   OLLAMA_MODEL: z.string().default('llama3'),
