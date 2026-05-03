@@ -207,9 +207,9 @@ export class CoinDCXApi {
     return this.getPublicOrderBook(pair);
   }
 
-  private static async fetchPublic(label: string, path: string, params?: Record<string, unknown>) {
+  private static async fetchPublic(label: string, path: string, params: Record<string, unknown> = {}) {
     try {
-      const response = await publicHttp.get(path, params ? { params } : undefined);
+      const response = await publicHttp.get(path, { params });
       return response.data;
     } catch (error) {
       // eslint-disable-next-line no-console
