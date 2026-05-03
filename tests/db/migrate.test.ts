@@ -30,7 +30,17 @@ describe.skipIf(!dockerAvailable)('migrations', () => {
     );
     const names = r.rows.map((row: { table_name: string }) => row.table_name);
     expect(names).toEqual(
-      expect.arrayContaining(['audit_events', 'seq_cursor', 'signal_log', 'pgmigrations']),
+      expect.arrayContaining([
+        'audit_events',
+        'seq_cursor',
+        'signal_log',
+        'signals',
+        'risk_events',
+        'trades',
+        'orderbook_snapshots',
+        'replay_artifacts',
+        'pgmigrations',
+      ]),
     );
     await pool.end();
   });
@@ -40,7 +50,18 @@ describe.skipIf(!dockerAvailable)('migrations', () => {
     await runMigrations({ direction: 'up', databaseUrl: url });
   });
 
-  it('rolls back', async () => {
+  it('rolls back latest migration step', async () => {
+    await runMigrations({ direction: 'down', databaseUrl: url, count: 1 });
+    const pool = new Pool({ connectionString: url });
+    const runtime = await pool.query(
+      `SELECT count(*)::int AS n FROM information_schema.tables
+       WHERE table_schema='public' AND table_name='orderbook_snapshots'`,
+    );
+    expect(runtime.rows[0].n).toBe(0);
+    await pool.end();
+  });
+
+  it('rolls back all migrations', async () => {
     await runMigrations({ direction: 'down', databaseUrl: url });
     const pool = new Pool({ connectionString: url });
     const r = await pool.query(

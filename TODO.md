@@ -162,9 +162,9 @@ Use this file as the single source of truth for execution tracking.
   - [x] Breakeven-protection ticker
   - [x] Funding ticker before scheduled funding windows
 
-- [ ] Persistence model implemented
-  - [ ] `signals`, `trades`, `positions`, `risk_events`
-  - [ ] orderbook snapshots and replay artifacts
+- [x] Persistence model implemented
+  - [x] `signals`, `trades`, `positions`, `risk_events`
+  - [x] orderbook snapshots and replay artifacts
 
 ### B3. Signal Component Catalog (all layers)
 

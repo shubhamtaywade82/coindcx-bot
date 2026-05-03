@@ -26,4 +26,28 @@ describe('BookManager', () => {
     expect(captured.pair).toBe('B-SOL_USDT');
     expect(captured.reason).toBe('delete_unknown_ask');
   });
+
+  it('tracks latest frame per pair', () => {
+    const m = new BookManager();
+    expect(m.latestFrame('B-SOL_USDT')).toBeUndefined();
+    m.onDepthSnapshot('B-SOL_USDT', {
+      asks: [['1', '1']],
+      bids: [['0.9', '1']],
+      ts: 10,
+      seq: 100,
+    });
+    expect(m.latestFrame('B-SOL_USDT')).toEqual(
+      expect.objectContaining({ ts: 10, seq: 100 }),
+    );
+    m.onDepthDelta('B-SOL_USDT', {
+      asks: [['1', '2']],
+      bids: [],
+      ts: 11,
+      seq: 101,
+      prevSeq: 100,
+    });
+    expect(m.latestFrame('B-SOL_USDT')).toEqual(
+      expect.objectContaining({ ts: 11, seq: 101, prevSeq: 100 }),
+    );
+  });
 });

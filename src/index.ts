@@ -31,6 +31,9 @@ import type { OrderBook } from './marketdata/book/orderbook';
 import type { IntentMarketContext } from './execution/intent-validator';
 import type { RegimeFeatures } from './runtime/regime-classifier';
 import { RuntimeWorkerSet } from './runtime/workers/runtime-workers';
+import { RuntimePersistence } from './persistence/runtime-persistence';
+import { TradePersistence } from './persistence/trade-persistence';
+import { OrderbookPersistence } from './persistence/orderbook-persistence';
 import ntp from 'ntp-client';
 import axios from 'axios';
 import { estimateSyntheticFundingRate, resolveMarkPrice, resolveOpenInterest } from './marketdata/data-gap-policy';
@@ -169,6 +172,9 @@ function buildRuntimeRegimeFeatures(payload: unknown): RegimeFeatures {
 async function runApp(ctx: Context) {
   const tui = new TuiApp();
   const ws = new CoinDCXWs();
+  const runtimePersistence = new RuntimePersistence(ctx.pool);
+  const tradePersistence = new TradePersistence(ctx.pool);
+  const orderbookPersistence = new OrderbookPersistence(ctx.pool);
   ctx.logger.info({ mod: 'app' }, 'app start');
 
   // F6: Tap SignalBus emissions into TUI signals + risk panels
@@ -176,7 +182,7 @@ async function runApp(ctx: Context) {
   (ctx.bus as any).emit = async (s: any) => {
     try {
       tui.observeSignal(s);
-      if (s?.pair && (s?.type === 'strategy.long' || s?.type === 'strategy.short')) {
+      if (s?.type && s?.pair && (s.type === 'strategy.long' || s.type === 'strategy.short')) {
         const decision = ctx.runtime.process(s, {
           market: buildRuntimeMarketContext(s.pair),
           regimeFeatures: buildRuntimeRegimeFeatures(s.payload),
@@ -204,6 +210,11 @@ async function runApp(ctx: Context) {
             'runtime pipeline routed intent',
           );
         }
+      }
+      if (s?.type && runtimePersistence.isSignalEligible(s)) {
+        await runtimePersistence.persistSignal(s);
+      } else if (s?.type && runtimePersistence.isRiskEventEligible(s)) {
+        await runtimePersistence.persistRiskEvent(s);
       }
       if (s && s.type && s.type.startsWith('strategy.')) {
         tui.log(`Bus emitted: ${s.type} for ${s.pair}`);
@@ -291,11 +302,61 @@ async function runApp(ctx: Context) {
 
   ws.on('depth-snapshot', (raw: any) => {
     integrity.ingest('depth-snapshot', safeParse(raw));
+    const parsed = safeParse(raw);
+    const pair = parsed?.s ?? parsed?.pair;
+    if (typeof pair === 'string') {
+      void orderbookPersistence.persistSnapshot(integrity.books, pair, 'depth-snapshot', new Date().toISOString());
+      void orderbookPersistence.persistArtifact({
+        pair,
+        channel: 'depth-snapshot',
+        kind: 'ws_frame',
+        ts: new Date().toISOString(),
+        exchangeTs: Number(parsed?.T ?? parsed?.E),
+        payload: parsed,
+      });
+    }
     refreshBookDisplay();
   });
   ws.on('depth-update', (raw: any) => {
     integrity.ingest('depth-update', safeParse(raw));
+    const parsed = safeParse(raw);
+    const pair = parsed?.s ?? parsed?.pair;
+    if (typeof pair === 'string') {
+      void orderbookPersistence.persistArtifact({
+        pair,
+        channel: 'depth-update',
+        kind: 'ws_frame',
+        ts: new Date().toISOString(),
+        exchangeTs: Number(parsed?.T ?? parsed?.E),
+        payload: parsed,
+      });
+    }
     refreshBookDisplay();
+  });
+  integrity.books.on('gap', (event: any) => {
+    ctx.audit.recordEvent({
+      kind: 'orderbook_gap',
+      source: 'integrity.book',
+      payload: {
+        pair: event?.pair,
+        reason: event?.reason,
+        expected: event?.expected,
+        prevSeq: event?.prevSeq,
+        price: event?.price,
+      },
+    });
+    void orderbookPersistence.persistArtifact({
+      pair: event?.pair,
+      channel: 'depth-update',
+      kind: 'orderbook_gap',
+      ts: new Date().toISOString(),
+      payload: {
+        reason: event?.reason,
+        expected: event?.expected,
+        prevSeq: event?.prevSeq,
+        price: event?.price,
+      },
+    });
   });
   ws.on('new-trade',      (raw: any) => integrity.ingest('new-trade',      safeParse(raw)));
   ws.on('currentPrices@futures#update', (raw: any) => integrity.ingest('currentPrices@futures#update', safeParse(raw)));
@@ -980,6 +1041,16 @@ async function runApp(ctx: Context) {
       price: formatPrice(price),
       qty: formatQty(data.q),
       side: data.m ? 'MAKER' : 'TAKER',
+    });
+    void tradePersistence.persist({
+      id: String(data.id ?? `${pair}:${data.T ?? Date.now()}:${data.p ?? '0'}:${data.q ?? '0'}`),
+      ts: new Date(Number(data.T ?? Date.now())).toISOString(),
+      pair,
+      side: data.m ? 'MAKER' : 'TAKER',
+      price: String(data.p ?? '0'),
+      qty: String(data.q ?? '0'),
+      source: 'ws.new-trade',
+      payload: data,
     });
     if (state.allTrades.length > MAX_TRADES) {
       state.allTrades = state.allTrades.slice(0, MAX_TRADES);
