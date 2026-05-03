@@ -95,7 +95,7 @@ Use this file as the single source of truth for execution tracking.
   - [x] Add refresh job and stale-data alert
 
 - [ ] Implement Spot REST wrappers and smoke tests
-  - [ ] Public data: ticker, markets, markets_details, trade_history, orderbook, candles
+  - [x] Public data: ticker, markets, markets_details, trade_history, orderbook, candles
   - [ ] Account/trading: balances, user info, create, status, status_multiple, active_orders, active_orders_count
   - [ ] History/cancel/edit: trade_history, cancel, cancel_all, cancel_by_ids, edit
   - [ ] Wallet: transfer, sub_account_transfer

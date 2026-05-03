@@ -20,6 +20,7 @@ applyReadOnlyGuard(publicHttp, {
 });
 
 export const __httpForTests = http;
+export const __publicHttpForTests = publicHttp;
 
 export class CoinDCXApi {
   private static readonly clockSkewRetryStatuses = new Set([400, 401, 403]);
@@ -183,23 +184,32 @@ export class CoinDCXApi {
   }
 
   static async getTickers() {
-    try {
-      const response = await publicHttp.get('/exchange/ticker');
-      return response.data;
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Error fetching tickers:', error);
-      return [];
-    }
+    return this.fetchPublic('tickers', '/exchange/ticker');
+  }
+
+  static async getMarkets() {
+    return this.fetchPublic('markets', '/exchange/v1/markets');
   }
 
   static async getMarketDetails() {
+    return this.fetchPublic('market details', '/exchange/v1/markets_details');
+  }
+
+  static async getPublicTradeHistory(pair: string, limit = 100) {
+    return this.fetchPublic('public trade history', '/market_data/trade_history', { pair, limit });
+  }
+
+  static async getPublicOrderBook(pair: string) {
+    return this.fetchPublic('public orderbook', '/market_data/orderbook', { pair });
+  }
+
+  private static async fetchPublic(label: string, path: string, params?: Record<string, unknown>) {
     try {
-      const response = await publicHttp.get('/exchange/v1/markets_details');
+      const response = await publicHttp.get(path, params ? { params } : undefined);
       return response.data;
     } catch (error) {
       // eslint-disable-next-line no-console
-      console.error('Error fetching market details:', error);
+      console.error(`Error fetching ${label}:`, error);
       return [];
     }
   }
