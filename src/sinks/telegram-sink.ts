@@ -36,9 +36,12 @@ const DEFAULT_COOLDOWNS: Record<string, number> = {
   'stalefeed': 15 * 60_000,
   'reconcile.': 15 * 60_000,
   'strategy.error': 30 * 60_000,
-  // AI WAIT updates: cooldown so traders see the latest read every 30 min, not every bar.
-  'strategy.wait': 30 * 60_000,
+  // AI WAIT updates: cooldown so traders see the latest read every few minutes, not every bar.
+  'strategy.wait': 5 * 60_000,
 };
+
+/** Cooldown keys that should never persist across restarts (volatile, regenerate quickly). */
+const VOLATILE_COOLDOWN_TYPES = new Set<string>(['strategy.wait']);
 
 function cooldownKey(s: Signal): string {
   const t = s.type || 'unknown';
@@ -138,7 +141,10 @@ export class TelegramSink implements Sink {
       const obj = JSON.parse(raw) as Record<string, number>;
       const now = Date.now();
       for (const [k, v] of Object.entries(obj)) {
-        if (typeof v === 'number' && v > now) this.cooldownExpiry.set(k, v);
+        if (typeof v !== 'number' || v <= now) continue;
+        const type = k.split('|')[1] ?? '';
+        if (VOLATILE_COOLDOWN_TYPES.has(type)) continue; // never honor persisted volatile cooldowns
+        this.cooldownExpiry.set(k, v);
       }
     } catch {
       // ignore corrupt state file; cooldown resets are not safety-critical.
@@ -156,7 +162,13 @@ export class TelegramSink implements Sink {
         const obj: Record<string, number> = {};
         const now = Date.now();
         for (const [k, v] of this.cooldownExpiry) {
-          if (v > now) obj[k] = v;
+          if (v <= now) continue;
+          // Key format: "strategy|type|pair" — skip volatile types from disk so a restart
+          // does not silence fresh AI pulses behind stale expiries.
+          const parts = k.split('|');
+          const type = parts[1] ?? '';
+          if (VOLATILE_COOLDOWN_TYPES.has(type)) continue;
+          obj[k] = v;
         }
         fs.writeFileSync(this.cooldownStatePath!, JSON.stringify(obj));
       } catch {
