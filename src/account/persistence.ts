@@ -13,9 +13,17 @@ export interface ChangelogRow {
   severity: 'info' | 'warn' | 'alarm' | null;
 }
 
+export interface AccountEventDedupRow {
+  clientOrderId: string;
+  eventId: string;
+  entity: 'order' | 'position' | 'fill';
+}
+
 export interface PersistenceOptions {
   pool: Pool;
   retryMax: number;
+  onError?: (err: Error, op: 'write' | 'flush', queueDepth: number) => void;
+  onQueueOverflow?: (dropped: number, queueDepth: number) => void;
 }
 
 const POSITION_SQL = `INSERT INTO positions
@@ -50,6 +58,11 @@ const FILL_SQL = `INSERT INTO fills_ledger
 const CHANGELOG_SQL = `INSERT INTO account_changelog
   (entity, entity_id, field, old_value, new_value, cause, severity, recorded_at)
   VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`;
+
+const ACCOUNT_EVENT_DEDUP_SQL = `INSERT INTO account_event_dedup
+  (client_order_id, event_id, entity)
+  VALUES ($1,$2,$3)
+  ON CONFLICT (client_order_id, event_id) DO NOTHING`;
 
 export class AccountPersistence {
   private queue: QueuedWrite[] = [];
@@ -90,13 +103,28 @@ export class AccountPersistence {
     ]);
   }
 
+  async recordAccountEventDedup(row: AccountEventDedupRow): Promise<boolean> {
+    try {
+      const result = await this.opts.pool.query(ACCOUNT_EVENT_DEDUP_SQL, [
+        row.clientOrderId,
+        row.eventId,
+        row.entity,
+      ]);
+      return (result.rowCount ?? 0) > 0;
+    } catch (err) {
+      this.opts.onError?.(err as Error, 'write', this.queue.length);
+      return false;
+    }
+  }
+
   async flush(): Promise<void> {
     while (this.queue.length > 0) {
       const w = this.queue[0]!;
       try {
         await this.opts.pool.query(w.sql, w.params);
         this.queue.shift();
-      } catch {
+      } catch (err) {
+        this.opts.onError?.(err as Error, 'flush', this.queue.length);
         return;
       }
     }
@@ -109,9 +137,15 @@ export class AccountPersistence {
   private async write(sql: string, params: any[]): Promise<void> {
     try {
       await this.opts.pool.query(sql, params);
-    } catch {
+    } catch (err) {
       this.queue.push({ sql, params });
-      while (this.queue.length > this.opts.retryMax) this.queue.shift();
+      let dropped = 0;
+      while (this.queue.length > this.opts.retryMax) {
+        this.queue.shift();
+        dropped += 1;
+      }
+      this.opts.onError?.(err as Error, 'write', this.queue.length);
+      if (dropped > 0) this.opts.onQueueOverflow?.(dropped, this.queue.length);
     }
   }
 }

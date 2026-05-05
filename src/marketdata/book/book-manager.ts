@@ -11,6 +11,7 @@ export interface DepthFrame {
 
 export class BookManager extends EventEmitter {
   private books = new Map<string, OrderBook>();
+  private recentFrames = new Map<string, DepthFrame>();
 
   get(pair: string): OrderBook | undefined { return this.books.get(pair); }
   pairs(): string[] { return [...this.books.keys()]; }
@@ -28,6 +29,7 @@ export class BookManager extends EventEmitter {
   onDepthSnapshot(pair: string, frame: DepthFrame): void {
     const b = this.getOrCreate(pair);
     b.applySnapshot(frame.asks, frame.bids, frame.ts, frame.seq);
+    this.recentFrames.set(pair, frame);
     this.emit('snapshotReceived', pair, frame);
   }
 
@@ -38,5 +40,10 @@ export class BookManager extends EventEmitter {
       return;
     }
     b.applyDelta(frame.asks, frame.bids, frame.ts, frame.seq, frame.prevSeq);
+    this.recentFrames.set(pair, frame);
+  }
+
+  latestFrame(pair: string): DepthFrame | undefined {
+    return this.recentFrames.get(pair);
   }
 }

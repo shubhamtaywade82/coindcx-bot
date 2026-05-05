@@ -25,6 +25,36 @@ describe('normalizers', () => {
     expect(normalizePosition(raw, 'rest', 'now').side).toBe('short');
   });
 
+  it('normalizePosition falls back mark price to last_price when mark_price missing', () => {
+    const raw = {
+      id: 'p2',
+      pair: 'B-BTC_USDT',
+      active_pos: 1,
+      avg_price: 50000,
+      last_price: 50500,
+      margin_currency_short_name: 'USDT',
+      unrealized_pnl: 0,
+      updated_at: 'now',
+    };
+    const p = normalizePosition(raw, 'rest', 'now');
+    expect(p.markPrice).toBe('50500');
+  });
+
+  it('normalizePosition preserves previous liquidation price when current payload omits it', () => {
+    const raw = {
+      id: 'p3',
+      pair: 'B-BTC_USDT',
+      active_pos: 1,
+      avg_price: 50000,
+      margin_currency_short_name: 'USDT',
+      previous_liquidation_price: '45000',
+      unrealized_pnl: 0,
+      updated_at: 'now',
+    };
+    const p = normalizePosition(raw, 'rest', 'now');
+    expect(p.liquidationPrice).toBe('45000');
+  });
+
   it('normalizeBalance maps currency_short_name + locked_balance', () => {
     const raw = { currency_short_name: 'USDT', balance: 100, locked_balance: 50 };
     const b = normalizeBalance(raw, 'ws', 'now');
@@ -50,5 +80,26 @@ describe('normalizers', () => {
     expect(f.qty).toBe('1');
     expect(f.realizedPnl).toBe('5');
     expect(f.ingestedAt).toBe('now');
+  });
+
+  it('normalizeFill converts exchange epoch ms to ISO for Postgres timestamptz', () => {
+    const raw = {
+      id: 'f2', pair: 'X', side: 'buy', price: 1, quantity: 1,
+      timestamp: 1_747_000_000_000,
+    };
+    const f = normalizeFill(raw, 'rest', '2026-05-03T00:00:00.000Z');
+    expect(f.executedAt).toBe(new Date(1_747_000_000_000).toISOString());
+  });
+
+  it('normalizeOrder converts numeric created_at ms to ISO', () => {
+    const raw = {
+      id: 'o2', pair: 'X', side: 'buy', order_type: 'limit', status: 'open',
+      price: 1, total_quantity: 1, remaining_quantity: 1,
+      created_at: 1_747_000_000_000,
+      updated_at: 1_747_000_000_001,
+    };
+    const o = normalizeOrder(raw, 'rest', '2026-05-03T00:00:00.000Z');
+    expect(o.createdAt).toBe(new Date(1_747_000_000_000).toISOString());
+    expect(o.updatedAt).toBe(new Date(1_747_000_000_001).toISOString());
   });
 });

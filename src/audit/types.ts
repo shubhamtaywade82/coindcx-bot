@@ -2,6 +2,8 @@ export type AuditKind =
   | 'signal'
   | 'alert'
   | 'order_state'
+  | 'orderbook_gap'
+  | 'orderbook_resync'
   | 'reconcile_diff'
   | 'read_only_violation'
   | 'ws_reconnect'

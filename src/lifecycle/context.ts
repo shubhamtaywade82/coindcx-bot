@@ -6,6 +6,10 @@ import type { SignalBus } from '../signals/bus';
 import type { Cursors } from '../resume/cursors';
 import type { AiAnalyzer } from '../ai/analyzer';
 import type { MarketStateBuilder } from '../ai/state-builder';
+import type { WebhookGateway } from '../gateways/webhook';
+import type { MarketCatalog } from '../marketdata/market-catalog';
+import type { CoreRuntimePipeline } from '../runtime/runtime-pipeline';
+import type { RuntimeWorkerSet } from '../runtime/workers/runtime-workers';
 
 export interface Context {
   config: Config;
@@ -16,4 +20,8 @@ export interface Context {
   cursors: Cursors;
   analyzer: AiAnalyzer;
   stateBuilder: MarketStateBuilder;
+  marketCatalog: MarketCatalog;
+  runtime: CoreRuntimePipeline;
+  runtimeWorkers?: RuntimeWorkerSet;
+  webhook?: WebhookGateway;
 }

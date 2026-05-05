@@ -7,7 +7,6 @@ import { bootstrap } from './lifecycle/bootstrap';
 import { installSignalHandlers } from './lifecycle/shutdown';
 import type { Context } from './lifecycle/context';
 import { IntegrityController } from './marketdata/integrity-controller';
-import { MultiTimeframeStore as MtfFusionStore } from './marketdata/multi-timeframe-store';
 import { CoinDcxFusion } from './marketdata/coindcx-fusion';
 import { AccountReconcileController } from './account/reconcile-controller';
 import { AccountPersistence } from './account/persistence';
@@ -29,14 +28,30 @@ import type { RiskFilter } from './strategy/types';
 import type { Candle, BookSnapshot } from './ai/state-builder';
 import { MultiTimeframeStore as CandleMtfStore, DEFAULT_TF_CONFIGS } from './marketdata/candles/multi-timeframe-store';
 import type { OrderBook } from './marketdata/book/orderbook';
+import type { IntentMarketContext } from './execution/intent-validator';
+import type { RegimeFeatures } from './runtime/regime-classifier';
+import { RuntimeWorkerSet } from './runtime/workers/runtime-workers';
+import { RuntimePersistence } from './persistence/runtime-persistence';
+import { TradePersistence } from './persistence/trade-persistence';
+import { OrderbookPersistence } from './persistence/orderbook-persistence';
+import { ProbabilityAnalyticsRepository } from './runtime/probability-analytics';
+import { PaperTradeGate } from './runtime/paper-trade-gate';
+import {
+  shouldAllowNegativeClose,
+  type NegativeCloseContext,
+} from './runtime/negative-close-policy';
 import ntp from 'ntp-client';
 import axios from 'axios';
+import { estimateSyntheticFundingRate, resolveMarkPrice, resolveOpenInterest } from './marketdata/data-gap-policy';
 
 // ── Types ──
 interface TickerInfo {
   price: string;
   markPrice: string;
   change: string;
+  openInterest?: string;
+  syntheticFundingRate?: string;
+  basis?: string;
 }
 
 interface TradeEntry {
@@ -120,12 +135,124 @@ function candleTrend(candles: Candle[], n = 3): 'up' | 'down' | 'sideways' {
   return 'sideways';
 }
 
+function parseFiniteNumber(value: unknown): number | undefined {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function readSignalMeta(payload: unknown): Record<string, unknown> | undefined {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return undefined;
+  const metaUnknown = (payload as Record<string, unknown>).meta;
+  if (!metaUnknown || typeof metaUnknown !== 'object' || Array.isArray(metaUnknown)) return undefined;
+  return metaUnknown as Record<string, unknown>;
+}
+
+function pickFirstFinite(meta: Record<string, unknown>, keys: readonly string[]): number | undefined {
+  for (const key of keys) {
+    const value = parseFiniteNumber(meta[key]);
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
+
+function buildRuntimeMarketContext(pair: string): IntentMarketContext {
+  const ticker = state.tickers.get(pair) ?? state.tickers.get(cleanPair(pair));
+  const markPrice = ticker?.markPrice || ticker?.price;
+  const accountSnapshot = Array.from(state.positions.values()).find(
+    (position: any) => cleanPair(position?.pair) === cleanPair(pair) && Number(position?.active_pos ?? 0) !== 0,
+  );
+  const liquidationPrice = accountSnapshot?.liquidation_price;
+  const leverage = accountSnapshot?.leverage;
+  const marketDataFresh =
+    state.lastPriceUpdate > 0
+      ? (Date.now() - state.lastPriceUpdate) <= 30_000
+      : undefined;
+  return {
+    ...(markPrice ? { markPrice } : {}),
+    ...(liquidationPrice ? { liquidationPrice } : {}),
+    ...(leverage ? { leverage } : {}),
+    ...(ticker?.openInterest ? { maxLeverage: ticker.openInterest } : {}),
+    marketDataFresh,
+    accountStateFresh: state.hasValidAuth,
+    accountDivergent: false,
+  };
+}
+
+function buildRuntimeRegimeFeatures(payload: unknown): RegimeFeatures {
+  const meta = readSignalMeta(payload);
+  if (!meta) return {};
+  const adx4h = pickFirstFinite(meta, ['adx4h', 'ADX_4H', 'adx_4h']);
+  const atrPercentile = pickFirstFinite(meta, ['atrPercentile', 'ATR_PCTL', 'atr_pctl']);
+  const bbWidthPercentile = pickFirstFinite(meta, ['bbWidthPercentile', 'BB_WIDTH_PCTL', 'bb_width_pctl']);
+  const mssSignal = meta.hasMarketStructureShift ?? meta.marketStructureShift ?? meta.MSS_4H ?? meta.mss_4h;
+  const mssNumeric = parseFiniteNumber(mssSignal);
+  const hasMarketStructureShift = mssSignal === true || (mssNumeric !== undefined && mssNumeric > 0);
+  return {
+    ...(adx4h !== undefined ? { adx4h } : {}),
+    ...(atrPercentile !== undefined ? { atrPercentile } : {}),
+    ...(bbWidthPercentile !== undefined ? { bbWidthPercentile } : {}),
+    hasMarketStructureShift,
+  };
+}
+
+function inferRuntimeMicrostructureContribution(payload: unknown): number | undefined {
+  const meta = readSignalMeta(payload);
+  if (!meta) return undefined;
+  const raw =
+    meta.microstructureContribution ??
+    meta.bookImbalanceContribution ??
+    meta.orderFlowContribution;
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return Math.max(-1, Math.min(1, raw));
+  }
+  return undefined;
+}
+
+function buildRuntimeConfluenceComponents(payload: unknown): Record<string, number> | undefined {
+  const meta = readSignalMeta(payload);
+  if (!meta) return undefined;
+  const sourceUnknown = meta.confluenceComponents;
+  const source =
+    sourceUnknown && typeof sourceUnknown === 'object' && !Array.isArray(sourceUnknown)
+      ? sourceUnknown as Record<string, unknown>
+      : meta;
+  const confidence = pickFirstFinite(source, ['confidenceContribution']);
+  const structure = pickFirstFinite(source, ['structureContribution']);
+  const momentum = pickFirstFinite(source, ['momentumContribution']);
+  const microstructure = pickFirstFinite(source, [
+    'microstructureContribution',
+    'bookImbalanceContribution',
+    'orderFlowContribution',
+  ]);
+  const risk = pickFirstFinite(source, ['riskContribution']);
+  const entries = Object.entries({
+    ...(confidence !== undefined ? { confidence } : {}),
+    ...(structure !== undefined ? { structure } : {}),
+    ...(momentum !== undefined ? { momentum } : {}),
+    ...(microstructure !== undefined ? { microstructure } : {}),
+    ...(risk !== undefined ? { risk } : {}),
+  }).map(([component, value]) => [component, Math.max(-1, Math.min(1, value))] as const);
+  if (entries.length === 0) return undefined;
+  return Object.fromEntries(entries);
+}
+
 // ══════════════════════════════════════════════════════
 // ── Main ──
 // ══════════════════════════════════════════════════════
 async function runApp(ctx: Context) {
   const tui = new TuiApp();
   const ws = new CoinDCXWs();
+  const runtimePersistence = new RuntimePersistence(ctx.pool);
+  const tradePersistence = new TradePersistence(ctx.pool);
+  const orderbookPersistence = new OrderbookPersistence(ctx.pool);
+  const probabilityAnalytics = new ProbabilityAnalyticsRepository(ctx.pool);
+  const paperTradeGate = new PaperTradeGate(ctx.pool, {
+    minDays: ctx.config.PAPER_GATE_MIN_RUN_DAYS,
+    minBreakevenLockBeforeStopRate: ctx.config.PAPER_GATE_MIN_BE_LOCK_BEFORE_STOP_RATE,
+    minExpectancyR: ctx.config.PAPER_GATE_MIN_EXPECTANCY_R,
+    maxDrawdownPct: ctx.config.PAPER_GATE_MAX_DRAWDOWN_PCT,
+  });
+  const trackOpenedAtByPair = new Map<string, string>();
   ctx.logger.info({ mod: 'app' }, 'app start');
 
   // F6: Tap SignalBus emissions into TUI signals + risk panels
@@ -133,6 +260,96 @@ async function runApp(ctx: Context) {
   (ctx.bus as any).emit = async (s: any) => {
     try {
       tui.observeSignal(s);
+      if (s?.type && s?.pair && (s.type === 'strategy.long' || s.type === 'strategy.short')) {
+        const decision = ctx.runtime.process(s, {
+          market: buildRuntimeMarketContext(s.pair),
+          regimeFeatures: buildRuntimeRegimeFeatures(s.payload),
+          defaultEntryType: 'limit',
+          confluenceComponents: buildRuntimeConfluenceComponents(s.payload),
+          microstructureContribution: inferRuntimeMicrostructureContribution(s.payload),
+          tradePlanOverrides: {
+            accountEquity: ctx.config.TRADEPLAN_ACCOUNT_EQUITY,
+            riskCapitalFraction: ctx.config.TRADEPLAN_RISK_CAPITAL_FRACTION,
+            atrPercent: ctx.config.TRADEPLAN_ATR_BUFFER_MULTIPLIER * 0.01,
+            feeRate: ctx.config.TRADEPLAN_FEE_RATE,
+            fundingRate: ctx.config.TRADEPLAN_FUNDING_RATE_BUFFER,
+            maxVenueLeverage: ctx.config.TRADEPLAN_HARD_MAX_LEVERAGE,
+            liquidationBufferMultiplier: ctx.config.TRADEPLAN_LIQUIDATION_BUFFER_MULTIPLIER,
+          },
+        });
+        if (decision) {
+          const probability = decision.confluence.fireGatePassed
+            ? await probabilityAnalytics.snapshot({
+              regime: decision.regime.regime,
+              maxScore: decision.confluence.maxScore,
+            })
+            : undefined;
+          const payload = {
+            ...(s.payload ?? {}),
+            ...(probability ? { probability } : {}),
+            confluence: {
+              longScore: decision.confluence.longScore,
+              shortScore: decision.confluence.shortScore,
+              maxScore: decision.confluence.maxScore,
+              scoreSpread: decision.confluence.scoreSpread,
+              fireGatePassed: decision.confluence.fireGatePassed,
+              volatileExceptionApplied: decision.confluence.volatileExceptionApplied,
+            },
+            regime: {
+              value: decision.regime.regime,
+              changed: decision.regime.changed,
+              previousRegime: decision.regime.previousRegime,
+              classifiedAt: decision.regime.classifiedAt,
+            },
+            ...(decision.tradePlan
+              ? {
+                tradePlan: {
+                  side: decision.tradePlan.side,
+                  entry: decision.tradePlan.entry,
+                  stopLoss: decision.tradePlan.stopLoss,
+                  leverage: decision.tradePlan.leverage,
+                  quantity: decision.tradePlan.quantity,
+                  riskCapital: decision.tradePlan.riskCapital,
+                  targets: decision.tradePlan.targets,
+                  breakevenPlus: decision.tradePlan.breakevenPlus,
+                  liquidationBufferSatisfied: decision.tradePlan.liquidationBufferSatisfied,
+                  metadata: decision.tradePlan.metadata,
+                },
+              }
+              : {}),
+          };
+          s.payload = payload;
+        }
+        if (decision?.status === 'blocked' && !decision.riskDecision.approved) {
+          ctx.logger.debug(
+            {
+              mod: 'runtime',
+              pair: decision.pair,
+              status: decision.status,
+              rejections: decision.riskDecision.rejections.map((rejection) => rejection.code),
+            },
+            'runtime pipeline blocked intent',
+          );
+        }
+        if (decision?.status === 'routed') {
+          ctx.logger.debug(
+            {
+              mod: 'runtime',
+              pair: decision.pair,
+              status: decision.status,
+              route: decision.routedOrder.route,
+            },
+            'runtime pipeline routed intent',
+          );
+          await runtimePersistence.persistPaperTrade(decision.routedOrder);
+        }
+      }
+      if (s?.type && runtimePersistence.isSignalEligible(s)) {
+        await runtimePersistence.persistSignal(s);
+      } else if (s?.type && runtimePersistence.isRiskEventEligible(s)) {
+        await runtimePersistence.persistRiskEvent(s);
+        await runtimePersistence.persistPositionSnapshot(s);
+      }
       if (s && s.type && s.type.startsWith('strategy.')) {
         tui.log(`Bus emitted: ${s.type} for ${s.pair}`);
       }
@@ -176,21 +393,15 @@ async function runApp(ctx: Context) {
   });
   integrity.start();
 
-  const mtf = new MtfFusionStore(ctx.logger.child({ mod: 'mtf' }));
-  const fusion = new CoinDcxFusion(ctx.logger.child({ mod: 'fusion' }), ws as any, mtf, integrity.books);
-  
-  for (const pair of ctx.config.COINDCX_PAIRS) {
-    void mtf.subscribe(pair);
-  }
-
-  fusion.on('fusion', (snap) => {
-    if (snap.pair === getFocusedCleanPair() || snap.pair === tui.focusedPair) {
-      refreshBookDisplay();
-    }
-  });
+  // fusion constructed after mtfStore (see below) to share single canonical candle store
 
   // ── F3 Account Reconciler ──
-  const accountPersistence = new AccountPersistence({ pool: ctx.pool, retryMax: 1000 });
+  const accountPersistence = new AccountPersistence({
+    pool: ctx.pool,
+    retryMax: 1000,
+    onError: (err, op, depth) => ctx.logger.warn({ mod: 'persistence', op, depth, err: err.message }, 'persistence write failed; queued for retry'),
+    onQueueOverflow: (dropped, depth) => ctx.logger.error({ mod: 'persistence', dropped, depth }, 'persistence retry queue overflow; events lost'),
+  });
   const accountBudget = new RestBudget({ globalPerMin: 60, pairPerMin: 60, timeoutMs: 1000 });
   const account = new AccountReconcileController({
     restApi: {
@@ -225,11 +436,61 @@ async function runApp(ctx: Context) {
 
   ws.on('depth-snapshot', (raw: any) => {
     integrity.ingest('depth-snapshot', safeParse(raw));
+    const parsed = safeParse(raw);
+    const pair = parsed?.s ?? parsed?.pair;
+    if (typeof pair === 'string') {
+      void orderbookPersistence.persistSnapshot(integrity.books, pair, 'depth-snapshot', new Date().toISOString());
+      void orderbookPersistence.persistArtifact({
+        pair,
+        channel: 'depth-snapshot',
+        kind: 'ws_frame',
+        ts: new Date().toISOString(),
+        exchangeTs: Number(parsed?.T ?? parsed?.E),
+        payload: parsed,
+      });
+    }
     refreshBookDisplay();
   });
   ws.on('depth-update', (raw: any) => {
     integrity.ingest('depth-update', safeParse(raw));
+    const parsed = safeParse(raw);
+    const pair = parsed?.s ?? parsed?.pair;
+    if (typeof pair === 'string') {
+      void orderbookPersistence.persistArtifact({
+        pair,
+        channel: 'depth-update',
+        kind: 'ws_frame',
+        ts: new Date().toISOString(),
+        exchangeTs: Number(parsed?.T ?? parsed?.E),
+        payload: parsed,
+      });
+    }
     refreshBookDisplay();
+  });
+  integrity.books.on('gap', (event: any) => {
+    ctx.audit.recordEvent({
+      kind: 'orderbook_gap',
+      source: 'integrity.book',
+      payload: {
+        pair: event?.pair,
+        reason: event?.reason,
+        expected: event?.expected,
+        prevSeq: event?.prevSeq,
+        price: event?.price,
+      },
+    });
+    void orderbookPersistence.persistArtifact({
+      pair: event?.pair,
+      channel: 'depth-update',
+      kind: 'orderbook_gap',
+      ts: new Date().toISOString(),
+      payload: {
+        reason: event?.reason,
+        expected: event?.expected,
+        prevSeq: event?.prevSeq,
+        price: event?.price,
+      },
+    });
   });
   ws.on('new-trade',      (raw: any) => integrity.ingest('new-trade',      safeParse(raw)));
   ws.on('currentPrices@futures#update', (raw: any) => integrity.ingest('currentPrices@futures#update', safeParse(raw)));
@@ -257,6 +518,14 @@ async function runApp(ctx: Context) {
     configs: DEFAULT_TF_CONFIGS,
     fetchCandles: fetchCandlesForStore,
     logger: ctx.logger,
+  });
+
+  const tradeFlow = new (await import('./marketdata/trade-flow')).TradeFlow();
+  const fusion = new CoinDcxFusion(ctx.logger.child({ mod: 'fusion' }), ws as any, mtfStore, integrity.books, tradeFlow);
+  fusion.on('fusion', (snap) => {
+    if (snap.pair === getFocusedCleanPair() || snap.pair === tui.focusedPair) {
+      refreshBookDisplay();
+    }
   });
 
   // Seed all configured pairs in parallel
@@ -350,6 +619,57 @@ async function runApp(ctx: Context) {
   if (enabledIds.has('llm.pulse.v1'))   strategyController.register(new LlmPulse(ctx.analyzer));
   if (enabledIds.has('bearish.smc.v1')) strategyController.register(new BearishSmc());
   strategyController.start();
+
+  const runtimeWorkers = new RuntimeWorkerSet({
+    config: ctx.config,
+    logger: ctx.logger,
+    pairs: configuredPairs,
+    getPositions: () => account.snapshot().positions,
+    getMarkPrice: (pair) => {
+      const ticker = state.tickers.get(pair) ?? state.tickers.get(cleanPair(pair));
+      const raw = ticker?.markPrice ?? ticker?.price;
+      const parsed = raw !== undefined ? Number(raw) : Number.NaN;
+      return Number.isFinite(parsed) ? parsed : undefined;
+    },
+    onCandleClose: async ({ pair, timeframe }) => {
+      for (const manifest of strategyController.registry.list()) {
+        if (manifest.mode !== 'bar_close') continue;
+        const allowedTimeframes = manifest.barTimeframes ?? ['1m'];
+        if (!allowedTimeframes.includes(timeframe)) continue;
+        if (!manifest.pairs.includes('*') && !manifest.pairs.includes(pair)) continue;
+        await strategyController.runOnce(manifest.id, pair, { kind: 'bar_close', tf: timeframe });
+      }
+    },
+    onBreakevenArm: async ({ pair, positionId, markPrice, avgPrice, side }) => {
+      ctx.logger.info(
+        {
+          mod: 'worker.breakeven',
+          pair,
+          positionId,
+          side,
+          markPrice,
+          avgPrice,
+        },
+        'breakeven protection armed',
+      );
+    },
+    onFundingWindow: async ({ windowIso, leadMs }) => {
+      ctx.logger.info(
+        {
+          mod: 'worker.funding',
+          windowIso,
+          leadMs,
+        },
+        'funding pre-window ticker fired',
+      );
+      if (!enabledIds.has('llm.pulse.v1')) return;
+      for (const rawPair of configuredPairs) {
+        await strategyController.runOnce('llm.pulse.v1', rawPair, { kind: 'interval' });
+      }
+    },
+  });
+  runtimeWorkers.start();
+  ctx.runtimeWorkers = runtimeWorkers;
 
   setInterval(() => {
     tui.updateStatus({ lastUpdate: Date.now() });
@@ -573,7 +893,18 @@ async function runApp(ctx: Context) {
          return formatBookRow(p, q, bidCumulative);
       });
 
-    tui.updateOrderBook(asks, bids, ticker?.price || '—', rawPair, snap?.bookMetrics);
+    tui.updateOrderBook(
+      asks,
+      bids,
+      ticker?.price || '—',
+      rawPair,
+      snap
+        ? {
+            ...snap.bookMetrics,
+            microstructure: snap.microstructure,
+          }
+        : undefined,
+    );
     tui.updateStatus({ lastUpdate: Date.now() });
   }
 
@@ -741,8 +1072,8 @@ async function runApp(ctx: Context) {
       if (usdtInrTicker && usdtInrTicker.last_price) {
         state.usdtInrRate = parseFloat(usdtInrTicker.last_price);
       }
-    } catch (_err) {
-      // Ignore ticker fetch errors
+    } catch (err: any) {
+      ctx.logger.warn({ mod: 'tui', err: err?.message }, 'USDT/INR ticker fetch failed');
     }
 
     if (!state.hasValidAuth) return;
@@ -856,6 +1187,16 @@ async function runApp(ctx: Context) {
       qty: formatQty(data.q),
       side: data.m ? 'MAKER' : 'TAKER',
     });
+    void tradePersistence.persist({
+      id: String(data.id ?? `${pair}:${data.T ?? Date.now()}:${data.p ?? '0'}:${data.q ?? '0'}`),
+      ts: new Date(Number(data.T ?? Date.now())).toISOString(),
+      pair,
+      side: data.m ? 'MAKER' : 'TAKER',
+      price: String(data.p ?? '0'),
+      qty: String(data.q ?? '0'),
+      source: 'ws.new-trade',
+      payload: data,
+    });
     if (state.allTrades.length > MAX_TRADES) {
       state.allTrades = state.allTrades.slice(0, MAX_TRADES);
     }
@@ -864,6 +1205,7 @@ async function runApp(ctx: Context) {
     if (clean === getFocusedCleanPair()) {
       refreshBookDisplay();
     }
+    state.lastPriceUpdate = Date.now();
   });
 
   // ── currentPrices@spot#update: { prices: { "ATOMUSDT": "2.01", ... } } ──
@@ -893,6 +1235,7 @@ async function runApp(ctx: Context) {
     refreshHeader();
     refreshPositionsDisplay(); // Reactive PnL update
     refreshBalanceDisplay();   // Reactive Equity update
+    state.lastPriceUpdate = Date.now();
   });
 
   // ── currentPrices@futures#update: { prices: { "B-SOL_USDT": { mp, ls, pc, ... } } } ──
@@ -907,26 +1250,38 @@ async function runApp(ctx: Context) {
     Object.entries(prices).forEach(([rawPair, info]: [string, any]) => {
       if (!info || typeof info !== 'object') return;
       const pair = cleanPair(rawPair);
-      const lastPrice = info.ls || info.mp;
-      const markPrice = info.mp;
+      const markPrice = resolveMarkPrice({ markPrice: info.mp, lastPrice: info.ls });
+      const lastPrice = resolveMarkPrice({ markPrice: info.ls, lastPrice: info.mp });
       const changePct = info.pc;
+      const openInterest = resolveOpenInterest(info);
+      const syntheticFunding = estimateSyntheticFundingRate({
+        futuresMarkPrice: markPrice,
+        spotLastPrice: lastPrice,
+      });
 
       const existing = state.tickers.get(pair) || { price: '0', markPrice: '0', change: '0' };
       state.tickers.set(pair, {
         price: lastPrice?.toString() || existing.price,
         markPrice: markPrice?.toString() || existing.markPrice,
         change: changePct?.toString() || existing.change,
+        ...(openInterest !== undefined ? { openInterest: openInterest.toString() } : {}),
+        ...(syntheticFunding
+          ? {
+            syntheticFundingRate: syntheticFunding.estimatedFundingRate.toString(),
+            basis: syntheticFunding.basisRatio.toString(),
+          }
+          : {}),
       });
 
-      if (pair === 'USDTINR') {
-        state.usdtInrRate = parseFloat(lastPrice?.toString() || state.usdtInrRate.toString());
+      if (pair === 'USDTINR' && lastPrice !== undefined) {
+        state.usdtInrRate = parseFloat(lastPrice.toString());
       }
 
       // Update active positions PnL in real-time
-      if (markPrice) {
+      if (markPrice !== undefined) {
         state.positions.forEach((pos: any) => {
           if (cleanPair(pos.pair) === pair && pos.active_pos !== 0) {
-            const mp = parseFloat(markPrice);
+            const mp = Number(markPrice);
             const avg = parseFloat(pos.avg_price || '0');
             const qty = parseFloat(pos.active_pos || '0');
             pos.mark_price = mp;
@@ -942,6 +1297,7 @@ async function runApp(ctx: Context) {
       refreshBalanceDisplay();
     }
     refreshHeader();
+    state.lastPriceUpdate = Date.now();
   });
 
   // ── df-position-update: [{ pair, active_pos, avg_price, leverage, mark_price, ... }] ──
@@ -956,6 +1312,59 @@ async function runApp(ctx: Context) {
         state.positions.set(p.id, p);
       }
       void account.ingest('position', p);
+      const key = cleanPair(p.pair ?? '');
+      const activePos = Number(p.active_pos ?? 0);
+      if (key && activePos !== 0 && !trackOpenedAtByPair.has(key)) {
+        trackOpenedAtByPair.set(key, new Date().toISOString());
+      }
+      if (key && activePos === 0) {
+        trackOpenedAtByPair.delete(key);
+      }
+      const context: NegativeCloseContext = {
+        side: activePos >= 0 ? 'LONG' : 'SHORT',
+        unrealizedPnl: Number(p.unrealized_pnl ?? 0),
+        maxConfluenceScore: Number(p.confluence_score ?? 0),
+        breakevenArmed:
+          p.breakeven_armed === true ||
+          (typeof p.stop_loss === 'string' && Number(p.stop_loss) !== 0),
+        openedAt: trackOpenedAtByPair.get(key),
+        nowMs: Date.now(),
+        timeStopMs: ctx.config.NEGATIVE_CLOSE_TIME_STOP_MS,
+        highConfluenceThreshold: ctx.config.NEGATIVE_CLOSE_HC_MIN_SCORE,
+      };
+      const closeDecision = shouldAllowNegativeClose(context);
+      if (!closeDecision.allow && closeDecision.reason !== 'positive_pnl_or_flat') {
+        ctx.logger.debug(
+          {
+            mod: 'risk.negative-close',
+            pair: p.pair,
+            reason: closeDecision.reason,
+          },
+          'negative close policy blocked close',
+        );
+      }
+      if (closeDecision.allow && closeDecision.reason === 'time_stop_kill') {
+        ctx.runtime.positionStateMachine.transition(cleanPair(p.pair ?? ''), {
+          type: 'time_stop_kill',
+          reason: 'negative close allowed by time-stop-kill policy',
+        });
+        const riskEventSignal = {
+          id: `risk:time-stop-kill:${p.id ?? p.pair ?? Date.now()}`,
+          ts: new Date().toISOString(),
+          strategy: 'risk.policy',
+          type: 'risk.time_stop_kill',
+          pair: p.pair,
+          severity: 'warn' as const,
+          payload: {
+            positionId: p.id,
+            pair: p.pair,
+            unrealizedPnl: Number(p.unrealized_pnl ?? 0),
+            openedAt: trackOpenedAtByPair.get(key),
+            evaluatedAt: new Date().toISOString(),
+          },
+        };
+        void ctx.bus.emit(riskEventSignal);
+      }
     });
 
     refreshPositionsDisplay();
@@ -1065,6 +1474,23 @@ async function runApp(ctx: Context) {
       tui.log(`{red-fg}Refresh error: ${err.message}{/red-fg}`, 'error');
     }
   }, 30_000);
+
+  setInterval(async () => {
+    try {
+      const signals = await paperTradeGate.signalsIfChanged();
+      for (const signal of signals) {
+        await (ctx.bus as any).emit(signal);
+      }
+    } catch (error: any) {
+      ctx.logger.warn(
+        {
+          mod: 'paper_gate.progress',
+          err: error instanceof Error ? error.message : String(error),
+        },
+        'paper gate progress emit failed',
+      );
+    }
+  }, ctx.config.PAPER_GATE_PROGRESS_EMIT_MS);
 }
 
 async function main() {

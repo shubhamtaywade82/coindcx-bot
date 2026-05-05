@@ -1,4 +1,5 @@
 import { loadConfig } from '../config';
+import { ollamaHostRequiresApiKey } from '../ai/ollama-host';
 import { createLogger } from '../logging/logger';
 import { getPool } from '../db/pool';
 import { runMigrations } from '../db/migrate';
@@ -9,6 +10,8 @@ import { FileSink } from '../sinks/file-sink';
 import { TelegramSink } from '../sinks/telegram-sink';
 import type { Sink } from '../sinks/types';
 import type { Context } from './context';
+import { MarketCatalog } from '../marketdata/market-catalog';
+import { CoreRuntimePipeline } from '../runtime/runtime-pipeline';
 
 async function connectWithRetry<T>(fn: () => Promise<T>, attempts: number, baseMs: number): Promise<T> {
   let lastErr: unknown;
@@ -36,7 +39,22 @@ export async function bootstrap(): Promise<Context> {
   const { interceptConsole } = await import('../logging/interceptor');
   interceptConsole(logger);
 
-  logger.info({ mod: 'boot', ollama: config.OLLAMA_URL, model: config.OLLAMA_MODEL }, 'boot start');
+    logger.info(
+      {
+        mod: 'boot',
+        ollama: config.OLLAMA_URL,
+        model: config.OLLAMA_MODEL,
+        ollamaAuth: config.OLLAMA_API_KEY?.trim() ? 'bearer' : 'none',
+      },
+      'boot start',
+    );
+
+  if (ollamaHostRequiresApiKey(config.OLLAMA_URL) && !config.OLLAMA_API_KEY?.trim()) {
+    logger.warn(
+      { mod: 'boot' },
+      'OLLAMA_URL is Ollama Cloud but OLLAMA_API_KEY is empty — AI Strategy Pulse will not work until you set a key (https://ollama.com/settings/keys)',
+    );
+  }
 
   const pool = await connectWithRetry(async () => {
     const p = getPool();
@@ -53,6 +71,7 @@ export async function bootstrap(): Promise<Context> {
     pool,
     bufferMax: config.AUDIT_BUFFER_MAX,
     onDrop: (n) => logger.warn({ mod: 'audit', dropped: n }, 'audit overflow'),
+    onError: (err, depth) => logger.warn({ mod: 'audit', err: err.message, depth }, 'audit drain failed'),
   });
   audit.start();
 
@@ -85,7 +104,46 @@ export async function bootstrap(): Promise<Context> {
   const analyzer = new AiAnalyzer(config, logger);
   const stateBuilder = new MarketStateBuilder(logger, pool);
 
-  logger.info({ mod: 'boot', sinks: config.SIGNAL_SINKS }, 'boot complete');
+  let webhook: import('../gateways/webhook').WebhookGateway | undefined;
+  if (config.WEBHOOK_ENABLED) {
+    const { WebhookGateway } = await import('../gateways/webhook');
+    if (!config.WEBHOOK_SHARED_SECRET) {
+      logger.warn({ mod: 'boot' }, 'WEBHOOK_ENABLED=true without WEBHOOK_SHARED_SECRET — endpoint unauthenticated; bound to localhost only');
+    }
+    webhook = new WebhookGateway({
+      port: config.WEBHOOK_PORT,
+      path: config.WEBHOOK_PATH,
+      host: config.WEBHOOK_BIND_HOST,
+      sharedSecret: config.WEBHOOK_SHARED_SECRET,
+      bus,
+      logger: logger.child({ mod: 'webhook' }),
+    });
+    webhook.start();
+  }
 
-  return { config, logger, pool, audit, bus, cursors, analyzer, stateBuilder };
+  const marketCatalog = new MarketCatalog({
+    pool,
+    logger: logger.child({ mod: 'market-catalog' }),
+    bus,
+    refreshMs: 15 * 60_000,
+    staleAlertMs: 60 * 60_000,
+  });
+  await marketCatalog.start();
+  const runtime = new CoreRuntimePipeline();
+
+  logger.info({ mod: 'boot', sinks: config.SIGNAL_SINKS, webhook: !!webhook }, 'boot complete');
+
+  return {
+    config,
+    logger,
+    pool,
+    audit,
+    bus,
+    cursors,
+    analyzer,
+    stateBuilder,
+    webhook,
+    marketCatalog,
+    runtime,
+  };
 }

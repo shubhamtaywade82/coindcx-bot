@@ -27,6 +27,7 @@ function makeDeps(overrides: Partial<any> = {}) {
       RESYNC_WS_TIMEOUT_MS: 50,
       REST_BUDGET_GLOBAL_PER_MIN: 100, REST_BUDGET_PAIR_PER_MIN: 100,
       REST_BUDGET_TIMEOUT_MS: 100,
+      COINDCX_PAIRS: ['B-X_USDT'],
     } as any,
     logger,
     pool: {} as any,
@@ -50,5 +51,29 @@ describe('IntegrityController', () => {
     expect(deps.restFetchOrderBook).toHaveBeenCalledWith('B-X_USDT');
     const types = (deps.bus.emit as any).mock.calls.map((c: any[]) => c[0].type);
     expect(types).toContain('book_resync');
+  });
+
+  it('ignores spot depth frames so they do not overwrite the futures book', () => {
+    const deps = makeDeps();
+    const ic = new IntegrityController(deps as any);
+    ic.ingest('depth-snapshot', {
+      s: 'B-X_USDT', asks: [['1', '1']], bids: [['0.5', '1']], pr: 'futures',
+    });
+    expect(ic.books.get('B-X_USDT')?.bestAsk()?.price).toBe('1');
+    ic.ingest('depth-snapshot', {
+      s: 'B-X_USDT', asks: [['999', '1']], bids: [['998', '1']], pr: 'spot',
+    });
+    expect(ic.books.get('B-X_USDT')?.bestAsk()?.price).toBe('1');
+  });
+
+  it('applies futures depth-snapshot without s when exactly one pair is configured', () => {
+    const base = makeDeps();
+    const deps = { ...base, config: { ...base.config, COINDCX_PAIRS: ['B-SOL_USDT'] } };
+    const ic = new IntegrityController(deps as any);
+    ic.ingest('depth-snapshot', {
+      asks: [['83.6', '1']], bids: [['83.5', '2']], pr: 'futures',
+    });
+    expect(ic.books.get('B-SOL_USDT')?.bestAsk()?.price).toBe('83.6');
+    expect(ic.books.get('B-SOL_USDT')?.bestBid()?.price).toBe('83.5');
   });
 });

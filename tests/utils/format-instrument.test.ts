@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toCoinDcxFuturesInstrument, cleanPair } from '../../src/utils/format';
+import { toCoinDcxFuturesInstrument, cleanPair, formatPnl } from '../../src/utils/format';
 
 describe('toCoinDcxFuturesInstrument', () => {
   it('passes through canonical CoinDCX futures ids', () => {
@@ -18,6 +18,17 @@ describe('toCoinDcxFuturesInstrument', () => {
 
   it('supports leveled 1000* names', () => {
     expect(toCoinDcxFuturesInstrument('1000PEPEUSDT')).toBe('B-1000PEPE_USDT');
+  });
+});
+
+describe('formatPnl', () => {
+  it('includes an explicit minus for negative values', () => {
+    expect(formatPnl(-520.68, '₹')).toContain('-');
+    expect(formatPnl(-520.68, '₹')).toMatch(/-.*520/);
+  });
+
+  it('includes plus for positive values', () => {
+    expect(formatPnl(100, '$')).toContain('+');
   });
 });
 

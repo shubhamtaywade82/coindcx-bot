@@ -41,4 +41,37 @@ describe('TelegramSink', () => {
     await sink.emit({ id: '1', ts: 't', strategy: 's', type: 'strategy.long', severity: 'info', payload: {} });
     expect(onDrop).toHaveBeenCalledOnce();
   });
+
+  it('does not POST for strategy.wait', async () => {
+    const sink = new TelegramSink({
+      token, chatId: chat, ratePerMin: 60, retryDelaysMs: [1, 1, 1],
+    });
+    await sink.emit({
+      id: '1',
+      ts: 't',
+      strategy: 'llm.pulse.v1',
+      type: 'strategy.wait',
+      severity: 'info',
+      payload: { reason: 'flat' },
+    });
+  });
+
+  it('POSTs Pine-style signals whose type has no dot (e.g. long)', async () => {
+    const scope = nock(baseUrl)
+      .post(`/bot${token}/sendMessage`)
+      .reply(200, { ok: true });
+    const sink = new TelegramSink({
+      token, chatId: chat, ratePerMin: 60, retryDelaysMs: [1, 1, 1],
+    });
+    await sink.emit({
+      id: '1',
+      ts: 't',
+      strategy: 'pine.smc',
+      type: 'long',
+      severity: 'info',
+      pair: 'BTCUSDT',
+      payload: { raw: 'SMC alert' },
+    });
+    expect(scope.isDone()).toBe(true);
+  });
 });

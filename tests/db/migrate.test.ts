@@ -30,7 +30,32 @@ describe.skipIf(!dockerAvailable)('migrations', () => {
     );
     const names = r.rows.map((row: { table_name: string }) => row.table_name);
     expect(names).toEqual(
-      expect.arrayContaining(['audit_events', 'seq_cursor', 'signal_log', 'pgmigrations']),
+      expect.arrayContaining([
+        'audit_events',
+        'seq_cursor',
+        'signal_log',
+        'markets',
+        'candles',
+        'paper_trades',
+        'account_event_dedup',
+        'signals',
+        'risk_events',
+        'trades',
+        'orderbook_snapshots',
+        'replay_artifacts',
+        'pgmigrations',
+      ]),
+    );
+    const views = await pool.query(
+      `SELECT table_name FROM information_schema.views
+       WHERE table_schema='public' ORDER BY table_name`,
+    );
+    const viewNames = views.rows.map((row: { table_name: string }) => row.table_name);
+    expect(viewNames).toEqual(
+      expect.arrayContaining([
+        'order_book_snapshots',
+        'probability_of_profit_by_regime_score',
+      ]),
     );
     await pool.end();
   });
@@ -40,7 +65,33 @@ describe.skipIf(!dockerAvailable)('migrations', () => {
     await runMigrations({ direction: 'up', databaseUrl: url });
   });
 
-  it('rolls back', async () => {
+  it('rolls back latest migration step', async () => {
+    await runMigrations({ direction: 'down', databaseUrl: url, count: 1 });
+    const pool = new Pool({ connectionString: url });
+    const b7View = await pool.query(
+      `SELECT count(*)::int AS n FROM information_schema.views
+       WHERE table_schema='public' AND table_name='order_book_snapshots'`,
+    );
+    expect(b7View.rows[0].n).toBe(1);
+    const paperTradesTable = await pool.query(
+      `SELECT count(*)::int AS n FROM information_schema.tables
+       WHERE table_schema='public' AND table_name='paper_trades'`,
+    );
+    expect(paperTradesTable.rows[0].n).toBe(0);
+    const probabilityView = await pool.query(
+      `SELECT count(*)::int AS n FROM information_schema.views
+       WHERE table_schema='public' AND table_name='probability_of_profit_by_regime_score'`,
+    );
+    expect(probabilityView.rows[0].n).toBe(1);
+    const runtimeTable = await pool.query(
+      `SELECT count(*)::int AS n FROM information_schema.tables
+       WHERE table_schema='public' AND table_name='orderbook_snapshots'`,
+    );
+    expect(runtimeTable.rows[0].n).toBe(1);
+    await pool.end();
+  });
+
+  it('rolls back all migrations', async () => {
     await runMigrations({ direction: 'down', databaseUrl: url });
     const pool = new Pool({ connectionString: url });
     const r = await pool.query(

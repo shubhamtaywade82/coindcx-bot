@@ -24,6 +24,7 @@ skip('AccountReconcileController integration', () => {
 
   beforeEach(async () => {
     await pool.query('TRUNCATE positions, balances, orders, fills_ledger, account_changelog CASCADE');
+    await pool.query("DELETE FROM signal_log WHERE strategy = 'account.reconciler'");
     sinkEmit.mockClear();
   });
 
@@ -69,6 +70,29 @@ skip('AccountReconcileController integration', () => {
     expect(types).toContain('reconcile.divergence');
     const cl = await pool.query("SELECT * FROM account_changelog WHERE cause='divergence'");
     expect(cl.rows.length).toBeGreaterThan(0);
+  });
+
+  it('persists position.pnl_threshold to signal_log when WS position shows deep loss vs notional', async () => {
+    const restApi = rest({});
+    const c = new AccountReconcileController({
+      restApi: restApi as any, persistence, signalBus: bus, tryAcquireBudget: async () => true,
+      config: { ...cfg, pnlAlarmPct: -0.08, signalCooldownMs: 60_000 },
+    });
+    // notional = 100 × 0.5 = 50; unrealized -6 → ratio -0.12 < -0.08 → threshold signal
+    await c.ingest('position', {
+      id: 'p-risk', pair: 'B-BTC_USDT', active_pos: 0.5, avg_price: 100,
+      margin_currency_short_name: 'USDT', unrealized_pnl: -6, updated_at: 'now',
+    });
+    expect(sinkEmit).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'position.pnl_threshold', severity: 'warn', pair: 'B-BTC_USDT',
+    }));
+    const r = await pool.query(
+      "SELECT type, severity, pair FROM signal_log WHERE strategy = 'account.reconciler' AND type = 'position.pnl_threshold'",
+    );
+    expect(r.rows).toHaveLength(1);
+    expect(r.rows[0]).toEqual(expect.objectContaining({
+      type: 'position.pnl_threshold', severity: 'warn', pair: 'B-BTC_USDT',
+    }));
   });
 
   it('idempotent fill replay results in single row', async () => {

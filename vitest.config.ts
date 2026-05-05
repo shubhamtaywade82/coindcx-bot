@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
     environment: 'node',
+    setupFiles: ['tests/setup-env.ts'],
     testTimeout: 30_000,
     hookTimeout: 60_000,
     coverage: { provider: 'v8', reporter: ['text', 'lcov'] },

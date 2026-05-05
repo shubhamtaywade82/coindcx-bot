@@ -17,6 +17,7 @@ export const config = {
   // New AI settings
   ollamaUrl: fullConfig.OLLAMA_URL,
   ollamaModel: fullConfig.OLLAMA_MODEL,
+  ollamaApiKey: fullConfig.OLLAMA_API_KEY,
   
   // Full config access
   ...fullConfig

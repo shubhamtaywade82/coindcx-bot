@@ -1,11 +1,16 @@
 import type { Balance, Order, Position } from './types';
 
-export type Severity = 'info' | 'warn' | 'alarm';
+// Domain-level severity for account changelog entries; persisted in
+// `account_changelog.severity`. Distinct from `signals/types.Severity`
+// (bus/sink standard: info|warn|critical). `'alarm'` rows trigger
+// `reconcile.divergence` signals with `severity:'critical'` — see
+// `reconcile-controller.ts` (alarmCount → emit).
+export type DivergenceSeverity = 'info' | 'warn' | 'alarm';
 
 export type Diff =
-  | { kind: 'missing_in_local'; id: string; restRow: any; severity: Severity }
-  | { kind: 'missing_in_rest'; id: string; localRow: any; severity: Severity }
-  | { kind: 'field_mismatch'; id: string; field: string; local: string; rest: string; severity: Severity };
+  | { kind: 'missing_in_local'; id: string; restRow: Record<string, unknown>; severity: DivergenceSeverity }
+  | { kind: 'missing_in_rest'; id: string; localRow: Record<string, unknown>; severity: DivergenceSeverity }
+  | { kind: 'field_mismatch'; id: string; field: string; local: string; rest: string; severity: DivergenceSeverity };
 
 export interface DivergenceConfig {
   pnlAbsAlarm: number;
@@ -56,12 +61,12 @@ export class DivergenceDetector {
     for (const [id, restRow] of idRest) {
       const localRow = idLocal.get(id);
       if (!localRow) {
-        diffs.push({ kind: 'missing_in_local', id, restRow, severity: 'warn' });
+        diffs.push({ kind: 'missing_in_local', id, restRow: restRow as Record<string, unknown>, severity: 'warn' });
         continue;
       }
       for (const field of compareFields) {
-        const lv = String((localRow as any)[field] ?? '');
-        const rv = String((restRow as any)[field] ?? '');
+        const lv = String((localRow as Record<string, unknown>)[field] ?? '');
+        const rv = String((restRow as Record<string, unknown>)[field] ?? '');
         if (lv === rv) continue;
         diffs.push({
           kind: 'field_mismatch', id, field, local: lv, rest: rv,
@@ -71,13 +76,13 @@ export class DivergenceDetector {
     }
     for (const [id, localRow] of idLocal) {
       if (!idRest.has(id)) {
-        diffs.push({ kind: 'missing_in_rest', id, localRow, severity: 'warn' });
+        diffs.push({ kind: 'missing_in_rest', id, localRow: localRow as Record<string, unknown>, severity: 'warn' });
       }
     }
     return diffs;
   }
 
-  private classify(field: string, local: string, rest: string, qty: readonly string[], pnl: readonly string[]): Severity {
+  private classify(field: string, local: string, rest: string, qty: readonly string[], pnl: readonly string[]): DivergenceSeverity {
     if (qty.includes(field)) return 'alarm';
     if (pnl.includes(field)) {
       const lv = Number(local);

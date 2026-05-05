@@ -33,7 +33,7 @@ export function isTradeSide(side: unknown): side is TradeSide {
   return side === 'LONG' || side === 'SHORT';
 }
 
-export function buildTradeIntentId(args: Pick<BuildTradeIntentArgs, 'strategyId' | 'pair' | 'signal' | 'createdAt'>): string {
+function buildTradeIntentId(args: Pick<BuildTradeIntentArgs, 'strategyId' | 'pair' | 'signal' | 'createdAt'>): string {
   return [
     args.strategyId,
     args.pair,

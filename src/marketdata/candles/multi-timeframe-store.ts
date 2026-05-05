@@ -27,6 +27,12 @@ export interface MtfStoreOptions {
   logger?: AppLogger;
 }
 
+export interface MtfSnapshot {
+  pair: string;
+  timeframes: Record<string, Candle[]>;
+  lastUpdatedAt: number;
+}
+
 /** Emits: 'update' → { pair: string; tf: string; candle: Candle } */
 export class MultiTimeframeStore extends EventEmitter {
   // pair (raw, e.g. "B-SOL_USDT") → tf → candles
@@ -134,6 +140,15 @@ export class MultiTimeframeStore extends EventEmitter {
   /** Return all candles for a given pair + timeframe, oldest-first. */
   get(pair: string, tf: string): Candle[] {
     return this.stores.get(pair)?.get(tf) ?? [];
+  }
+
+  /** Snapshot of all timeframes for a pair. Returns null if pair not seeded. */
+  getSnapshot(pair: string): MtfSnapshot | null {
+    const tfMap = this.stores.get(pair);
+    if (!tfMap) return null;
+    const timeframes: Record<string, Candle[]> = {};
+    tfMap.forEach((candles, tf) => { timeframes[tf] = candles; });
+    return { pair, timeframes, lastUpdatedAt: Date.now() };
   }
 
   /** Stop polling and drop data for a pair. */
