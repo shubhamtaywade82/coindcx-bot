@@ -53,6 +53,15 @@ describe('IntegrityController', () => {
     expect(types).toContain('book_resync');
   });
 
+  it('does not resync when depth-update arrives before the first depth-snapshot', async () => {
+    const deps = makeDeps();
+    const ic = new IntegrityController(deps as any);
+    ic.ingest('depth-update', { s: 'B-X_USDT', asks: [['1','1']], bids: [['0.5','1']] });
+    ic.ingest('depth-snapshot', { s: 'B-X_USDT', asks: [['1','1']], bids: [['0.5','1']] });
+    await new Promise((r) => setTimeout(r, 80));
+    expect(deps.restFetchOrderBook).not.toHaveBeenCalled();
+  });
+
   it('ignores spot depth frames so they do not overwrite the futures book', () => {
     const deps = makeDeps();
     const ic = new IntegrityController(deps as any);

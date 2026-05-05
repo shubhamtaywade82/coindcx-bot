@@ -101,6 +101,14 @@ export class CoinDCXApi {
     return new Error(`${endpoint} API [${status || 'timeout'}]: ${msg}`);
   }
 
+  /** Futures wallet missing / not enabled — CoinDCX returns 404 `not_found`. */
+  private static isFuturesWalletNotFound(error: unknown): boolean {
+    const err = error as { response?: { status?: number; data?: { message?: unknown } } };
+    if (err?.response?.status !== 404) return false;
+    const msg = String(err.response?.data?.message ?? '').toLowerCase();
+    return msg.includes('not_found') || msg.includes('not found') || msg.includes('wallet not found');
+  }
+
   private static normalizePage(page?: number): number {
     return Math.max(1, Math.trunc(page ?? 1));
   }
@@ -137,20 +145,23 @@ export class CoinDCXApi {
     }
   }
 
+  /** Futures wallets (`/derivatives/futures/wallets`) + fallback `users/balances`. Row normalization: `normalizeBalance`. */
   static async getBalances() {
     return this.withClockSkewRetry(
       'Balances',
       (timestamp) => ({ timestamp }),
       async ({ body, headers }) => {
         const path = this.futuresPath('wallet_details', '/exchange/v1/derivatives/futures/wallets');
-        // CoinDCX docs: GET with JSON body + HMAC(JSON.stringify(body)) (POST returns 404 on some routes).
-        const response = await http.request({
-          method: 'GET',
-          url: path,
-          headers: { ...headers, 'Content-Type': 'application/json' },
-          data: body,
-        });
-        return response.data;
+        // Signed read must use POST here: axios drops `data` on GET, so a doc-style GET+JSON body never reaches CoinDCX.
+        try {
+          const response = await http.post(path, body, { headers });
+          return response.data;
+        } catch (err: unknown) {
+          if (!this.isFuturesWalletNotFound(err)) {
+            throw this.formatApiError('Balances', err);
+          }
+          return this.getUserBalances();
+        }
       },
     );
   }
