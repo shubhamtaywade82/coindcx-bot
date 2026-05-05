@@ -81,7 +81,7 @@ export const ConfigSchema = z.object({
   STRATEGY_EMIT_WAIT: z.string().default('false').transform(s => s === 'true'),
   STRATEGY_INTERVAL_DEFAULT_MS: z.coerce.number().int().positive().default(15000),
   STRATEGY_BACKPRESSURE_DROP_RATIO_ALARM: z.coerce.number().default(0.5),
-  STRATEGY_ENABLED_IDS: z.string().default('smc.rule.v1,ma.cross.v1,llm.pulse.v1')
+  STRATEGY_ENABLED_IDS: z.string().default('smc.rule.v1,ma.cross.v1,llm.pulse.v1,trendline.breakout.v1')
     .transform(s => s.split(',').map(x => x.trim()).filter(Boolean)),
   BACKTEST_PESSIMISTIC: z.string().default('true').transform(s => s !== 'false'),
   BACKTEST_OUTPUT_DIR: z.string().default('./logs/backtest'),
