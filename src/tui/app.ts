@@ -87,6 +87,7 @@ export class TuiApp {
   private pairs: string[];
   private focusIndex: number = 0;
   private onFocusChange?: (pair: string) => void;
+  private previousActivePairs: Set<string> = new Set();
 
   // ── TUI Status Flags (Passed from index) ──
   private isConnected: boolean = false;
@@ -357,6 +358,30 @@ export class TuiApp {
 
   setOnFocusChange(callback: (pair: string) => void) {
     this.onFocusChange = callback;
+  }
+
+  /**
+   * Auto-switch focus to a pair that just acquired an open position.
+   * Only switches on transition (pair newly added to active set), so manual
+   * navigation is preserved while existing positions remain open.
+   */
+  notifyActivePositions(activeCleanPairs: string[]): void {
+    const newSet = new Set(activeCleanPairs);
+    const newlyOpened = activeCleanPairs.filter(p => !this.previousActivePairs.has(p));
+    this.previousActivePairs = newSet;
+    if (newlyOpened.length === 0) return;
+
+    const focusedClean = this.focusedPairClean;
+    if (newSet.has(focusedClean)) return;
+
+    for (const clean of newlyOpened) {
+      const idx = this.pairs.findIndex(p => cleanPair(p) === clean);
+      if (idx >= 0 && idx !== this.focusIndex) {
+        this.focusIndex = idx;
+        this.emitFocusChange();
+        return;
+      }
+    }
   }
 
   private switchFocus(direction: number) {

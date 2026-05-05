@@ -62,7 +62,7 @@ export class TimeSync {
     }
 
     // Only local clock vs exchange / NTP matters for signing; exchange↔NTP offset is not host skew.
-    const worstLocal = Math.max(
+    const worstLocal = Math.min(
       Math.abs(localVsExchange ?? 0),
       Math.abs(localVsNtp ?? 0),
     );

@@ -969,6 +969,10 @@ async function runApp(ctx: Context) {
         ];
       });
     tui.updatePositions(rows.length > 0 ? rows : [['—', '—', '—', '—', '—', '—', '—', '—']]);
+    const activeClean = account.snapshot().positions
+      .filter(p => Math.abs(parseFloat(p.activePos || '0')) > 0)
+      .map(p => cleanPair(p.pair || ''));
+    tui.notifyActivePositions(activeClean);
   }
 
   function refreshOrdersDisplay() {
@@ -1076,9 +1080,13 @@ async function runApp(ctx: Context) {
 
     totalEqInr = totalWalInr + totalPnlInr;
 
-    state.portfolioEquityPeakInr = Math.max(state.portfolioEquityPeakInr, totalEqInr);
-    const peakInr = Math.max(state.portfolioEquityPeakInr, 1e-9);
-    const ddFromPeakPct = ((totalEqInr - peakInr) / peakInr) * 100;
+    if (state.portfolioEquityPeakInr === 0 && totalEqInr !== 0) {
+      state.portfolioEquityPeakInr = totalEqInr;
+    } else {
+      state.portfolioEquityPeakInr = Math.max(state.portfolioEquityPeakInr, totalEqInr);
+    }
+    const peakInr = state.portfolioEquityPeakInr;
+    const ddFromPeakPct = peakInr > 0 ? ((totalEqInr - peakInr) / peakInr) * 100 : 0;
     const netInr = totalEqInr - totalWalInr;
     const realizedUsdt = sumRealizedPnlUsdt(positions);
     const cmSnap = state.futuresMarginAccount;
