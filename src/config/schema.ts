@@ -35,6 +35,13 @@ export const ConfigSchema = z.object({
   OLLAMA_MODEL: z.string().default('llama3'),
   /** When set, all Ollama HTTP requests include Authorization: Bearer … (required for https://ollama.com). */
   OLLAMA_API_KEY: z.string().default(''),
+  /** Max concurrent in-flight requests to Ollama (Cloud rejects when exceeded with "too many concurrent requests"). */
+  OLLAMA_MAX_CONCURRENCY: z.coerce.number().int().positive().default(1),
+  /** Min ms between successive Ollama requests (prevents micro-bursts even with concurrency=1). */
+  OLLAMA_MIN_INTERVAL_MS: z.coerce.number().int().min(0).default(750),
+  /** Retry attempts when Ollama returns 429 / concurrent / rate errors. */
+  OLLAMA_RETRY_MAX: z.coerce.number().int().min(0).default(3),
+  OLLAMA_RETRY_BASE_MS: z.coerce.number().int().positive().default(1500),
   WEBHOOK_ENABLED: z.string().default('false').transform(s => s === 'true'),
   WEBHOOK_PORT: z.coerce.number().int().positive().default(4003),
   WEBHOOK_PATH: z.string().default('/webhook/tradingview'),

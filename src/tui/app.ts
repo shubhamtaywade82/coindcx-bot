@@ -14,6 +14,9 @@ interface AiPanelState {
   rr?: number;
   levels?: string[];
   management?: string;
+  currentBias?: string;
+  expectedNextBias?: string;
+  biasTrigger?: string;
 }
 
 interface MtfBar {
@@ -634,6 +637,9 @@ export class TuiApp {
     rr?: number;
     levels?: string[];
     management?: string;
+    currentBias?: string;
+    expectedNextBias?: string;
+    biasTrigger?: string;
   }) {
     const pair = data.pair ?? this.focusedPair;
     this.aiByPair.set(pair, {
@@ -641,6 +647,9 @@ export class TuiApp {
       confidence: data.confidence, no_trade_condition: data.no_trade_condition,
       entry: data.entry, stopLoss: data.stopLoss, takeProfit: data.takeProfit, rr: data.rr,
       levels: data.levels, management: data.management,
+      currentBias: data.currentBias,
+      expectedNextBias: data.expectedNextBias,
+      biasTrigger: data.biasTrigger,
     });
     if (pair === this.focusedPair) this.renderAi();
   }
@@ -691,7 +700,19 @@ export class TuiApp {
       ? `\n\n {white-fg}LEVELS TO MONITOR:{/white-fg}\n${data.levels.map((l: string) => ` • ${l}`).join('\n')}`
       : '';
     const mtfSection = this.buildMtfSection(this.focusedPair);
-    const content = `\n {bold}${data.verdict}{/bold}\n\n {${color}-fg}SIGNAL: ${sig}{/${color}-fg}\n {gray-fg}CONF: ${(data.confidence * 100).toFixed(0)}%{/gray-fg}${setup ? `\n${setup}` : ''}${mgmt}${levelsStr}${reason}${mtfSection}`;
+    const biasColor = (b?: string) => {
+      const u = (b || '').toUpperCase();
+      if (u === 'BULLISH' || u === 'BULL' || u === 'LONG') return 'green';
+      if (u === 'BEARISH' || u === 'BEAR' || u === 'SHORT') return 'red';
+      return 'yellow';
+    };
+    const cb = (data.currentBias || '').toUpperCase();
+    const nb = (data.expectedNextBias || '').toUpperCase();
+    const biasLine = (cb || nb)
+      ? `\n {white-fg}BIAS:{/white-fg} {${biasColor(cb)}-fg}${cb || '—'}{/${biasColor(cb)}-fg} {gray-fg}→{/gray-fg} {${biasColor(nb)}-fg}${nb || '—'}{/${biasColor(nb)}-fg}` +
+        (data.biasTrigger ? `\n {gray-fg}TRIGGER:{/gray-fg} ${data.biasTrigger}` : '')
+      : '';
+    const content = `\n {bold}${data.verdict}{/bold}\n\n {${color}-fg}SIGNAL: ${sig}{/${color}-fg}\n {gray-fg}CONF: ${(data.confidence * 100).toFixed(0)}%{/gray-fg}${biasLine}${setup ? `\n${setup}` : ''}${mgmt}${levelsStr}${reason}${mtfSection}`;
     this.aiBox.setContent(content);
     this.render();
   }

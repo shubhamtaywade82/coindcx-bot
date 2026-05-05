@@ -97,11 +97,14 @@ export class LlmPulse implements Strategy {
       management: resp?.management_advice ? String(resp.management_advice) : undefined,
       noTradeCondition: resp?.no_trade_condition ? String(resp.no_trade_condition) : undefined,
       ttlMs: 5 * 60_000,
-      meta: { 
-        rr, 
-        alternate: resp?.alternate_scenario, 
+      meta: {
+        rr,
+        alternate: resp?.alternate_scenario,
         levels: resp?.levels,
         management: resp?.management_advice,
+        currentBias: resp?.current_bias,
+        expectedNextBias: resp?.expected_next_bias,
+        biasTrigger: resp?.bias_trigger,
         ...(levelGeometryCorrected ? { levelGeometryCorrected: true } : {}),
       },
     };

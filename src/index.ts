@@ -629,6 +629,9 @@ async function runApp(ctx: Context) {
         takeProfit: signal.takeProfit,
         rr: typeof signal.meta?.rr === 'number' ? signal.meta.rr : undefined,
         levels: Array.isArray(signal.meta?.levels) ? signal.meta.levels : undefined,
+        currentBias: typeof signal.meta?.currentBias === 'string' ? signal.meta.currentBias : undefined,
+        expectedNextBias: typeof signal.meta?.expectedNextBias === 'string' ? signal.meta.expectedNextBias : undefined,
+        biasTrigger: typeof signal.meta?.biasTrigger === 'string' ? signal.meta.biasTrigger : undefined,
         pair,
       });
     },

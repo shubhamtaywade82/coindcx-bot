@@ -21,6 +21,13 @@ export class AiAnalyzer {
   private ollama: any;
   private model: string;
   private readonly cloudWithoutKey: boolean;
+  private readonly maxConcurrency: number;
+  private readonly minIntervalMs: number;
+  private readonly retryMax: number;
+  private readonly retryBaseMs: number;
+  private inflight = 0;
+  private waiters: Array<() => void> = [];
+  private lastDispatchAt = 0;
 
   constructor(config: Config, private logger: AppLogger) {
     const key = config.OLLAMA_API_KEY?.trim();
@@ -34,6 +41,39 @@ export class AiAnalyzer {
       ...(headers ? { headers } : {}),
     });
     this.model = config.OLLAMA_MODEL;
+    this.maxConcurrency = Math.max(1, config.OLLAMA_MAX_CONCURRENCY ?? 1);
+    this.minIntervalMs = Math.max(0, config.OLLAMA_MIN_INTERVAL_MS ?? 0);
+    this.retryMax = Math.max(0, config.OLLAMA_RETRY_MAX ?? 0);
+    this.retryBaseMs = Math.max(100, config.OLLAMA_RETRY_BASE_MS ?? 1000);
+  }
+
+  private async acquire(): Promise<void> {
+    if (this.inflight < this.maxConcurrency) {
+      this.inflight += 1;
+      return;
+    }
+    await new Promise<void>(resolve => this.waiters.push(resolve));
+    this.inflight += 1;
+  }
+
+  private release(): void {
+    this.inflight = Math.max(0, this.inflight - 1);
+    const next = this.waiters.shift();
+    if (next) next();
+  }
+
+  private async paceDispatch(): Promise<void> {
+    if (this.minIntervalMs <= 0) return;
+    const wait = this.lastDispatchAt + this.minIntervalMs - Date.now();
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    this.lastDispatchAt = Date.now();
+  }
+
+  private isConcurrencyError(err: any): boolean {
+    const msg = String(err?.message ?? err ?? '').toLowerCase();
+    const status = err?.status_code ?? err?.status;
+    if (status === 429) return true;
+    return /too many concurrent|rate limit|429|temporarily unavailable|busy/.test(msg);
   }
 
   async analyze(state: any) {
@@ -86,7 +126,10 @@ export class AiAnalyzer {
            "levels": ["Key level 1", "Key level 2"],
            "alternate_scenario": "What happens if this fails?",
            "no_trade_condition": "Explicit reason to stay out",
-           "chosen_strategy": "(conductor mode only) the strategyId you trusted, or null"
+           "chosen_strategy": "(conductor mode only) the strategyId you trusted, or null",
+           "current_bias": "BULLISH | BEARISH | NEUTRAL — your read of HTF/LTF structure right now",
+           "expected_next_bias": "BULLISH | BEARISH | NEUTRAL — where bias is most likely to shift next",
+           "bias_trigger": "Concrete event that would flip current_bias → expected_next_bias (e.g. 1h close above 2400 with displacement)"
          }
 
       STRICT RULES:
@@ -103,12 +146,34 @@ export class AiAnalyzer {
 
     try {
       this.logger.info({ mod: 'ai', symbol: state.symbol }, 'Institutional AI analysis start');
-      const response = await this.ollama.chat({
-        model: this.model,
-        messages: [{ role: 'user', content: prompt }],
-        format: 'json',
-        stream: false
-      });
+      await this.acquire();
+      let response: any;
+      try {
+        let attempt = 0;
+        while (true) {
+          await this.paceDispatch();
+          try {
+            response = await this.ollama.chat({
+              model: this.model,
+              messages: [{ role: 'user', content: prompt }],
+              format: 'json',
+              stream: false,
+            });
+            break;
+          } catch (chatErr: any) {
+            if (attempt >= this.retryMax || !this.isConcurrencyError(chatErr)) throw chatErr;
+            const backoff = this.retryBaseMs * Math.pow(2, attempt) + Math.floor(Math.random() * 250);
+            this.logger.warn(
+              { mod: 'ai', symbol: state.symbol, attempt: attempt + 1, backoffMs: backoff, err: String(chatErr?.message ?? chatErr) },
+              'Ollama concurrency/rate error — backing off',
+            );
+            await new Promise(r => setTimeout(r, backoff));
+            attempt += 1;
+          }
+        }
+      } finally {
+        this.release();
+      }
 
       const content = response.message.content;
       this.logger.debug({ mod: 'ai', content }, 'AI response received');
