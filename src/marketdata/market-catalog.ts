@@ -198,7 +198,17 @@ export class MarketCatalog {
       this.catalogSchemaReady = true;
     }
     const fetched = await this.fetchMarketDetails();
-    const list: MarketDetailsRecord[] = Array.isArray(fetched) ? fetched : [];
+    const list: MarketDetailsRecord[] = Array.isArray(fetched)
+      ? fetched
+      : Array.isArray((fetched as any)?.data)
+        ? ((fetched as any).data as MarketDetailsRecord[])
+        : [];
+    if (list.length === 0) {
+      this.opts.logger.warn(
+        { mod: 'market-catalog', kind: typeof fetched, isArray: Array.isArray(fetched), keys: fetched && typeof fetched === 'object' ? Object.keys(fetched as object).slice(0, 10) : null },
+        'markets_details returned no usable rows — catalog will read existing DB rows',
+      );
+    }
     const refreshedAt = new Date().toISOString();
 
     for (const raw of list) {

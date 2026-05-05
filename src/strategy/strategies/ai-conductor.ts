@@ -11,7 +11,7 @@ const MANIFEST: StrategyManifest = {
   version: '1.0.0',
   mode: 'interval',
   intervalMs: 30_000,
-  evaluationTimeoutMs: 90_000,
+  evaluationTimeoutMs: 180_000,
   pairs: ['*'],
   warmupCandles: 50,
   description: 'AI conductor: fuses verdicts from all strategies and emits the most convincing trade plan.',

@@ -122,10 +122,10 @@ export class TuiApp {
       width: '100%',
       height: '100%-4',
     });
-    this.grid = new contrib.grid({ rows: 12, cols: 12, screen: this.gridHost });
+    this.grid = new contrib.grid({ rows: 13, cols: 12, screen: this.gridHost });
 
     // Initialize logPanel early so this.log() works
-    this.logPanel = this.grid.set(10, 0, 2, 12, blessed.log, {
+    this.logPanel = this.grid.set(11, 0, 2, 12, blessed.log, {
       label: ' ◉ System Logs ',
       border: { type: 'line', fg: 'gray' },
       scrollable: true,
@@ -207,7 +207,7 @@ export class TuiApp {
       content: ' {gray-fg}Awaiting strategy signals...{/gray-fg}',
     });
 
-    this.positionsTable = this.grid.set(7, 0, 1, 12, blessed.box, {
+    this.positionsTable = this.grid.set(7, 0, 2, 12, blessed.box, {
       label: ' Active Positions ',
       border: { type: 'line', fg: 'yellow' },
       tags: true,
@@ -217,7 +217,7 @@ export class TuiApp {
     });
 
     // Grid rows 8–9: Balances / Orders / Risk (2 grid rows — INR + USD rows need vertical space). Balances 6 cols, Orders/Risk 3 each.
-    this.balanceTable = this.grid.set(8, 0, 2, 6, blessed.box, {
+    this.balanceTable = this.grid.set(9, 0, 2, 6, blessed.box, {
       label: ' Balances ',
       border: { type: 'line', fg: 'green' },
       tags: true,
@@ -226,7 +226,7 @@ export class TuiApp {
       scrollbar: { ch: ' ' },
     });
 
-    this.orderTable = this.grid.set(8, 6, 2, 3, blessed.box, {
+    this.orderTable = this.grid.set(9, 6, 2, 3, blessed.box, {
       label: ' Orders ',
       border: { type: 'line', fg: 'magenta' },
       tags: true,
@@ -235,7 +235,7 @@ export class TuiApp {
       scrollbar: { ch: ' ' },
     });
 
-    this.riskBox = this.grid.set(8, 9, 2, 3, blessed.box, {
+    this.riskBox = this.grid.set(9, 9, 2, 3, blessed.box, {
       label: ' Risk ',
       border: { type: 'line', fg: 'gray' },
       tags: true,

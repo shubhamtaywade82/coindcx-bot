@@ -10,9 +10,36 @@ export interface TelegramSinkOptions {
   retryDelaysMs?: number[];
   onDrop?: (signal: Signal, err: Error) => void;
   http?: AxiosInstance;
+  /** Per-(strategy,type,pair) cooldown for noisy signals. Map of typePrefix → ms. */
+  cooldownMs?: Record<string, number>;
 }
 
 const DEFAULT_RETRIES = [250, 1000, 4000];
+
+/** Recurring infrastructure events: send the first, swallow subsequent until cooldown elapses. */
+const DEFAULT_COOLDOWNS: Record<string, number> = {
+  'catalog.stale': 30 * 60_000,
+  'catalog.refresh_failed': 30 * 60_000,
+  'clock_skew': 30 * 60_000,
+  'book_resync': 15 * 60_000,
+  'book_resync_failed': 15 * 60_000,
+  'stalefeed': 15 * 60_000,
+  'reconcile.': 15 * 60_000,
+  'strategy.error': 30 * 60_000,
+};
+
+function cooldownKey(s: Signal): string {
+  const t = s.type || 'unknown';
+  return `${s.strategy ?? ''}|${t}|${s.pair ?? ''}`;
+}
+
+function cooldownForType(type: string, table: Record<string, number>): number | null {
+  if (table[type] !== undefined) return table[type];
+  for (const key of Object.keys(table)) {
+    if (key.endsWith('.') && type.startsWith(key)) return table[key];
+  }
+  return null;
+}
 
 function fmt(s: Signal): string {
   const type = s.type || 'unknown';
@@ -65,12 +92,15 @@ export class TelegramSink implements Sink {
   private readonly bucket: TokenBucket;
   private readonly http: AxiosInstance;
   private readonly retries: number[];
+  private readonly cooldowns: Record<string, number>;
+  private readonly cooldownExpiry = new Map<string, number>();
 
   constructor(private readonly opts: TelegramSinkOptions) {
     this.bucket = new TokenBucket({
       capacity: opts.ratePerMin,
       refillPerSec: opts.ratePerMin / 60,
     });
+    this.cooldowns = { ...DEFAULT_COOLDOWNS, ...(opts.cooldownMs ?? {}) };
     this.http = opts.http ?? axios.create({ baseURL: 'https://api.telegram.org', timeout: 10_000 });
     this.retries = opts.retryDelaysMs ?? DEFAULT_RETRIES;
   }
@@ -81,6 +111,20 @@ export class TelegramSink implements Sink {
     // Only skip explicit strategy WAIT (LLM / rules). Do not infer from `type.split('.')`:
     // Pine/webhook use types like `long`, `alert`, `whale_buy` with no dot — those were wrongly dropped.
     if (type === 'strategy.wait') return;
+
+    // ntp_unavailable is expected on networks that block UDP 123 — not actionable.
+    if (type === 'clock_skew' && (signal.payload as any)?.reason === 'ntp_unavailable') return;
+    // strategy.error: keep out of Telegram. Errors land in file/stdout sinks + signal_log + TUI.
+    if (type === 'strategy.error') return;
+
+    const cooldownMs = cooldownForType(type, this.cooldowns);
+    if (cooldownMs !== null) {
+      const ck = cooldownKey(signal);
+      const now = Date.now();
+      const exp = this.cooldownExpiry.get(ck) ?? 0;
+      if (now < exp) return;
+      this.cooldownExpiry.set(ck, now + cooldownMs);
+    }
 
     const text = fmt(signal);
     if (!text) return;

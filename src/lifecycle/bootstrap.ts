@@ -87,6 +87,17 @@ export async function bootstrap(): Promise<Context> {
         logger.warn({ mod: 'telegram', sigId: s.id, err: err.message }, 'telegram drop');
         audit.recordEvent({ kind: 'telegram_drop', source: 'telegram', payload: { id: s.id, err: err.message } });
       },
+      // Infra noise suppression: send the first occurrence, silence repeats for the cooldown window.
+      cooldownMs: {
+        'catalog.stale': 60 * 60_000,          // 1 h
+        'catalog.refresh_failed': 30 * 60_000,  // 30 min
+        'clock_skew': 60 * 60_000,              // 1 h
+        'book_resync': 30 * 60_000,             // 30 min
+        'book_resync_failed': 30 * 60_000,
+        'stale_feed': 30 * 60_000,
+        'heartbeat_lost': 5 * 60_000,
+        'reconcile.': 15 * 60_000,
+      },
     }));
   }
 
