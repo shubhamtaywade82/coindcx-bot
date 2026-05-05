@@ -51,6 +51,8 @@ export type BalancePanelTotals = {
   /** Drawdown from session peak equity (≤ 0). */
   ddFromPeakPct: number;
   riskTier: 'SAFE' | 'WARN' | 'HIGH';
+  /** USDT/INR rate used for the dual-currency rendering. */
+  usdtInrRate: number;
 };
 
 export class TuiApp {
@@ -147,11 +149,10 @@ export class TuiApp {
       top: 1,
       left: 0,
       width: '100%',
-      height: 2,
+      height: 1,
       tags: true,
       content:
-        ' {gray-fg}EQ: — │ WAL: — │ UR: —{/gray-fg}\n' +
-        ' {gray-fg}NET: — │ REAL USDT: — │ UNREAL USDT: — │ DD: — │ RISK: —{/gray-fg}',
+        ' {gray-fg}EQ: — │ WAL: — │ UR: — │ NET: — │ REAL: — │ UNREAL: — │ DD: — │ RISK: —{/gray-fg}',
       style: { bg: 'black' },
     });
 
@@ -798,6 +799,29 @@ export class TuiApp {
     );
   }
 
+  /** Combined EQ │ WAL │ UR │ NET │ REAL │ UNREAL │ DD │ RISK on a single line. */
+  private formatBalancePortfolioOneLine(d: BalancePanelTotals): string {
+    const eqC = d.eqInr > 0 ? 'green' : d.eqInr < 0 ? 'red' : 'cyan';
+    const walC = d.walInr > 0 ? 'green' : d.walInr < 0 ? 'red' : 'gray';
+    const urC = d.urInr > 0 ? 'green' : d.urInr < 0 ? 'red' : 'cyan';
+    const realC = d.realizedUsdt > 0 ? 'green' : d.realizedUsdt < 0 ? 'red' : 'gray';
+    const ddC = d.ddFromPeakPct <= -12 ? 'red' : d.ddFromPeakPct <= -5 ? 'yellow' : 'green';
+    const riskC = d.riskTier === 'HIGH' ? 'red' : d.riskTier === 'WARN' ? 'yellow' : 'green';
+    const walHasTags = d.wallet.includes('{');
+    const walSeg = walHasTags ? d.wallet : `{${walC}-fg}${d.wallet}{/${walC}-fg}`;
+    const sep = `  {gray-fg}│{/gray-fg}  `;
+    const r = d.usdtInrRate > 0 ? d.usdtInrRate : 88;
+    const realStr = `$${d.realizedUsdt.toFixed(2)} (₹${formatQty(d.realizedUsdt * r, 2)})`;
+    return (
+      ` {bold}EQ:{/bold} {${eqC}-fg}${d.equity}{/${eqC}-fg}${sep}` +
+      `{bold}WAL:{/bold} ${walSeg}${sep}` +
+      `{bold}UR:{/bold} {${urC}-fg}${d.ur}{/${urC}-fg}${sep}` +
+      `{bold}REAL:{/bold} {${realC}-fg}${realStr}{/${realC}-fg}${sep}` +
+      `{bold}DD:{/bold} {${ddC}-fg}${d.ddFromPeakPct.toFixed(2)}%{/${ddC}-fg}${sep}` +
+      `{bold}RISK:{/bold} {${riskC}-fg}${d.riskTier}{/${riskC}-fg}`
+    );
+  }
+
   /** Single-line EQ │ WAL │ UR (for top summary bar and as first line inside Balances). */
   private formatBalancePortfolioLine(data: BalancePanelTotals): string {
     const urColor = data.urInr > 0 ? 'green' : data.urInr < 0 ? 'red' : 'cyan';
@@ -827,16 +851,14 @@ export class TuiApp {
   updateBalances(rows: string[][], totals?: BalancePanelTotals) {
     const c = { asset: 10, num: 12, pct: 8, util: 9 };
     if (totals) {
-      this.summaryBar.setContent(
-        `${this.formatBalancePortfolioLine(totals)}\n${this.formatBalanceDetailLine(totals)}`,
-      );
+      this.summaryBar.setContent(this.formatBalancePortfolioOneLine(totals));
     } else {
       this.summaryBar.setContent(
-        ' {gray-fg}EQ: — │ WAL: — │ UR: —{/gray-fg}\n' +
-          ' {gray-fg}NET: — │ REAL USDT: — │ UNREAL USDT: — │ DD: — │ RISK: —{/gray-fg}',
+        ' {gray-fg}EQ: — │ WAL: — │ UR: — │ NET: — │ REAL: — │ UNREAL: — │ DD: — │ RISK: —{/gray-fg}',
       );
     }
-    const portfolio = totals ? this.formatBalancePortfolioStrip(totals) : '';
+    // Portfolio summary lives in the top summaryBar — do not duplicate inside Balances panel.
+    const portfolio = '';
     const header =
       ` {green-fg}${this.padLeft('ASSET', c.asset)} ${this.padRight('VALUE', c.num)} ${this.padRight('WALLET', c.num)} ` +
       `${this.padRight('PNL', c.num)} ${this.padRight('%', c.pct)} ${this.padRight('AVAIL', c.num)} ${this.padRight('LOCK', c.num)} ${this.padRight('UTIL%', c.util)}{/green-fg}\n`;

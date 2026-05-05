@@ -40,6 +40,7 @@ import {
   mergeBalanceRowsForDisplay,
   portfolioUnrealizedInrUsdt,
   pnlPctVsWallet,
+  quoteBucketForPosition,
   sumRealizedPnlUsdt,
   utilPctVsWallet,
 } from './tui/balance-display';
@@ -991,7 +992,30 @@ async function runApp(ctx: Context) {
   }
 
   function balancesForTuiDisplay(): Balance[] {
-    return mergeBalanceRowsForDisplay(state.balanceMap, account.snapshot().balances, new Date().toISOString());
+    const now = new Date().toISOString();
+    const merged = mergeBalanceRowsForDisplay(state.balanceMap, account.snapshot().balances, now);
+    const seen = new Set(merged.map(b => b.currency.toUpperCase()));
+    const positions = account.snapshot().positions;
+    const requiredCurrencies = new Set<string>();
+    for (const p of positions) {
+      if (Math.abs(parseFloat(p.activePos || '0')) === 0) continue;
+      const mc = String((p as any).marginCurrencyShortName || (p as any).margin_currency_short_name || '').toUpperCase();
+      if (mc) requiredCurrencies.add(mc);
+      else requiredCurrencies.add(quoteBucketForPosition(p.pair || ''));
+    }
+    for (const cur of requiredCurrencies) {
+      if (!seen.has(cur)) {
+        merged.push({ currency: cur, available: '0', locked: '0', updatedAt: now, source: 'rest' });
+      }
+    }
+    const rank = (c: string) => {
+      const u = c.toUpperCase();
+      if (u === 'INR' || u === 'USDTINR') return 0;
+      if (u === 'USDT' || u === 'USD') return 1;
+      return 2;
+    };
+    merged.sort((x, y) => rank(x.currency) - rank(y.currency) || x.currency.localeCompare(y.currency));
+    return merged;
   }
 
   function balanceRowVisibleForTui(b: Balance): boolean {
@@ -1046,7 +1070,13 @@ async function runApp(ctx: Context) {
       let walletBalance = mergedWallet;
       let displayAvailable = available;
       let displayLocked = locked;
-      if (isUsdtRow && cm && cm.totalWalletBalance > mergedWallet + 1e-8) {
+      const cmMatchesRow =
+        !!cm && (
+          cm.currency
+            ? (isUsdtRow && cm.currency === 'USDT') || (isInrRow && (cm.currency === 'INR' || cm.currency === 'USDTINR'))
+            : isUsdtRow // legacy: assume USDT when API does not surface currency
+        );
+      if (cmMatchesRow && cm.totalWalletBalance > mergedWallet + 1e-8) {
         walletBalance = cm.totalWalletBalance;
         displayAvailable = cm.withdrawableBalance;
         displayLocked =
@@ -1078,7 +1108,7 @@ async function runApp(ctx: Context) {
           : `{yellow-fg}${utilPctN.toFixed(1)}%{/yellow-fg}`;
 
       rows.push([
-        isInrRow ? '₹ INR' : currency,
+        isInrRow ? '₹ INR' : isUsdtRow ? '$ USDT' : currency,
         `${prefix}${formatQty(currentValue)}`,
         `${prefix}${formatQty(walletBalance)}`,
         formatPnl(rowPnl, prefix),
@@ -1120,6 +1150,7 @@ async function runApp(ctx: Context) {
       unrealUsdt: totalPnlUsdt,
       ddFromPeakPct,
       riskTier,
+      usdtInrRate: rate,
     };
     tui.updateBalances(rows.length > 0 ? rows : [['No balances', '—', '—', '—', '—', '—']], totals);
   }

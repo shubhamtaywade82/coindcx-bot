@@ -13,6 +13,8 @@ export type FuturesMarginAccountSnapshot = {
   maintenanceMargin: number;
   /** Cross margin ratio from exchange (liquidation when ≥ 1 per CoinDCX docs). */
   marginRatioCross: number;
+  /** Account margin currency (`INR` or `USDT`). Empty when API does not surface it. */
+  currency: string;
   updatedAt: string;
 };
 
@@ -36,6 +38,9 @@ export function parseCrossMarginDetails(raw: unknown): FuturesMarginAccountSnaps
   if (Math.abs(pnl) < 1e-12 && totalWalletBalance < 1e-12 && Math.abs(totalAccountEquity) < 1e-12) {
     return null;
   }
+  const currency = String(
+    o.currency_short_name ?? o.currency ?? o.margin_currency_short_name ?? '',
+  ).toUpperCase();
   return {
     unrealizedPnl: pnl,
     totalWalletBalance,
@@ -44,6 +49,7 @@ export function parseCrossMarginDetails(raw: unknown): FuturesMarginAccountSnaps
     totalInitialMargin: n(o.total_initial_margin),
     maintenanceMargin: n(o.maintenance_margin),
     marginRatioCross: n(o.margin_ratio_cross),
+    currency,
     updatedAt: new Date().toISOString(),
   };
 }
