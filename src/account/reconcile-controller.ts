@@ -10,7 +10,7 @@ import { HeartbeatWatcher } from './heartbeat-watcher';
 import { DriftSweeper } from './drift-sweeper';
 import type { AccountPersistence } from './persistence';
 import { normalizePosition, normalizeBalance, normalizeOrder, normalizeFill } from './normalizers';
-import type { AccountSnapshot, Entity, Position, Source } from './types';
+import type { AccountSnapshot, Entity, Order, Position, Source } from './types';
 
 export interface ReconcileConfig {
   driftSweepMs: number;
@@ -55,7 +55,7 @@ export class AccountReconcileController {
   private cooldownAt = new Map<string, number>();
   private stormTimes: number[] = [];
   private clock: () => number;
-
+  private readonly recentOrderEventByClientOrderId = new Map<string, string>();
   constructor(private opts: ReconcileControllerOptions) {
     this.clock = opts.clock ?? Date.now;
     this.orders = new OrderStore({ closedTtlMs: 86_400_000, closedMax: 500, clock: this.clock });
@@ -118,7 +118,9 @@ export class AccountReconcileController {
     }
     if (entity === 'order') {
       const o = normalizeOrder(raw, source);
+      if (await this.isDuplicateClientOrderEvent(raw, o)) return;
       const r = this.orders.applyWs(o);
+      this.handleOrderDerivedTransitions(r.prev, o);
       await this.opts.persistence.upsertOrder(o);
       await this.recordDiff('order', o.id, r.prev, o, r.changedFields, 'ws_apply', null);
       return;
@@ -206,7 +208,20 @@ export class AccountReconcileController {
       const localBefore = this.orders.snapshot().filter(o => o.status === 'open' || o.status === 'partially_filled');
       const diffs = this.detector.diffOrders(localBefore, rest);
       this.orders.replaceFromRest(rest);
+      for (const order of rest) {
+        const clientOrderId = order.id;
+        const eventId = this.buildEventId(order);
+        const accepted = await this.opts.persistence.recordAccountEventDedup({
+          clientOrderId,
+          eventId,
+          entity: 'order',
+        });
+        if (accepted) {
+          this.recentOrderEventByClientOrderId.set(clientOrderId, eventId);
+        }
+      }
       for (const o of rest) await this.opts.persistence.upsertOrder(o);
+      this.handleUnfilledTimeoutCancellations(localBefore, rest);
       this.orders.evictExpired();
       await this.handleDiffs('order', diffs);
     } catch (err) {
@@ -366,6 +381,102 @@ export class AccountReconcileController {
       type: 'reconcile.sweep_failed', severity: 'warn',
       payload: { entity, error: err.message },
     });
+  }
+
+  private handleOrderDerivedTransitions(previous: Order | null, next: Order): void {
+    const prevStatus = previous?.status;
+    const nextStatus = next.status;
+    const pair = next.pair;
+    if (!pair) return;
+    const prevRemaining = Number(previous?.remainingQty ?? next.totalQty);
+    const nextRemaining = Number(next.remainingQty);
+    const total = Number(next.totalQty);
+    if (
+      (prevStatus === 'open' || prevStatus === 'partially_filled') &&
+      nextStatus === 'partially_filled' &&
+      Number.isFinite(total) &&
+      total > 0 &&
+      Number.isFinite(prevRemaining) &&
+      Number.isFinite(nextRemaining) &&
+      nextRemaining < prevRemaining
+    ) {
+      void this.emit({
+        type: 'reconcile.partial_fill',
+        severity: 'info',
+        pair,
+        payload: {
+          orderId: next.id,
+          remainingQty: next.remainingQty,
+          totalQty: next.totalQty,
+        },
+      });
+    }
+    if (
+      (prevStatus === 'open' || prevStatus === 'partially_filled') &&
+      nextStatus === 'cancelled'
+    ) {
+      void this.emit({
+        type: 'reconcile.unfilled_timeout_cancelled',
+        severity: 'warn',
+        pair,
+        payload: {
+          orderId: next.id,
+          status: next.status,
+          remainingQty: next.remainingQty,
+        },
+      });
+    }
+  }
+
+  private handleUnfilledTimeoutCancellations(previousOpenOrders: Order[], restOpenOrders: Order[]): void {
+    const stillOpen = new Set(restOpenOrders.map((order) => order.id));
+    for (const previous of previousOpenOrders) {
+      if (!stillOpen.has(previous.id) && Number(previous.remainingQty) > 0) {
+        void this.emit({
+          type: 'reconcile.unfilled_timeout_cancelled',
+          severity: 'warn',
+          pair: previous.pair,
+          payload: {
+            orderId: previous.id,
+            remainingQty: previous.remainingQty,
+            source: 'rest_sweep',
+          },
+        });
+      }
+    }
+  }
+
+  private async isDuplicateClientOrderEvent(raw: any, normalizedOrder: Order): Promise<boolean> {
+    const clientOrderIdRaw =
+      raw?.client_order_id ??
+      raw?.clientOrderId ??
+      raw?.client_order_key ??
+      raw?.id;
+    const eventIdRaw =
+      raw?.event_id ??
+      raw?.eventId ??
+      this.buildEventId(normalizedOrder);
+    const clientOrderId = clientOrderIdRaw === undefined ? '' : String(clientOrderIdRaw).trim();
+    const eventId = eventIdRaw === undefined ? '' : String(eventIdRaw).trim();
+    if (!clientOrderId || !eventId) return false;
+    const accepted = await this.opts.persistence.recordAccountEventDedup({
+      clientOrderId,
+      eventId,
+      entity: 'order',
+    });
+    if (accepted) {
+      this.recentOrderEventByClientOrderId.set(clientOrderId, eventId);
+    }
+    return !accepted;
+  }
+
+  private buildEventId(order: Order): string {
+    return [
+      order.id,
+      order.status,
+      order.updatedAt,
+      order.remainingQty,
+    ].join(':');
   }
 
   private computeTotals(): AccountSnapshot['totals'] {

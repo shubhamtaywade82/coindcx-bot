@@ -29,6 +29,7 @@ export const ConfigSchema = z.object({
   API_BASE_URL: z.string().url().default('https://api.coindcx.com'),
   PUBLIC_BASE_URL: z.string().url().default('https://public.coindcx.com'),
   SOCKET_BASE_URL: z.string().url().default('wss://stream.coindcx.com'),
+  REDIS_URL: z.string().url().default('redis://127.0.0.1:6379'),
   /** Local: http://127.0.0.1:11434 — Ollama Cloud: https://ollama.com (see OLLAMA_API_KEY). */
   OLLAMA_URL: z.string().url().default('http://127.0.0.1:11434'),
   OLLAMA_MODEL: z.string().default('llama3'),
@@ -84,6 +85,17 @@ export const ConfigSchema = z.object({
     .transform(s => s.split(',').map(x => x.trim()).filter(Boolean)),
   BACKTEST_PESSIMISTIC: z.string().default('true').transform(s => s !== 'false'),
   BACKTEST_OUTPUT_DIR: z.string().default('./logs/backtest'),
+  BACKTEST_CANDLE_MAX_BARS_PER_CALL: z.coerce.number().int().positive().max(1000).default(1000),
+  BACKTEST_CANDLE_DEFAULT_TIMEFRAMES: z.string().default('1m,15m,1h')
+    .transform(s => s.split(',').map(x => x.trim()).filter(Boolean)),
+  BACKTEST_RECORDER_FLUSH_MS: z.coerce.number().int().positive().default(5000),
+  BACKTEST_RECORDER_ROTATE_MB: z.coerce.number().positive().default(128),
+  BACKTEST_RECORDER_COMPRESS: z.string().default('true').transform(s => s !== 'false'),
+  PAPER_GATE_MIN_RUN_DAYS: z.coerce.number().positive().default(30),
+  PAPER_GATE_PROGRESS_EMIT_MS: z.coerce.number().int().positive().default(60_000),
+  PAPER_GATE_MIN_BE_LOCK_BEFORE_STOP_RATE: z.coerce.number().positive().max(100).default(0.99),
+  PAPER_GATE_MIN_EXPECTANCY_R: z.coerce.number().default(0.4),
+  PAPER_GATE_MAX_DRAWDOWN_PCT: z.coerce.number().positive().max(100).default(0.08),
 
   // F5 Risk Alert Engine
   RISK_FILTER_MODE: z.enum(['passthrough', 'composite']).default('composite'),
@@ -94,6 +106,32 @@ export const ConfigSchema = z.object({
   RISK_CORRELATION_BLOCK_OPPOSING: z.string().default('true').transform(s => s !== 'false'),
   RISK_MIN_CONFIDENCE: z.coerce.number().default(0.5),
   RISK_ALERT_EMIT: z.string().default('true').transform(s => s !== 'false'),
+
+  // B2 Worker / scheduler responsibilities
+  WORKER_CANDLE_CLOSE_ENABLED: z.string().default('true').transform(s => s !== 'false'),
+  WORKER_CANDLE_CLOSE_TIMEFRAMES: z.string().default('1m,15m,1h')
+    .transform(s => s.split(',').map(x => x.trim()).filter(Boolean)),
+  WORKER_CANDLE_CLOSE_TICK_MS: z.coerce.number().int().positive().default(1_000),
+  WORKER_BREAKEVEN_ENABLED: z.string().default('true').transform(s => s !== 'false'),
+  WORKER_BREAKEVEN_INTERVAL_MS: z.coerce.number().int().positive().default(15_000),
+  WORKER_BREAKEVEN_ARM_PCT: z.coerce.number().positive().default(0.003),
+  WORKER_FUNDING_ENABLED: z.string().default('true').transform(s => s !== 'false'),
+  WORKER_FUNDING_CHECK_INTERVAL_MS: z.coerce.number().int().positive().default(30_000),
+  WORKER_FUNDING_LEAD_MS: z.coerce.number().int().positive().default(300_000),
+  WORKER_FUNDING_WINDOWS_UTC: z.string().default('04:00,12:00,20:00'),
+
+  // B5 TradePlan / position risk
+  TRADEPLAN_ACCOUNT_EQUITY: z.coerce.number().positive().default(10_000),
+  TRADEPLAN_RISK_CAPITAL_FRACTION: z.coerce.number().positive().max(1).default(0.01),
+  TRADEPLAN_ATR_BUFFER_MULTIPLIER: z.coerce.number().positive().default(1),
+  TRADEPLAN_HARD_MAX_LEVERAGE: z.coerce.number().positive().default(10),
+  TRADEPLAN_LIQUIDATION_BUFFER_MULTIPLIER: z.coerce.number().positive().default(2),
+  TRADEPLAN_FEE_RATE: z.coerce.number().nonnegative().default(0.001),
+  TRADEPLAN_FUNDING_RATE_BUFFER: z.coerce.number().nonnegative().default(0.0005),
+
+  // B5 No-close-negative-PnL policy
+  NEGATIVE_CLOSE_HC_MIN_SCORE: z.coerce.number().int().min(0).max(100).default(85),
+  NEGATIVE_CLOSE_TIME_STOP_MS: z.coerce.number().int().positive().default(3_600_000),
 }).superRefine((data, _ctx) => {
   // If telegram is requested but credentials are missing, silently filter it out
   // to prevent startup crashes.

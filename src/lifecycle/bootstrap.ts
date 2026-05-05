@@ -10,6 +10,8 @@ import { FileSink } from '../sinks/file-sink';
 import { TelegramSink } from '../sinks/telegram-sink';
 import type { Sink } from '../sinks/types';
 import type { Context } from './context';
+import { MarketCatalog } from '../marketdata/market-catalog';
+import { CoreRuntimePipeline } from '../runtime/runtime-pipeline';
 
 async function connectWithRetry<T>(fn: () => Promise<T>, attempts: number, baseMs: number): Promise<T> {
   let lastErr: unknown;
@@ -119,7 +121,29 @@ export async function bootstrap(): Promise<Context> {
     webhook.start();
   }
 
+  const marketCatalog = new MarketCatalog({
+    pool,
+    logger: logger.child({ mod: 'market-catalog' }),
+    bus,
+    refreshMs: 15 * 60_000,
+    staleAlertMs: 60 * 60_000,
+  });
+  await marketCatalog.start();
+  const runtime = new CoreRuntimePipeline();
+
   logger.info({ mod: 'boot', sinks: config.SIGNAL_SINKS, webhook: !!webhook }, 'boot complete');
 
-  return { config, logger, pool, audit, bus, cursors, analyzer, stateBuilder, webhook };
+  return {
+    config,
+    logger,
+    pool,
+    audit,
+    bus,
+    cursors,
+    analyzer,
+    stateBuilder,
+    webhook,
+    marketCatalog,
+    runtime,
+  };
 }

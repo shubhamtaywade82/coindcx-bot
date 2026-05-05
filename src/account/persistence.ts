@@ -13,6 +13,12 @@ export interface ChangelogRow {
   severity: 'info' | 'warn' | 'alarm' | null;
 }
 
+export interface AccountEventDedupRow {
+  clientOrderId: string;
+  eventId: string;
+  entity: 'order' | 'position' | 'fill';
+}
+
 export interface PersistenceOptions {
   pool: Pool;
   retryMax: number;
@@ -53,6 +59,11 @@ const CHANGELOG_SQL = `INSERT INTO account_changelog
   (entity, entity_id, field, old_value, new_value, cause, severity, recorded_at)
   VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`;
 
+const ACCOUNT_EVENT_DEDUP_SQL = `INSERT INTO account_event_dedup
+  (client_order_id, event_id, entity)
+  VALUES ($1,$2,$3)
+  ON CONFLICT (client_order_id, event_id) DO NOTHING`;
+
 export class AccountPersistence {
   private queue: QueuedWrite[] = [];
 
@@ -90,6 +101,20 @@ export class AccountPersistence {
     return this.write(CHANGELOG_SQL, [
       row.entity, row.entityId, row.field, row.oldValue, row.newValue, row.cause, row.severity, new Date().toISOString(),
     ]);
+  }
+
+  async recordAccountEventDedup(row: AccountEventDedupRow): Promise<boolean> {
+    try {
+      const result = await this.opts.pool.query(ACCOUNT_EVENT_DEDUP_SQL, [
+        row.clientOrderId,
+        row.eventId,
+        row.entity,
+      ]);
+      return (result.rowCount ?? 0) > 0;
+    } catch (err) {
+      this.opts.onError?.(err as Error, 'write', this.queue.length);
+      return false;
+    }
   }
 
   async flush(): Promise<void> {

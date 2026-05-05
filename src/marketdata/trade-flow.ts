@@ -71,24 +71,57 @@ export class TradeFlow {
   metrics(pair: string, now: number = Date.now()): TradeMetrics | null {
     const buf = this.buffers.get(pair);
     if (!buf || buf.length === 0) return null;
-    const win = (windowMs: number): TradeWindowMetrics => {
-      const cutoff = now - windowMs;
-      let buyVol = 0, sellVol = 0, count = 0;
-      for (let i = buf.length - 1; i >= 0; i -= 1) {
-        const t = buf[i]!;
-        if (t.ts < cutoff) break;
-        count += 1;
-        if (t.buyAggressive) buyVol += t.qty; else sellVol += t.qty;
-      }
-      const totalVol = buyVol + sellVol;
-      const delta = buyVol - sellVol;
-      return { windowMs, trades: count, buyVol, sellVol, totalVol, delta, imbalance: totalVol > 0 ? delta / totalVol : 0 };
-    };
+    const win = (windowMs: number): TradeWindowMetrics => this.windowMetricsFromBuffer(buf, windowMs, now);
     return {
       pair,
       lastTradeTs: buf[buf.length - 1]!.ts,
       windows: { '60s': win(60_000), '300s': win(300_000) },
       cvd: this.cvds.get(pair) ?? 0,
+    };
+  }
+
+  windowMetrics(pair: string, windowMs: number, now: number = Date.now()): TradeWindowMetrics | null {
+    const buf = this.buffers.get(pair);
+    if (!buf || buf.length === 0) return null;
+    return this.windowMetricsFromBuffer(buf, windowMs, now);
+  }
+
+  ticks(pair: string, windowMs: number, now: number = Date.now()): TradeTick[] {
+    const buf = this.buffers.get(pair);
+    if (!buf || buf.length === 0) return [];
+    const cutoff = now - windowMs;
+    const out: TradeTick[] = [];
+    for (let i = buf.length - 1; i >= 0; i -= 1) {
+      const tick = buf[i]!;
+      if (tick.ts < cutoff) break;
+      out.push(tick);
+    }
+    out.reverse();
+    return out;
+  }
+
+  private windowMetricsFromBuffer(buf: TradeTick[], windowMs: number, now: number): TradeWindowMetrics {
+    const cutoff = now - windowMs;
+    let buyVol = 0;
+    let sellVol = 0;
+    let count = 0;
+    for (let i = buf.length - 1; i >= 0; i -= 1) {
+      const tick = buf[i]!;
+      if (tick.ts < cutoff) break;
+      count += 1;
+      if (tick.buyAggressive) buyVol += tick.qty;
+      else sellVol += tick.qty;
+    }
+    const totalVol = buyVol + sellVol;
+    const delta = buyVol - sellVol;
+    return {
+      windowMs,
+      trades: count,
+      buyVol,
+      sellVol,
+      totalVol,
+      delta,
+      imbalance: totalVol > 0 ? delta / totalVol : 0,
     };
   }
 }

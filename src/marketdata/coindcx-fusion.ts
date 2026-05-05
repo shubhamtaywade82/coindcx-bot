@@ -5,6 +5,18 @@ import type { Candle } from '../ai/state-builder';
 import type { AppLogger } from '../logging/logger';
 import { toCoinDcxFuturesInstrument } from '../utils/format';
 import type { TradeFlow, TradeMetrics } from './trade-flow';
+import {
+  estimateSyntheticFundingRate,
+  resolveMarkPrice,
+  resolveOpenInterest,
+} from './data-gap-policy';
+import { computeMicrostructureMetrics, type MicrostructureMetrics } from './microstructure';
+import { computeIntradayIndicators, type IntradayIndicators } from './intraday-indicators';
+import {
+  computeSwingIndicators,
+  type SwingHistoryPoint,
+  type SwingIndicators,
+} from './swing-indicators';
 
 export interface L2Snapshot {
   pair: string;
@@ -26,6 +38,9 @@ export interface FusionSnapshot {
     markPrice: number;
     volume24h: number;
     change24h: number;
+    openInterest?: number;
+    syntheticFundingRate?: number;
+    basis?: number;
   };
   candles: MtfSnapshot['timeframes'];
   bookMetrics: {
@@ -42,12 +57,23 @@ export interface FusionSnapshot {
     volumeProfile: 'increasing' | 'decreasing' | 'flat';
   };
   tradeMetrics?: TradeMetrics;
+  microstructure: MicrostructureMetrics;
+  intraday: IntradayIndicators;
+  swing: SwingIndicators;
   generatedAt: number;
+}
+
+function parseLevelNumber(value: string | number): number {
+  const parsed = typeof value === 'number' ? value : Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 export class CoinDcxFusion extends EventEmitter {
   private ltpState = new Map<string, FusionSnapshot['ltp']>();
   private latestFusion = new Map<string, FusionSnapshot>();
+  private swingHistoryByPair = new Map<string, SwingHistoryPoint[]>();
+  private readonly swingHistoryLimit = 600;
+  private readonly now: () => number;
 
   constructor(
     private logger: AppLogger,
@@ -55,8 +81,10 @@ export class CoinDcxFusion extends EventEmitter {
     private mtf: MultiTimeframeStore,
     private books: BookManager,
     private trades?: TradeFlow,
+    clock: () => number = Date.now,
   ) {
     super();
+    this.now = clock;
     this.setupHandlers();
   }
 
@@ -69,13 +97,27 @@ export class CoinDcxFusion extends EventEmitter {
       Object.entries(prices).forEach(([rawPair, info]: [string, any]) => {
         if (!info || typeof info !== 'object') return;
         const pair = toCoinDcxFuturesInstrument(rawPair);
+        const markPrice = resolveMarkPrice({ markPrice: info.mp, lastPrice: info.ls });
+        const lastPrice = resolveMarkPrice({ markPrice: info.ls, lastPrice: info.mp });
+        const openInterest = resolveOpenInterest(info);
+        const syntheticFunding = estimateSyntheticFundingRate({
+          futuresMarkPrice: markPrice,
+          spotLastPrice: lastPrice,
+        });
         this.ltpState.set(pair, {
-          price: parseFloat(info.ls || info.mp || '0'),
+          price: lastPrice ?? 0,
           bid: parseFloat(info.b || '0'), // Some feeds might have bid/ask
           ask: parseFloat(info.a || '0'),
-          markPrice: parseFloat(info.mp || '0'),
+          markPrice: markPrice ?? 0,
           volume24h: parseFloat(info.v || '0'),
           change24h: parseFloat(info.pc || '0'),
+          ...(openInterest !== undefined ? { openInterest } : {}),
+          ...(syntheticFunding
+            ? {
+                syntheticFundingRate: syntheticFunding.estimatedFundingRate,
+                basis: syntheticFunding.basisRatio,
+              }
+            : {}),
         });
         this.maybeGenerateFusion(pair);
       });
@@ -107,8 +149,10 @@ export class CoinDcxFusion extends EventEmitter {
     const mtfSnap = this.mtf.getSnapshot(pair);
 
     if (!book || !ltp || !mtfSnap) return;
+    const nowMs = this.now();
+    this.recordSwingHistory(pair, ltp, nowMs);
 
-    const snapshot = this.buildFusion(pair, book, ltp, mtfSnap);
+    const snapshot = this.buildFusion(pair, book, ltp, mtfSnap, nowMs);
     this.latestFusion.set(pair, snapshot);
     this.emit('fusion', snapshot);
   }
@@ -117,7 +161,8 @@ export class CoinDcxFusion extends EventEmitter {
     pair: string,
     book: import('./book/orderbook').OrderBook,
     ltp: FusionSnapshot['ltp'],
-    mtf: MtfSnapshot
+    mtf: MtfSnapshot,
+    nowMs: number,
   ): FusionSnapshot {
     const top = book.topN(50);
     const bestBid = top.bids[0] ? parseFloat(top.bids[0].price) : 0;
@@ -133,8 +178,18 @@ export class CoinDcxFusion extends EventEmitter {
       .reduce((sum, a) => sum + parseFloat(a.qty), 0);
 
     // Walls
-    const bidWall = top.bids.reduce((max, b) => parseFloat(b.qty) > parseFloat(max.qty) ? b : max, top.bids[0] || { price: '0', qty: '0' });
-    const askWall = top.asks.reduce((max, a) => parseFloat(a.qty) > parseFloat(max.qty) ? a : max, top.asks[0] || { price: '0', qty: '0' });
+    const bidWall = top.bids.reduce(
+      (max, bid) => (parseLevelNumber(bid.qty) > parseLevelNumber(max.qty) ? bid : max),
+      top.bids[0] || { price: '0', qty: '0' },
+    );
+    const askWall = top.asks.reduce(
+      (max, ask) => (parseLevelNumber(ask.qty) > parseLevelNumber(max.qty) ? ask : max),
+      top.asks[0] || { price: '0', qty: '0' },
+    );
+    const bidWallPrice = parseLevelNumber(bidWall.price);
+    const askWallPrice = parseLevelNumber(askWall.price);
+    const bidWallSize = parseLevelNumber(bidWall.qty);
+    const askWallSize = parseLevelNumber(askWall.qty);
 
     const trend = (candles: Candle[]): 'up' | 'down' | 'sideways' => {
       if (candles.length < 3) return 'sideways';
@@ -166,16 +221,16 @@ export class CoinDcxFusion extends EventEmitter {
         spread,
         bidDepth: bidDepth1pct,
         askDepth: askDepth1pct,
-        timestamp: Date.now(),
+        timestamp: nowMs,
       },
       ltp,
       candles: mtf.timeframes,
       bookMetrics: {
         bidAskRatio: bidDepth1pct / (askDepth1pct || 1),
-        bidWallPrice: parseFloat(bidWall.price),
-        bidWallSize: parseFloat(bidWall.qty),
-        askWallPrice: parseFloat(askWall.price),
-        askWallSize: parseFloat(askWall.qty),
+        bidWallPrice,
+        bidWallSize,
+        askWallPrice,
+        askWallSize,
         imbalance: bidDepth1pct > askDepth1pct * 1.5 
           ? 'bid-heavy' 
           : askDepth1pct > bidDepth1pct * 1.5 
@@ -188,11 +243,51 @@ export class CoinDcxFusion extends EventEmitter {
         volumeProfile: volProfile(mtf.timeframes['1m'] || []),
       },
       tradeMetrics: this.trades?.metrics(pair) ?? undefined,
-      generatedAt: Date.now(),
+      microstructure: computeMicrostructureMetrics({
+        pair,
+        top,
+        tradeFlow: this.trades,
+        nowMs,
+      }),
+      intraday: computeIntradayIndicators({
+        pair,
+        candles1m: mtf.timeframes['1m'] || [],
+        candles15m: mtf.timeframes['15m'] || [],
+        tradeFlow: this.trades,
+        nowMs,
+      }),
+      swing: computeSwingIndicators({
+        pair,
+        candles1h: mtf.timeframes['1h'] || [],
+        ltp,
+        historyByPair: this.swingHistoryByPair,
+        nowMs,
+      }),
+      generatedAt: nowMs,
     };
   }
 
   getLatest(pair: string): FusionSnapshot | null {
     return this.latestFusion.get(pair) || null;
+  }
+
+  private recordSwingHistory(pair: string, ltp: FusionSnapshot['ltp'], nowMs: number): void {
+    const price = ltp.markPrice || ltp.price;
+    if (!Number.isFinite(price) || price <= 0) return;
+    const history = this.swingHistoryByPair.get(pair) ?? [];
+    const point: SwingHistoryPoint = {
+      ts: nowMs,
+      price,
+      ...(ltp.openInterest !== undefined ? { openInterest: ltp.openInterest } : {}),
+      ...(ltp.basis !== undefined ? { basis: ltp.basis } : {}),
+      ...(ltp.syntheticFundingRate !== undefined
+        ? { syntheticFundingRate: ltp.syntheticFundingRate }
+        : {}),
+    };
+    history.push(point);
+    if (history.length > this.swingHistoryLimit) {
+      history.splice(0, history.length - this.swingHistoryLimit);
+    }
+    this.swingHistoryByPair.set(pair, history);
   }
 }

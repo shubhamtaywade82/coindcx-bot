@@ -1,10 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { runBacktest } from '../../../src/strategy/backtest/runner';
 import { CandleSource } from '../../../src/strategy/backtest/sources/candle-source';
-import { mkdtempSync, readFileSync } from 'fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import type { Strategy } from '../../../src/strategy/types';
+import { OrderbookReplaySource } from '../../../src/strategy/backtest/sources/orderbook-replay-source';
 
 const fakeMarket: any = {
   htf: { trend: 'uptrend', swing_high: 110, swing_low: 90 },
@@ -42,5 +43,40 @@ describe('runBacktest', () => {
     const content = readFileSync(csv, 'utf8');
     expect(content).toContain('openedAt');
     expect(summary.coverage).toBeGreaterThan(0);
+  });
+
+  it('replays orderbook events without vectorized shortcuts', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'f4-ob-'));
+    const path = join(dir, 'orderbook.jsonl');
+    writeFileSync(path, [
+      JSON.stringify({
+        ts: 1000,
+        channel: 'depth-snapshot',
+        raw: { pair: 'p', asks: { '101': '1' }, bids: { '99': '1' }, seq: 1 },
+      }),
+      JSON.stringify({
+        ts: 2000,
+        channel: 'new-trade',
+        raw: { pair: 'p', price: '100' },
+      }),
+      JSON.stringify({
+        ts: 3000,
+        channel: 'depth-update',
+        raw: { pair: 'p', asks: { '101': '0', '102': '1' }, bids: { '99': '1.2' }, seq: 2, prevSeq: 1 },
+      }),
+    ].join('\n'));
+    const csv = join(dir, 'ob-trades.csv');
+    const summary = await runBacktest({
+      strategy: fakeStrategy,
+      pair: 'p',
+      dataSource: new OrderbookReplaySource({ path, pair: 'p', fromMs: 0, toMs: 10_000 }),
+      buildMarketState: () => fakeMarket,
+      pessimistic: true,
+      outCsv: csv,
+    });
+    expect(summary.events).toBe(3);
+    expect(summary.coverage).toBeGreaterThan(0);
+    const content = readFileSync(csv, 'utf8');
+    expect(content).toContain('openedAt');
   });
 });

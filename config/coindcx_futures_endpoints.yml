@@ -1,0 +1,207 @@
+catalogVersion: 1
+source:
+  docsHost: docs.coindcx.com
+  requiresAuthenticatedCapture: true
+  captureStatus: captured
+  capturedAt: "2026-05-03T11:00:00Z"
+  capturedBy: user-provided-slate-export
+  notes: >
+    Verbatim method/path/params captured from authenticated docs content provided
+    by user (Slate export parity check against docs.coindcx.com futures chapter).
+
+endpoints:
+  - key: get_active_instruments
+    label: Get active instruments
+    method: GET
+    path: /exchange/v1/derivatives/futures/data/active_instruments
+    paramsSpec: none
+    status: captured
+
+  - key: get_instrument_details
+    label: Get instrument details
+    method: GET
+    path: /exchange/v1/derivatives/futures/data/instrument
+    paramsSpec: instrument
+    status: captured
+
+  - key: get_instrument_trade_history
+    label: Get instrument real-time trade history
+    method: GET
+    path: /exchange/v1/derivatives/futures/data/trades
+    paramsSpec: instrument, limit
+    status: captured
+
+  - key: get_instrument_orderbook
+    label: Get instrument orderbook
+    method: GET
+    path: /market_data/v3/orderbook/{instrument}-futures/50
+    paramsSpec: instrument in path
+    status: captured
+
+  - key: get_instrument_candlesticks
+    label: Get instrument candlesticks
+    method: GET
+    path: /market_data/candlesticks
+    paramsSpec: pair, from, to, resolution, pcode=f
+    status: captured
+
+  - key: list_orders
+    label: List orders
+    method: POST
+    path: /exchange/v1/derivatives/futures/orders
+    paramsSpec: signed body
+    status: captured
+
+  - key: create_order
+    label: Create order
+    method: POST
+    path: /exchange/v1/derivatives/futures/orders/create
+    paramsSpec: signed body
+    status: captured
+
+  - key: cancel_order
+    label: Cancel order
+    method: POST
+    path: /exchange/v1/derivatives/futures/orders/cancel
+    paramsSpec: signed body
+    status: captured
+
+  - key: edit_order
+    label: Edit order
+    method: POST
+    path: /exchange/v1/derivatives/futures/orders/edit
+    paramsSpec: signed body
+    status: captured
+
+  - key: list_positions
+    label: List positions
+    method: POST
+    path: /exchange/v1/derivatives/futures/positions
+    paramsSpec: signed body
+    status: captured
+
+  - key: get_positions_by_pair_or_position_id
+    label: Get positions by pairs or position id
+    method: POST
+    path: /exchange/v1/derivatives/futures/positions
+    paramsSpec: signed body with pairs/position_ids
+    status: captured
+
+  - key: update_position_leverage
+    label: Update position leverage
+    method: POST
+    path: /exchange/v1/derivatives/futures/positions/update_leverage
+    paramsSpec: signed body
+    status: captured
+
+  - key: add_margin
+    label: Add margin
+    method: POST
+    path: /exchange/v1/derivatives/futures/positions/add_margin
+    paramsSpec: signed body
+    status: captured
+
+  - key: remove_margin
+    label: Remove margin
+    method: POST
+    path: /exchange/v1/derivatives/futures/positions/remove_margin
+    paramsSpec: signed body
+    status: captured
+
+  - key: cancel_all_open_orders
+    label: Cancel all open orders
+    method: POST
+    path: /exchange/v1/derivatives/futures/positions/cancel_all_open_orders
+    paramsSpec: signed body
+    status: captured
+
+  - key: cancel_all_open_orders_for_position
+    label: Cancel all open orders for position
+    method: POST
+    path: /exchange/v1/derivatives/futures/positions/cancel_all_open_orders_for_position
+    paramsSpec: signed body
+    status: captured
+
+  - key: exit_position
+    label: Exit position
+    method: POST
+    path: /exchange/v1/derivatives/futures/positions/exit
+    paramsSpec: signed body
+    status: captured
+
+  - key: create_take_profit_stop_loss_orders
+    label: Create take profit and stop loss orders
+    method: POST
+    path: /exchange/v1/derivatives/futures/positions/create_tpsl
+    paramsSpec: signed body
+    status: captured
+
+  - key: get_transactions
+    label: Get transactions
+    method: POST
+    path: /exchange/v1/derivatives/futures/positions/transactions
+    paramsSpec: signed body
+    status: captured
+
+  - key: get_trades
+    label: Get trades
+    method: POST
+    path: /exchange/v1/derivatives/futures/trades
+    paramsSpec: signed body
+    status: captured
+
+  - key: get_current_prices_rt
+    label: Get current prices RT
+    method: GET
+    path: /market_data/v3/current_prices/futures/rt
+    paramsSpec: none
+    status: captured
+
+  - key: get_pair_stats
+    label: Get pair stats
+    method: POST
+    path: /api/v1/derivatives/futures/data/stats
+    paramsSpec: signed body
+    status: captured
+
+  - key: get_cross_margin_details
+    label: Get cross margin details
+    method: POST
+    path: /exchange/v1/derivatives/futures/positions/cross_margin_details
+    paramsSpec: signed body
+    status: captured
+
+  - key: wallet_transfer
+    label: Wallet transfer
+    method: POST
+    path: /exchange/v1/derivatives/futures/wallets/transfer
+    paramsSpec: signed body
+    status: captured
+
+  - key: wallet_details
+    label: Wallet details
+    method: GET
+    path: /exchange/v1/derivatives/futures/wallets
+    paramsSpec: signed body
+    status: captured
+
+  - key: wallet_transactions
+    label: Wallet transactions
+    method: POST
+    path: /exchange/v1/derivatives/futures/wallets/transactions
+    paramsSpec: signed body
+    status: captured
+
+  - key: change_position_margin_type
+    label: Change position margin type
+    method: POST
+    path: /exchange/v1/derivatives/futures/positions/margin_type
+    paramsSpec: signed body
+    status: captured
+
+  - key: get_currency_conversion
+    label: Get currency conversion
+    method: POST
+    path: /api/v1/derivatives/futures/data/conversions
+    paramsSpec: signed body
+    status: captured
