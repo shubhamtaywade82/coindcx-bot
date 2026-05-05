@@ -88,12 +88,20 @@ export class MarketStateBuilder {
   ): Promise<MarketState | null> {
     if (ltfCandles.length < 10) return null;
 
-    const activePos = positions.find(p => p.pair === pair);
+    const cleanKey = (s?: string): string =>
+      String(s ?? '').toUpperCase().replace(/^B-/, '').replace(/_/g, '');
+    const targetClean = cleanKey(pair);
+    const activePos = positions.find(p => {
+      if (!p) return false;
+      if (Math.abs(parseFloat(p.activePos ?? p.active_pos ?? '0')) === 0) return false;
+      if (p.pair === pair) return true;
+      return cleanKey(p.pair) === targetClean;
+    });
     const positionData = activePos ? {
-      side: activePos.side as 'long' | 'short' | 'flat',
-      entry: parseFloat(activePos.avgPrice),
-      unrealized_pnl: parseFloat(activePos.unrealizedPnl),
-      size: Math.abs(parseFloat(activePos.activePos))
+      side: (activePos.side ?? (parseFloat(activePos.activePos ?? activePos.active_pos ?? '0') > 0 ? 'long' : 'short')) as 'long' | 'short' | 'flat',
+      entry: parseFloat(activePos.avgPrice ?? activePos.avg_price ?? '0'),
+      unrealized_pnl: parseFloat(activePos.unrealizedPnl ?? activePos.unrealized_pnl ?? '0'),
+      size: Math.abs(parseFloat(activePos.activePos ?? activePos.active_pos ?? '0')),
     } : undefined;
 
     const htf = this.analyzeStructure(htfCandles, '1h');

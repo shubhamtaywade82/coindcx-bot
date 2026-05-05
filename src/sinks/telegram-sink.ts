@@ -1,4 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
+import * as fs from 'fs';
+import * as path from 'path';
 import type { Sink } from './types';
 import type { Signal } from '../signals/types';
 import { TokenBucket } from './token-bucket';
@@ -12,9 +14,17 @@ export interface TelegramSinkOptions {
   http?: AxiosInstance;
   /** Per-(strategy,type,pair) cooldown for noisy signals. Map of typePrefix → ms. */
   cooldownMs?: Record<string, number>;
+  /** Optional path for persisting cooldown state across restarts (recommended for unstable processes). */
+  cooldownStatePath?: string;
 }
 
 const DEFAULT_RETRIES = [250, 1000, 4000];
+
+/** Strategies whose `strategy.wait` payloads should still ship to Telegram (AI pulse / conductor). */
+const ALWAYS_DELIVER_WAIT_STRATEGIES = new Set<string>([
+  'llm.pulse.v1',
+  'ai.conductor.v1',
+]);
 
 /** Recurring infrastructure events: send the first, swallow subsequent until cooldown elapses. */
 const DEFAULT_COOLDOWNS: Record<string, number> = {
@@ -26,6 +36,8 @@ const DEFAULT_COOLDOWNS: Record<string, number> = {
   'stalefeed': 15 * 60_000,
   'reconcile.': 15 * 60_000,
   'strategy.error': 30 * 60_000,
+  // AI WAIT updates: cooldown so traders see the latest read every 30 min, not every bar.
+  'strategy.wait': 30 * 60_000,
 };
 
 function cooldownKey(s: Signal): string {
@@ -56,15 +68,24 @@ function fmt(s: Signal): string {
       icon = '🔴';
       msg = `ERROR: ${payload.error || payload.reason || 'Unknown error'}`;
     } else {
-      icon = side === 'LONG' ? '🟢' : '🔴';
+      icon = side === 'LONG' ? '🟢' : side === 'SHORT' ? '🔴' : '🟡';
       const entry = payload.entry ? ` @ \`${payload.entry}\`` : '';
       const tp = payload.takeProfit ? ` | TP: \`${payload.takeProfit}\`` : '';
       const sl = payload.stopLoss ? ` | SL: \`${payload.stopLoss}\`` : '';
-      const conf = payload.confidence ? `\n🔥 Confidence: \`${(payload.confidence * 100).toFixed(0)}%\`` : '';
+      const conf = typeof payload.confidence === 'number'
+        ? `\n🔥 Confidence: \`${(payload.confidence * 100).toFixed(0)}%\``
+        : '';
       const rr = payload.meta?.rr ? ` | R:R: \`${Number(payload.meta.rr).toFixed(2)}\`` : '';
       const mgmt = payload.meta?.management ? `\n\n🛡️ *Management:* ${payload.meta.management}` : '';
-      
-      msg = `*${side} ${pair}*${entry}${rr}${tp}${sl}${conf}\n\n*Verdict:* ${payload.reason || 'No reasoning provided.'}${mgmt}`;
+      const cb = payload.meta?.currentBias ? String(payload.meta.currentBias).toUpperCase() : '';
+      const nb = payload.meta?.expectedNextBias ? String(payload.meta.expectedNextBias).toUpperCase() : '';
+      const trig = payload.meta?.biasTrigger ? String(payload.meta.biasTrigger) : '';
+      const biasLine = (cb || nb)
+        ? `\n🧭 *Bias:* ${cb || '—'} → ${nb || '—'}${trig ? `\n   _Trigger:_ ${trig}` : ''}`
+        : '';
+      const chosen = payload.meta?.chosen_strategy ? `\n🎯 *Chosen:* \`${String(payload.meta.chosen_strategy)}\`` : '';
+
+      msg = `*${side} ${pair}*${entry}${rr}${tp}${sl}${conf}${biasLine}${chosen}\n\n*Verdict:* ${payload.reason || 'No reasoning provided.'}${mgmt}`;
     }
   } else if (type === 'risk.blocked') {
     icon = '🟡';
@@ -94,6 +115,8 @@ export class TelegramSink implements Sink {
   private readonly retries: number[];
   private readonly cooldowns: Record<string, number>;
   private readonly cooldownExpiry = new Map<string, number>();
+  private readonly cooldownStatePath?: string;
+  private cooldownPersistTimer?: NodeJS.Timeout;
 
   constructor(private readonly opts: TelegramSinkOptions) {
     this.bucket = new TokenBucket({
@@ -103,14 +126,50 @@ export class TelegramSink implements Sink {
     this.cooldowns = { ...DEFAULT_COOLDOWNS, ...(opts.cooldownMs ?? {}) };
     this.http = opts.http ?? axios.create({ baseURL: 'https://api.telegram.org', timeout: 10_000 });
     this.retries = opts.retryDelaysMs ?? DEFAULT_RETRIES;
+    this.cooldownStatePath = opts.cooldownStatePath;
+    this.loadCooldownState();
+  }
+
+  private loadCooldownState(): void {
+    if (!this.cooldownStatePath) return;
+    try {
+      if (!fs.existsSync(this.cooldownStatePath)) return;
+      const raw = fs.readFileSync(this.cooldownStatePath, 'utf8');
+      const obj = JSON.parse(raw) as Record<string, number>;
+      const now = Date.now();
+      for (const [k, v] of Object.entries(obj)) {
+        if (typeof v === 'number' && v > now) this.cooldownExpiry.set(k, v);
+      }
+    } catch {
+      // ignore corrupt state file; cooldown resets are not safety-critical.
+    }
+  }
+
+  private scheduleCooldownPersist(): void {
+    if (!this.cooldownStatePath) return;
+    if (this.cooldownPersistTimer) return;
+    this.cooldownPersistTimer = setTimeout(() => {
+      this.cooldownPersistTimer = undefined;
+      try {
+        const dir = path.dirname(this.cooldownStatePath!);
+        fs.mkdirSync(dir, { recursive: true });
+        const obj: Record<string, number> = {};
+        const now = Date.now();
+        for (const [k, v] of this.cooldownExpiry) {
+          if (v > now) obj[k] = v;
+        }
+        fs.writeFileSync(this.cooldownStatePath!, JSON.stringify(obj));
+      } catch {
+        // best-effort persist; loss only re-fires alerts after restart.
+      }
+    }, 250);
   }
 
   async emit(signal: Signal): Promise<void> {
     const type = signal.type || 'unknown';
 
-    // Only skip explicit strategy WAIT (LLM / rules). Do not infer from `type.split('.')`:
-    // Pine/webhook use types like `long`, `alert`, `whale_buy` with no dot — those were wrongly dropped.
-    if (type === 'strategy.wait') return;
+    // strategy.wait is normally noise; allow only for AI pulse + conductor so traders see live verdicts.
+    if (type === 'strategy.wait' && !ALWAYS_DELIVER_WAIT_STRATEGIES.has(signal.strategy ?? '')) return;
 
     // ntp_unavailable is expected on networks that block UDP 123 — not actionable.
     if (type === 'clock_skew' && (signal.payload as any)?.reason === 'ntp_unavailable') return;
@@ -124,6 +183,7 @@ export class TelegramSink implements Sink {
       const exp = this.cooldownExpiry.get(ck) ?? 0;
       if (now < exp) return;
       this.cooldownExpiry.set(ck, now + cooldownMs);
+      this.scheduleCooldownPersist();
     }
 
     const text = fmt(signal);

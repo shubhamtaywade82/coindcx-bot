@@ -74,9 +74,12 @@ function toNumberOrNull(value: unknown): number | null {
 }
 
 function toRow(raw: MarketDetailsRecord, refreshedAt: string): CatalogRow | null {
-  const pair = toStringOrNull(raw.pair) ?? toStringOrNull(raw.coindcx_name);
-  const symbol = toStringOrNull(raw.symbol) ?? toStringOrNull(raw.coindcx_name);
-  const ecode = toStringOrNull(raw.ecode);
+  const pair = toStringOrNull(raw.pair) ?? toStringOrNull(raw.coindcx_name) ?? toStringOrNull((raw as any).instrument_string);
+  const symbol = toStringOrNull(raw.symbol) ?? toStringOrNull(raw.coindcx_name) ?? toStringOrNull((raw as any).instrument_string) ?? pair;
+  // Derive ecode from pair prefix (e.g. "B-ETH_USDT" → "B") when API does not return it.
+  const ecodeRaw = toStringOrNull(raw.ecode);
+  const ecodeFromPair = pair && pair.includes('-') ? pair.split('-', 1)[0] : null;
+  const ecode = ecodeRaw ?? ecodeFromPair;
   if (!pair || !symbol || !ecode) return null;
 
   return {
@@ -131,7 +134,7 @@ export class MarketCatalog {
   constructor(private readonly opts: MarketCatalogOptions) {
     this.refreshMs = opts.refreshMs ?? 15 * 60_000;
     this.staleAlertMs = opts.staleAlertMs ?? 30 * 60_000;
-    this.fetchMarketDetails = opts.fetchMarketDetails ?? (() => CoinDCXApi.getMarketDetails());
+    this.fetchMarketDetails = opts.fetchMarketDetails ?? (() => CoinDCXApi.getFuturesActiveInstruments());
   }
 
   async start(): Promise<void> {
@@ -202,7 +205,9 @@ export class MarketCatalog {
       ? fetched
       : Array.isArray((fetched as any)?.data)
         ? ((fetched as any).data as MarketDetailsRecord[])
-        : [];
+        : Array.isArray((fetched as any)?.instruments)
+          ? ((fetched as any).instruments as MarketDetailsRecord[])
+          : [];
     if (list.length === 0) {
       this.opts.logger.warn(
         { mod: 'market-catalog', kind: typeof fetched, isArray: Array.isArray(fetched), keys: fetched && typeof fetched === 'object' ? Object.keys(fetched as object).slice(0, 10) : null },

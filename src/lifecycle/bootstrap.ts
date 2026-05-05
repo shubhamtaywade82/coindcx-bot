@@ -87,6 +87,8 @@ export async function bootstrap(): Promise<Context> {
         logger.warn({ mod: 'telegram', sigId: s.id, err: err.message }, 'telegram drop');
         audit.recordEvent({ kind: 'telegram_drop', source: 'telegram', payload: { id: s.id, err: err.message } });
       },
+      // Persist cooldown across restarts so an unstable process does not re-page on every boot.
+      cooldownStatePath: `${config.LOG_DIR}/telegram-cooldown.json`,
       // Infra noise suppression: send the first occurrence, silence repeats for the cooldown window.
       cooldownMs: {
         'catalog.stale': 60 * 60_000,          // 1 h

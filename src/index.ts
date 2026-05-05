@@ -594,7 +594,7 @@ async function runApp(ctx: Context) {
     buildMarketState: (htf, ltf, pair) => {
       const book = integrity.books.get(pair);
       const bookSnap = book && book.state() === 'live' ? computeBookSnapshot(book) : null;
-      return ctx.stateBuilder.build(htf, ltf, bookSnap, fusion.getLatest(pair), [], pair);
+      return ctx.stateBuilder.build(htf, ltf, bookSnap, fusion.getLatest(pair), account.snapshot().positions, pair);
     },
     candleProvider: {
       ltf: pair => mtfStore.get(pair, '15m'),
