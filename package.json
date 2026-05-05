@@ -29,7 +29,6 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@types/blessed": "^0.1.27",
     "axios": "^1.15.2",
     "blessed": "^0.1.81",
     "blessed-contrib": "^4.11.0",
@@ -48,6 +47,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/blessed": "^0.1.27",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.19.39",
     "@types/pg": "^8.20.0",
