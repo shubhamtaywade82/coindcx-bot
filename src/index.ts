@@ -17,6 +17,8 @@ import { MaCross } from './strategy/strategies/ma-cross';
 import { LlmPulse } from './strategy/strategies/llm-pulse';
 import { BearishSmc } from './strategy/strategies/bearish-smc';
 import { TrendlineBreakout } from './strategy/strategies/trendline-breakout';
+import { AiConductor } from './strategy/strategies/ai-conductor';
+import { RecentSignalsStore } from './strategy/recent-signals-store';
 import { PassthroughRiskFilter } from './strategy/risk/risk-filter';
 import { CompositeRiskFilter } from './strategy/risk/composite-filter';
 import { MinConfidenceRule } from './strategy/risk/rules/min-confidence';
@@ -522,6 +524,7 @@ async function runApp(ctx: Context) {
   // ── F4 Strategy Framework ──
   const enabledIds = new Set(ctx.config.STRATEGY_ENABLED_IDS);
   const configuredPairs: string[] = ctx.config.COINDCX_PAIRS as unknown as string[];
+  const recentSignalsStore = new RecentSignalsStore(ctx.config.AI_CONDUCTOR_TTL_MS ?? 5 * 60_000);
 
   /** Fetch candles from REST, normalise to Candle[], oldest-first. */
   async function fetchCandlesForStore(pair: string, tf: string, limit: number): Promise<Candle[]> {
@@ -612,6 +615,9 @@ async function runApp(ctx: Context) {
       }
     },
     onEvaluatedSignal: (signal, manifest, pair) => {
+      if (manifest.id !== 'ai.conductor.v1') {
+        recentSignalsStore.record(pair, manifest.id, signal);
+      }
       const tag = manifest.id.replace(/\.v\d+$/, '');
       tui.updateAi({
         verdict: `[${tag}] ${signal.reason}`,
@@ -642,6 +648,16 @@ async function runApp(ctx: Context) {
   if (enabledIds.has('llm.pulse.v1'))   strategyController.register(new LlmPulse(ctx.analyzer));
   if (enabledIds.has('bearish.smc.v1'))           strategyController.register(new BearishSmc());
   if (enabledIds.has('trendline.breakout.v1'))    strategyController.register(new TrendlineBreakout());
+
+  if (enabledIds.has('ai.conductor.v1')) {
+    strategyController.register(
+      new AiConductor(
+        ctx.analyzer,
+        recentSignalsStore,
+        ctx.config.AI_CONDUCTOR_MIN_CONFIDENCE ?? 0.6,
+      ),
+    );
+  }
   strategyController.start();
 
   const runtimeWorkers = new RuntimeWorkerSet({

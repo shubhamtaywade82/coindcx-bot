@@ -66,7 +66,12 @@ export class AiAnalyzer {
          - No OB without BOS.
          - Reject weak setups or those fighting HTF momentum without clear CHOCH.
 
-      4. Provide your response as a JSON object with:
+      4. CONDUCTOR MODE: If the input contains "strategy_signals" (array) and "conductor_directive",
+         you are arbitrating between deterministic strategies. Pick the single most convincing strategy
+         from the list and align your verdict, signal, and setup with it. Set "chosen_strategy" to its
+         strategyId. If no strategy is convincing per the directive, return "signal": "WAIT".
+
+      5. Provide your response as a JSON object with:
          {
            "verdict": "Detailed summary of structural confluence. Be consistent with the signal.",
            "signal": "LONG", "SHORT", or "WAIT",
@@ -80,7 +85,8 @@ export class AiAnalyzer {
            "management_advice": "IF AN ACTIVE POSITION EXISTS: Provide specific action (HOLD, TRAIL SL TO X, EXIT NOW) based on the current context.",
            "levels": ["Key level 1", "Key level 2"],
            "alternate_scenario": "What happens if this fails?",
-           "no_trade_condition": "Explicit reason to stay out"
+           "no_trade_condition": "Explicit reason to stay out",
+           "chosen_strategy": "(conductor mode only) the strategyId you trusted, or null"
          }
 
       STRICT RULES:
