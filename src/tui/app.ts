@@ -61,6 +61,7 @@ export class TuiApp {
   private gridHost: any;
   private grid: any;
   private logPanel: any;
+  private topBox: any;
   private statusBar: any;
   /** Full-width portfolio summary (EQ/WAL/UR + NET/REAL/UNREAL/DD/RISK), mirrored inside Balances. */
   private summaryBar: any;
@@ -111,13 +112,12 @@ export class TuiApp {
 
     this.pairs = config.pairs;
 
-    // Status (row 0) + account summary (row 1) sit above the grid; both are height:1 full-width boxes.
     this.gridHost = blessed.box({
       parent: this.screen,
-      top: 3,
+      top: 4,
       left: 0,
       width: '100%',
-      height: '100%-3',
+      height: '100%-4',
     });
     this.grid = new contrib.grid({ rows: 12, cols: 12, screen: this.gridHost });
 
@@ -133,27 +133,36 @@ export class TuiApp {
 
     this.log(`Tui initialized with ${this.pairs.length} pairs: ${this.pairs.join(', ')}`);
 
-    this.statusBar = blessed.box({
+    this.topBox = blessed.box({
       parent: this.screen,
       top: 0,
       left: 0,
       width: '100%',
+      height: 4,
+      label: ' ◈ System Status ',
+      border: { type: 'line', fg: 'cyan' },
+      style: { fg: 'white', border: { fg: 'cyan' } },
+    });
+
+    this.statusBar = blessed.box({
+      parent: this.topBox,
+      top: 0,
+      left: 0,
+      width: '100%-2',
       height: 1,
       tags: true,
       content: ' LOADING...',
-      style: { bg: 'black' },
     });
 
     this.summaryBar = blessed.box({
-      parent: this.screen,
+      parent: this.topBox,
       top: 1,
       left: 0,
-      width: '100%',
+      width: '100%-2',
       height: 1,
       tags: true,
       content:
         ' {gray-fg}EQ: — │ WAL: — │ UR: — │ NET: — │ REAL: — │ UNREAL: — │ DD: — │ RISK: —{/gray-fg}',
-      style: { bg: 'black' },
     });
 
     // ── Grid row 0: Asset Header (grid is mounted below status + account summary) ──
@@ -566,7 +575,7 @@ export class TuiApp {
       const amt = parseAmt(row[1]);
       const bar = renderBar(amt, 'red');
       const wallMarker = isWall ? '{bold}W{/bold}' : ' ';
-      const price = `{red-fg}${this.padLeft(formatPrice(row[0]), 10)}{/red-fg}`;
+      const price = `{red-fg}${this.padLeft(row[0], 10)}{/red-fg}`;
       const amount = this.padRight(row[1], 12);
       return ` {red-fg}A{/red-fg}${wallMarker}${price}${amount} ${bar}`;
     }).reverse();
@@ -604,7 +613,7 @@ export class TuiApp {
       const amt = parseAmt(row[1]);
       const bar = renderBar(amt, 'green');
       const wallMarker = isWall ? '{bold}W{/bold}' : ' ';
-      const price = `{green-fg}${this.padLeft(formatPrice(row[0]), 10)}{/green-fg}`;
+      const price = `{green-fg}${this.padLeft(row[0], 10)}{/green-fg}`;
       const amount = this.padRight(row[1], 12);
       return ` {green-fg}B{/green-fg}${wallMarker}${price}${amount} ${bar}`;
     });

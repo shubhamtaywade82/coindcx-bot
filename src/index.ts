@@ -612,9 +612,9 @@ async function runApp(ctx: Context) {
       }
     },
     onEvaluatedSignal: (signal, manifest, pair) => {
-      if (manifest.id !== 'llm.pulse.v1') return;
+      const tag = manifest.id.replace(/\.v\d+$/, '');
       tui.updateAi({
-        verdict: signal.reason,
+        verdict: `[${tag}] ${signal.reason}`,
         signal: signal.side,
         confidence: signal.confidence,
         no_trade_condition: signal.noTradeCondition,
