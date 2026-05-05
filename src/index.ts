@@ -16,6 +16,7 @@ import { SmcRule } from './strategy/strategies/smc-rule';
 import { MaCross } from './strategy/strategies/ma-cross';
 import { LlmPulse } from './strategy/strategies/llm-pulse';
 import { BearishSmc } from './strategy/strategies/bearish-smc';
+import { TrendlineBreakout } from './strategy/strategies/trendline-breakout';
 import { PassthroughRiskFilter } from './strategy/risk/risk-filter';
 import { CompositeRiskFilter } from './strategy/risk/composite-filter';
 import { MinConfidenceRule } from './strategy/risk/rules/min-confidence';
@@ -638,7 +639,8 @@ async function runApp(ctx: Context) {
   if (enabledIds.has('smc.rule.v1'))    strategyController.register(new SmcRule());
   if (enabledIds.has('ma.cross.v1'))    strategyController.register(new MaCross());
   if (enabledIds.has('llm.pulse.v1'))   strategyController.register(new LlmPulse(ctx.analyzer));
-  if (enabledIds.has('bearish.smc.v1')) strategyController.register(new BearishSmc());
+  if (enabledIds.has('bearish.smc.v1'))           strategyController.register(new BearishSmc());
+  if (enabledIds.has('trendline.breakout.v1'))    strategyController.register(new TrendlineBreakout());
   strategyController.start();
 
   const runtimeWorkers = new RuntimeWorkerSet({

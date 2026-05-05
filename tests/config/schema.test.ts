@@ -46,7 +46,7 @@ describe('F4 strategy config defaults', () => {
     expect(cfg.STRATEGY_INTERVAL_DEFAULT_MS).toBe(15000);
     expect(cfg.STRATEGY_BACKPRESSURE_DROP_RATIO_ALARM).toBe(0.5);
     expect(cfg.BACKTEST_PESSIMISTIC).toBe(true);
-    expect(cfg.STRATEGY_ENABLED_IDS).toEqual(['smc.rule.v1','ma.cross.v1','llm.pulse.v1']);
+    expect(cfg.STRATEGY_ENABLED_IDS).toEqual(['smc.rule.v1','ma.cross.v1','llm.pulse.v1','trendline.breakout.v1']);
   });
 });
 
