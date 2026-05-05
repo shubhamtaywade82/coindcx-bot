@@ -63,6 +63,21 @@ describe('normalizers', () => {
     expect(b.locked).toBe('50');
   });
 
+  it('normalizeBalance maps futures wallets: sums margin fields and derives available from balance', () => {
+    const raw = {
+      id: 'c5f039dd-4e11-4304-8f91-e9c1f62d754d',
+      currency_short_name: 'USDT',
+      balance: '6.1693226',
+      locked_balance: '0.0',
+      cross_order_margin: '0.0',
+      cross_user_margin: '0.68534648',
+    };
+    const b = normalizeBalance(raw, 'rest', 'now');
+    expect(b.currency).toBe('USDT');
+    expect(b.locked).toBe('0.68534648');
+    expect(parseFloat(b.available)).toBeCloseTo(5.48397612, 8);
+  });
+
   it('normalizeOrder maps total_quantity + remaining_quantity', () => {
     const raw = { id: 'o1', pair: 'X', side: 'buy', order_type: 'limit', status: 'open',
       price: 1, total_quantity: 1, remaining_quantity: 1, created_at: 't', updated_at: 't' };

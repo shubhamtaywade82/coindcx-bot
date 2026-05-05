@@ -111,3 +111,60 @@ Emits:
 - `order-update` (or `df-order-update` depending on incoming event)
 - `futures-order-update`
 
+### Example: `balance-update` (channel `coindcx`)
+
+Per CoinDCX, the handler receives `response` where **`response.data`** is an **array** of wallet
+rows (the same shape may also appear as a bare array on the wire in some clients):
+
+```json
+{
+  "data": [
+    {
+      "id": "026ef0f2-b5d8-11ee-b182-570ad79469a2",
+      "balance": "1.0221449",
+      "locked_balance": "0.99478995",
+      "currency_id": "c19c38d1-3ebb-47ab-9207-62d043be7447",
+      "currency_short_name": "USDT"
+    }
+  ]
+}
+```
+
+`CoinDCXWs` uses `const data = response.data ?? response` before emitting, so downstream code
+typically receives the **array** (or single object) directly.
+
+Emits:
+
+- `balance-update` (normalized payload: that array or object)
+- `futures-balance-update` (same payload, stable alias)
+
+The app maps each row to `state.balanceMap` and `account.ingest('balance', row)` using
+`normalizeBalance` in `src/account/normalizers.ts` (WS rows are usually plain `balance` /
+`locked_balance`).
+
+### REST: `POST /exchange/v1/derivatives/futures/wallets` (wallet details)
+
+Signed body includes `{ "timestamp": <epoch_seconds> }` (same as other private REST calls; this
+client uses **POST** because axios does not send JSON bodies on GET).
+
+Example row (INR & USDT futures wallets use this shape when both `cross_*` fields are present):
+
+```json
+{
+  "id": "c5f039dd-4e11-4304-8f91-e9c1f62d754d",
+  "currency_short_name": "USDT",
+  "balance": "6.1693226",
+  "locked_balance": "0.0",
+  "cross_order_margin": "0.0",
+  "cross_user_margin": "0.68534648"
+}
+```
+
+Per CoinDCX field definitions, **`balance` is not used alone as the wallet display total**;
+`locked_balance`, `cross_order_margin`, and `cross_user_margin` describe margin usage. The bot
+stores **locked** as the sum of those three, and **available** (free wallet cash) as
+`max(0, balance − that sum)` so WAL/EQ align with margin locked in cross and isolated modes.
+
+Fallback `POST /exchange/v1/users/balances` rows omit `cross_*` keys and keep the legacy
+`available = balance`, `locked = locked_balance` mapping.
+

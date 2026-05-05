@@ -308,14 +308,13 @@ describe('CoinDCXApi new endpoints', () => {
     });
   });
 
-  it('getBalances GETs futures wallet details with signed JSON body', async () => {
-    const spy = vi.spyOn(__httpForTests, 'request').mockResolvedValue({ data: [{ currency: 'USDT' }] });
+  it('getBalances posts futures wallet details with signed body', async () => {
+    const spy = vi.spyOn(__httpForTests, 'post').mockResolvedValue({ data: [{ currency: 'USDT' }] });
     const data = await CoinDCXApi.getBalances();
     expect(spy).toHaveBeenCalledWith(
+      '/exchange/v1/derivatives/futures/wallets',
+      expect.objectContaining({ timestamp: expect.any(Number) }),
       expect.objectContaining({
-        method: 'GET',
-        url: '/exchange/v1/derivatives/futures/wallets',
-        data: expect.objectContaining({ timestamp: expect.any(Number) }),
         headers: expect.objectContaining({
           'X-AUTH-APIKEY': expect.any(String),
           'X-AUTH-SIGNATURE': expect.any(String),
@@ -323,6 +322,24 @@ describe('CoinDCXApi new endpoints', () => {
       }),
     );
     expect(data).toEqual([{ currency: 'USDT' }]);
+  });
+
+  it('getBalances falls back to users/balances when futures wallet returns 404 not_found', async () => {
+    const spy = vi.spyOn(__httpForTests, 'post').mockImplementation(async (url: string) => {
+      if (String(url).includes('/derivatives/futures/wallets') && !String(url).includes('transfer')) {
+        return Promise.reject({
+          response: { status: 404, data: { message: 'not_found' } },
+          message: 'Request failed with status code 404',
+        });
+      }
+      return { data: [{ currency: 'INR', balance: 100, locked_balance: 0 }] };
+    });
+    const data = await CoinDCXApi.getBalances();
+    expect(data).toEqual([{ currency: 'INR', balance: 100, locked_balance: 0 }]);
+    expect(spy.mock.calls.map((c) => String(c[0]))).toEqual([
+      '/exchange/v1/derivatives/futures/wallets',
+      '/exchange/v1/users/balances',
+    ]);
   });
 
   it('getFuturesCrossMarginDetails posts to positions cross_margin_details path', async () => {

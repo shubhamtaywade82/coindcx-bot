@@ -54,7 +54,8 @@ export const ConfigSchema = z.object({
   CHECKSUM_INTERVAL_MS: z.coerce.number().int().positive().default(30000),
   REST_CHECKSUM_INTERVAL_MS: z.coerce.number().int().positive().default(600000),
   TIME_SYNC_INTERVAL_MS: z.coerce.number().int().positive().default(900000),
-  SKEW_THRESHOLD_MS: z.coerce.number().int().positive().default(500),
+  /** Max |local − exchange| or |local − NTP| before critical skew (ms). Default suits WSL / variable RTT. */
+  SKEW_THRESHOLD_MS: z.coerce.number().int().positive().default(2500),
   TAIL_BUFFER_SIZE: z.coerce.number().int().positive().default(1000),
   LATENCY_RESERVOIR: z.coerce.number().int().positive().default(4096),
   STALE_RESERVOIR: z.coerce.number().int().positive().default(1024),

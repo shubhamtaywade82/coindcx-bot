@@ -17,6 +17,18 @@ describe('BookManager', () => {
     expect(m.get('B-ETH_USDT')!.bestAsk()?.qty).toBe('1');
   });
 
+  it('ignores depth-update before first snapshot without emitting gap', () => {
+    const m = new BookManager();
+    const gaps: unknown[] = [];
+    m.on('gap', (e) => gaps.push(e));
+    m.onDepthDelta('B-SOL_USDT', { asks: [['1','1']], bids: [], ts: 1 });
+    expect(gaps).toHaveLength(0);
+    expect(m.get('B-SOL_USDT')).toBeUndefined();
+    m.onDepthSnapshot('B-SOL_USDT', { asks: [['1','1']], bids: [], ts: 2 });
+    m.onDepthDelta('B-SOL_USDT', { asks: [['1','2']], bids: [], ts: 3 });
+    expect(m.get('B-SOL_USDT')!.bestAsk()?.qty).toBe('2');
+  });
+
   it('emits gap event with pair', () => {
     const m = new BookManager();
     m.onDepthSnapshot('B-SOL_USDT', { asks: [['1','1']], bids: [], ts: 1 });

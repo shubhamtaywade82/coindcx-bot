@@ -1,7 +1,7 @@
 import * as blessed from 'blessed';
 import * as contrib from 'blessed-contrib';
 import { config } from '../config/config';
-import { cleanPair, formatPrice, toCoinDcxFuturesInstrument } from '../utils/format';
+import { cleanPair, formatPrice, formatQty, toCoinDcxFuturesInstrument } from '../utils/format';
 
 interface AiPanelState {
   verdict: string;
@@ -34,14 +34,34 @@ interface MtfPanelState {
 
 type SystemLogLevel = 'debug' | 'info' | 'warn' | 'error';
 
+/** Portfolio strip shown inside the Balances panel (same figures as former top summary). */
+export type BalancePanelTotals = {
+  equity: string;
+  wallet: string;
+  /** Unrealized PnL — plain `₹… (… USDT)` (no tags); color uses `urInr`. */
+  ur: string;
+  urInr: number;
+  /** INR totals for strip coloring (EQ/WAL must not stay green when negative). */
+  eqInr: number;
+  walInr: number;
+  /** Second line: `EQ − WAL` in INR (≈ unrealized in INR when books tie). */
+  netInr: number;
+  realizedUsdt: number;
+  unrealUsdt: number;
+  /** Drawdown from session peak equity (≤ 0). */
+  ddFromPeakPct: number;
+  riskTier: 'SAFE' | 'WARN' | 'HIGH';
+};
+
 export class TuiApp {
   private screen: any;
-  /** Host for blessed-contrib grid; sits below fixed 1-line status + summary strips. */
+  /** Host for blessed-contrib grid; sits below ENGINE + two-line portfolio summary. */
   private gridHost: any;
   private grid: any;
   private logPanel: any;
   private statusBar: any;
-  private summaryBox: any;
+  /** Full-width portfolio summary (EQ/WAL/UR + NET/REAL/UNREAL/DD/RISK), mirrored inside Balances. */
+  private summaryBar: any;
   private headerBox: any;
   private tradeTable: any;
   private positionsTable: any;
@@ -88,14 +108,13 @@ export class TuiApp {
 
     this.pairs = config.pairs;
 
-    // Status + summary are NOT grid rows: each grid row is (100/12)% of its parent, so a
-    // single text line leaves empty padding inside the cell. Fixed height:1 strips avoid that.
+    // Status (row 0) + account summary (row 1) sit above the grid; both are height:1 full-width boxes.
     this.gridHost = blessed.box({
       parent: this.screen,
-      top: 2,
+      top: 3,
       left: 0,
       width: '100%',
-      height: '100%-2',
+      height: '100%-3',
     });
     this.grid = new contrib.grid({ rows: 12, cols: 12, screen: this.gridHost });
 
@@ -122,18 +141,20 @@ export class TuiApp {
       style: { bg: 'black' },
     });
 
-    this.summaryBox = blessed.box({
+    this.summaryBar = blessed.box({
       parent: this.screen,
       top: 1,
       left: 0,
       width: '100%',
-      height: 1,
+      height: 2,
       tags: true,
-      content: ' {yellow-fg}Loading account stats...{/yellow-fg}',
+      content:
+        ' {gray-fg}EQ: — │ WAL: — │ UR: —{/gray-fg}\n' +
+        ' {gray-fg}NET: — │ REAL USDT: — │ UNREAL USDT: — │ DD: — │ RISK: —{/gray-fg}',
       style: { bg: 'black' },
     });
 
-    // ── Grid row 0: Asset Header (grid is mounted below the two 1-line strips) ──
+    // ── Grid row 0: Asset Header (grid is mounted below status + account summary) ──
     this.headerBox = this.grid.set(0, 0, 1, 12, blessed.box, {
       label: ' ◈ Asset Focus ',
       border: { type: 'line', fg: 'cyan' },
@@ -405,16 +426,6 @@ export class TuiApp {
 
   updateBookState(s: string): void {
     this.bookStateText = s;
-    this.render();
-  }
-
-  updateSummary(data: { equity: string; wallet: string; net: string; unrealUsdt: string }) {
-    const unrealNum =
-      parseFloat(String(data.unrealUsdt).replace(/[^0-9.+-Ee]/g, '')) || 0;
-    const unrealColor = unrealNum > 0 ? 'green' : unrealNum < 0 ? 'red' : 'cyan';
-    this.summaryBox.setContent(
-      ` EQ: {green-fg}${data.equity}{/green-fg}  │  WAL: {green-fg}${data.wallet}{/green-fg}  │  NET: ${data.net}  │  UNREAL USDT: {${unrealColor}-fg}${data.unrealUsdt}{/${unrealColor}-fg}`,
-    );
     this.render();
   }
 
@@ -745,8 +756,62 @@ export class TuiApp {
     this.render();
   }
 
-  updateBalances(rows: string[][]) {
+  /** NET │ REAL USDT │ UNREAL USDT │ DD │ RISK (second summary line). */
+  private formatBalanceDetailLine(d: BalancePanelTotals): string {
+    const netC = d.netInr > 0 ? 'green' : d.netInr < 0 ? 'red' : 'gray';
+    const realC = d.realizedUsdt > 0 ? 'green' : d.realizedUsdt < 0 ? 'red' : 'gray';
+    const unrealC = d.unrealUsdt > 0 ? 'green' : d.unrealUsdt < 0 ? 'red' : 'gray';
+    const ddC = d.ddFromPeakPct <= -12 ? 'red' : d.ddFromPeakPct <= -5 ? 'yellow' : 'green';
+    const riskC = d.riskTier === 'HIGH' ? 'red' : d.riskTier === 'WARN' ? 'yellow' : 'green';
+    const ddStr = `${d.ddFromPeakPct.toFixed(2)}%`;
+    return (
+      ` {bold}NET:{/bold} {${netC}-fg}₹${formatQty(d.netInr)}{/${netC}-fg}  {gray-fg}│{/gray-fg}  ` +
+      `{bold}REAL USDT:{/bold} {${realC}-fg}${d.realizedUsdt.toFixed(2)}{/${realC}-fg}  {gray-fg}│{/gray-fg}  ` +
+      `{bold}UNREAL USDT:{/bold} {${unrealC}-fg}${d.unrealUsdt.toFixed(2)}{/${unrealC}-fg}  {gray-fg}│{/gray-fg}  ` +
+      `{bold}DD:{/bold} {${ddC}-fg}${ddStr}{/${ddC}-fg}  {gray-fg}│{/gray-fg}  ` +
+      `{bold}RISK:{/bold} {${riskC}-fg}${d.riskTier}{/${riskC}-fg}`
+    );
+  }
+
+  /** Single-line EQ │ WAL │ UR (for top summary bar and as first line inside Balances). */
+  private formatBalancePortfolioLine(data: BalancePanelTotals): string {
+    const urColor = data.urInr > 0 ? 'green' : data.urInr < 0 ? 'red' : 'cyan';
+    const eqColor = data.eqInr > 0 ? 'green' : data.eqInr < 0 ? 'red' : 'cyan';
+    const walHasBlessedTags = data.wallet.includes('{');
+    const walColor =
+      data.walInr > 0 ? 'green' : data.walInr < 0 ? 'red' : 'gray';
+    const walletSegment = walHasBlessedTags
+      ? data.wallet
+      : `{${walColor}-fg}${data.wallet}{/${walColor}-fg}`;
+    return (
+      ` {bold}EQ:{/bold} {${eqColor}-fg}${data.equity}{/${eqColor}-fg}  {gray-fg}│{/gray-fg}  ` +
+      `{bold}WAL:{/bold} ${walletSegment}  {gray-fg}│{/gray-fg}  ` +
+      `{bold}UR:{/bold} {${urColor}-fg}${data.ur}{/${urColor}-fg}`
+    );
+  }
+
+  /** Portfolio header inside the Balances panel: one-line figures + separator under the label. */
+  private formatBalancePortfolioStrip(data: BalancePanelTotals): string {
+    return (
+      `${this.formatBalancePortfolioLine(data)}\n` +
+      `${this.formatBalanceDetailLine(data)}\n` +
+      ` {gray-fg}${'─'.repeat(76)}{/gray-fg}\n`
+    );
+  }
+
+  updateBalances(rows: string[][], totals?: BalancePanelTotals) {
     const c = { asset: 10, num: 12, pct: 8, util: 9 };
+    if (totals) {
+      this.summaryBar.setContent(
+        `${this.formatBalancePortfolioLine(totals)}\n${this.formatBalanceDetailLine(totals)}`,
+      );
+    } else {
+      this.summaryBar.setContent(
+        ' {gray-fg}EQ: — │ WAL: — │ UR: —{/gray-fg}\n' +
+          ' {gray-fg}NET: — │ REAL USDT: — │ UNREAL USDT: — │ DD: — │ RISK: —{/gray-fg}',
+      );
+    }
+    const portfolio = totals ? this.formatBalancePortfolioStrip(totals) : '';
     const header =
       ` {green-fg}${this.padLeft('ASSET', c.asset)} ${this.padRight('VALUE', c.num)} ${this.padRight('WALLET', c.num)} ` +
       `${this.padRight('PNL', c.num)} ${this.padRight('%', c.pct)} ${this.padRight('AVAIL', c.num)} ${this.padRight('LOCK', c.num)} ${this.padRight('UTIL%', c.util)}{/green-fg}\n`;
@@ -788,7 +853,7 @@ export class TuiApp {
       );
     }).join('\n');
 
-    this.balanceTable.setContent(header + content);
+    this.balanceTable.setContent(portfolio + header + content);
     this.render();
   }
 
@@ -962,7 +1027,7 @@ export class TuiApp {
       `   1-9              direct select pair by index\n\n` +
       ` {bold}Panel focus (Shift + key){/bold}\n` +
       `   Shift+P          positions table\n` +
-      `   Shift+B          balances\n` +
+      `   Shift+B          balances (EQ/WAL/UR + NET/REAL/UNREAL/DD/RISK under ENGINE)\n` +
       `   Shift+S          signals\n` +
       `   Shift+R          risk\n` +
       `   Shift+L          system log\n\n` +

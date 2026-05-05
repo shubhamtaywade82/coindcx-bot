@@ -34,9 +34,10 @@ export class BookManager extends EventEmitter {
   }
 
   onDepthDelta(pair: string, frame: DepthFrame): void {
-    const b = this.getOrCreate(pair);
-    if (b.state() === 'init') {
-      this.emit('gap', { pair, reason: 'delta_before_snapshot' });
+    const b = this.books.get(pair);
+    if (!b || b.state() === 'init' || b.state() === 'resyncing') {
+      // WS may deliver depth-update before the first depth-snapshot, or while we wait
+      // for a fresh snapshot after resubscribe — never treat that as a book gap.
       return;
     }
     b.applyDelta(frame.asks, frame.bids, frame.ts, frame.seq, frame.prevSeq);

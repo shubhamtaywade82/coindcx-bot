@@ -64,9 +64,57 @@ export function normalizePosition(raw: any, source: Source, now: string): Positi
   };
 }
 
+function parseWalletAmount(v: unknown): number {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  const t = String(v ?? '')
+    .trim()
+    .replace(/,/g, '');
+  if (!t || t === 'null' || t === 'undefined') return 0;
+  const n = parseFloat(t);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Stable decimal string for wallet amounts (avoids 1e-7 float noise). */
+function trimWalletDecimal(n: number): string {
+  if (!Number.isFinite(n)) return '0';
+  if (n === 0) return '0';
+  const s = n.toFixed(12);
+  return s.replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.$/, '');
+}
+
+/**
+ * CoinDCX `GET/POST …/derivatives/futures/wallets` rows include margin breakdown fields.
+ * Docs: do not treat `balance` alone as wallet total — use `locked_balance`, `cross_order_margin`,
+ * and `cross_user_margin` for margin locked; free wallet cash is derived as `balance − sum(margins)`.
+ * WS `balance-update` payloads omit `cross_order_margin` / `cross_user_margin`; those rows keep
+ * the simple `available = balance`, `locked = locked_balance` mapping.
+ */
 export function normalizeBalance(raw: any, source: Source, now: string): Balance {
+  const currency = str(raw.currency_short_name ?? raw.currency).toUpperCase();
+  // Require both keys so `/users/balances` rows (no cross margin fields) stay on the legacy path.
+  const hasFuturesMarginBreakdown =
+    raw && typeof raw === 'object' &&
+    'cross_user_margin' in raw &&
+    'cross_order_margin' in raw;
+
+  if (hasFuturesMarginBreakdown) {
+    const lockedIso = parseWalletAmount(raw.locked_balance);
+    const crossOrder = parseWalletAmount(raw.cross_order_margin);
+    const crossUser = parseWalletAmount(raw.cross_user_margin);
+    const lockedTotal = lockedIso + crossOrder + crossUser;
+    const gross = parseWalletAmount(raw.balance);
+    const availableNum = Math.max(0, gross - lockedTotal);
+    return {
+      currency,
+      available: trimWalletDecimal(availableNum),
+      locked: trimWalletDecimal(lockedTotal),
+      updatedAt: parseTimestamptzIso(raw.updated_at) ?? now,
+      source,
+    };
+  }
+
   return {
-    currency: str(raw.currency_short_name ?? raw.currency).toUpperCase(),
+    currency,
     available: str(raw.balance ?? 0),
     locked: str(raw.locked_balance ?? raw.locked ?? 0),
     updatedAt: parseTimestamptzIso(raw.updated_at) ?? now,
