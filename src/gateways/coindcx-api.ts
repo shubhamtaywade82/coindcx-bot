@@ -152,9 +152,9 @@ export class CoinDCXApi {
       (timestamp) => ({ timestamp }),
       async ({ body, headers }) => {
         const path = this.futuresPath('wallet_details', '/exchange/v1/derivatives/futures/wallets');
-        // Signed read must use POST here: axios drops `data` on GET, so a doc-style GET+JSON body never reaches CoinDCX.
+        // Signed read must use GET here with config.data for body (CoinDCX now returns 404 for POST).
         try {
-          const response = await http.post(path, body, { headers });
+          const response = await http.get(path, { headers, data: body });
           return response.data;
         } catch (err: unknown) {
           if (!this.isFuturesWalletNotFound(err)) {
@@ -542,7 +542,7 @@ export class CoinDCXApi {
           'get_cross_margin_details',
           '/exchange/v1/derivatives/futures/positions/cross_margin_details',
         );
-        const response = await http.post(path, body, { headers });
+        const response = await http.get(path, { headers, data: body });
         return response.data;
       },
     );

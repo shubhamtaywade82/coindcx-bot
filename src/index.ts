@@ -1005,9 +1005,20 @@ async function runApp(ctx: Context) {
     if (!state.hasValidAuth) return;
     try {
       const raw = await CoinDCXApi.getFuturesCrossMarginDetails();
-      state.futuresMarginAccount = parseCrossMarginDetails(raw);
-    } catch {
+      const parsed = parseCrossMarginDetails(raw);
+      state.futuresMarginAccount = parsed;
+      if (!parsed) {
+        ctx.logger.warn(
+          { mod: 'tui', rawKeys: raw && typeof raw === 'object' ? Object.keys(raw as object) : typeof raw },
+          'cross_margin_details parse returned null — futures wallet will show 0',
+        );
+      }
+    } catch (err: any) {
       state.futuresMarginAccount = null;
+      ctx.logger.warn(
+        { mod: 'tui', err: err?.message, status: err?.response?.status },
+        'cross_margin_details fetch failed — futures wallet will show 0',
+      );
     }
   }
 
