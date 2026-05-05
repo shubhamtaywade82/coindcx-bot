@@ -34,20 +34,39 @@ export class TimeSync {
     const localVsNtp      = ntpMs !== null ? local - ntpMs : null;
     const exchangeVsNtp   = exMs !== null && ntpMs !== null ? exMs - ntpMs : null;
 
-    if (exMs === null || ntpMs === null) {
+    if (exMs === null) {
       this.opts.onSkew({
         severity: 'warn',
         localVsExchange, localVsNtp, exchangeVsNtp,
-        reason: exMs === null ? 'exchange_unavailable' : 'ntp_unavailable',
+        reason: 'exchange_unavailable',
       });
       return;
     }
-    const worst = Math.max(
+
+    if (ntpMs === null) {
+      const localSkewVsExchange = Math.abs(localVsExchange ?? 0);
+      if (localSkewVsExchange > this.opts.thresholdMs) {
+        this.opts.onSkew({
+          severity: 'critical',
+          localVsExchange, localVsNtp, exchangeVsNtp,
+          reason: 'skew_exceeded',
+        });
+        return;
+      }
+      this.opts.onSkew({
+        severity: 'warn',
+        localVsExchange, localVsNtp, exchangeVsNtp,
+        reason: 'ntp_unavailable',
+      });
+      return;
+    }
+
+    // Only local clock vs exchange / NTP matters for signing; exchange↔NTP offset is not host skew.
+    const worstLocal = Math.max(
       Math.abs(localVsExchange ?? 0),
       Math.abs(localVsNtp ?? 0),
-      Math.abs(exchangeVsNtp ?? 0),
     );
-    if (worst > this.opts.thresholdMs) {
+    if (worstLocal > this.opts.thresholdMs) {
       this.opts.onSkew({
         severity: 'critical',
         localVsExchange, localVsNtp, exchangeVsNtp,

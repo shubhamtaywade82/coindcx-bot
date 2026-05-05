@@ -3,6 +3,7 @@ import type { Pool } from 'pg';
 import type { AppLogger } from '../logging/logger';
 import type { SignalBus } from '../signals/bus';
 import { CoinDCXApi } from '../gateways/coindcx-api';
+import { ensureMarketCatalogColumns } from '../db/ensure-market-catalog-columns';
 
 type MarketDetailsRecord = Record<string, unknown>;
 
@@ -125,6 +126,7 @@ export class MarketCatalog {
   private stopped = false;
   private staleAlertActive = false;
   private inFlightRefresh?: Promise<void>;
+  private catalogSchemaReady = false;
 
   constructor(private readonly opts: MarketCatalogOptions) {
     this.refreshMs = opts.refreshMs ?? 15 * 60_000;
@@ -191,6 +193,10 @@ export class MarketCatalog {
   }
 
   private async pullAndPersist(): Promise<CatalogRow[]> {
+    if (!this.catalogSchemaReady) {
+      await ensureMarketCatalogColumns(this.opts.pool);
+      this.catalogSchemaReady = true;
+    }
     const fetched = await this.fetchMarketDetails();
     const list: MarketDetailsRecord[] = Array.isArray(fetched) ? fetched : [];
     const refreshedAt = new Date().toISOString();

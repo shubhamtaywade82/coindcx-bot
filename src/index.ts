@@ -26,6 +26,23 @@ import { PerPairCooldownRule } from './strategy/risk/rules/cooldown';
 import { OpposingPairCorrelationRule } from './strategy/risk/rules/correlation';
 import { DrawdownGateRule } from './strategy/risk/rules/drawdown-gate';
 import type { RiskFilter } from './strategy/types';
+import type { Balance } from './account/types';
+import { normalizeBalance } from './account/normalizers';
+import {
+  mergeCoinDcxBalanceWsPayload,
+  parseCrossMarginDetails,
+  type FuturesMarginAccountSnapshot,
+} from './account/futures-margin-account';
+import {
+  classifyPortfolioRisk,
+  inrBalanceRowUnrealizedPnl,
+  marginPnlBuckets,
+  mergeBalanceRowsForDisplay,
+  portfolioUnrealizedInrUsdt,
+  pnlPctVsWallet,
+  sumRealizedPnlUsdt,
+  utilPctVsWallet,
+} from './tui/balance-display';
 import type { Candle, BookSnapshot } from './ai/state-builder';
 import { MultiTimeframeStore as CandleMtfStore, DEFAULT_TF_CONFIGS } from './marketdata/candles/multi-timeframe-store';
 import type { OrderBook } from './marketdata/book/orderbook';
@@ -74,6 +91,10 @@ export const state = {
   positions: new Map<string, any>(),
   orders: new Map<string, any>(),
   balanceMap: new Map<string, { balance: string; locked: string }>(),
+  /** REST `cross_margin_details` — authoritative USDT wallet/equity when per-wallet rows lag. */
+  futuresMarginAccount: null as FuturesMarginAccountSnapshot | null,
+  /** Running max portfolio equity (INR) for summary drawdown %. */
+  portfolioEquityPeakInr: 0,
   hasValidAuth: true,
   usdtInrRate: 88.5, // Fallback rate
   selectedSymbol: 'SOLUSDT' // Initial focus
@@ -965,100 +986,123 @@ async function runApp(ctx: Context) {
     tui.updateOrders(rows.length > 0 ? rows : [['—', '—', '—', '—']]);
   }
 
+  function balancesForTuiDisplay(): Balance[] {
+    return mergeBalanceRowsForDisplay(state.balanceMap, account.snapshot().balances, new Date().toISOString());
+  }
+
+  function balanceRowVisibleForTui(b: Balance): boolean {
+    const c = b.currency.toUpperCase();
+    const primary = c === 'INR' || c === 'USDT' || c === 'USD' || c === 'USDTINR';
+    const hasFunds = parseFloat(b.available) > 0 || parseFloat(b.locked) > 0;
+    return primary || hasFunds;
+  }
+
+  async function hydrateFuturesMarginAccount(): Promise<void> {
+    if (!state.hasValidAuth) return;
+    try {
+      const raw = await CoinDCXApi.getFuturesCrossMarginDetails();
+      state.futuresMarginAccount = parseCrossMarginDetails(raw);
+    } catch {
+      state.futuresMarginAccount = null;
+    }
+  }
+
   function refreshBalanceDisplay() {
     let totalEqInr = 0;
     let totalWalInr = 0;
-    let totalPnlInr = 0;
-    let totalPnlUsdt = 0;
 
-    // 1. Sum up PnL from all positions dynamically (controller snapshot)
-    account.snapshot().positions.forEach(p => {
-       const clean = cleanPair(p.pair || '');
-       const ticker = state.tickers.get(clean);
-       const currentPrice = ticker ? parseFloat(ticker.price) : parseFloat(p.markPrice ?? p.avgPrice);
-       const entryPrice = parseFloat(p.avgPrice);
-       const qty = Math.abs(parseFloat(p.activePos));
-
-       const isLong = parseFloat(p.activePos) > 0;
-       const pnl = isLong ? (currentPrice - entryPrice) * qty : (entryPrice - currentPrice) * qty;
-
-       const pair = (p.pair || '').toUpperCase();
-       if (pair.endsWith('INR')) {
-         totalPnlInr += pnl;
-         totalPnlUsdt += pnl / (state.usdtInrRate || 88);
-       } else {
-         totalPnlUsdt += pnl;
-         totalPnlInr += pnl * (state.usdtInrRate || 88);
-       }
-    });
+    const positions = account.snapshot().positions;
+    const marginBuckets = marginPnlBuckets(positions, state.tickers);
+    const { totalPnlInr, totalPnlUsdt } = portfolioUnrealizedInrUsdt(marginBuckets, state.usdtInrRate || 88);
+    const cm = state.futuresMarginAccount;
 
     const rows: string[][] = [];
 
-    // 2. Build rows from controller snapshot balances
-    account.snapshot().balances
-      .filter(b => parseFloat(b.available) > 0 || parseFloat(b.locked) > 0)
-      .forEach(b => {
-        const currency = b.currency;
-        const available = parseFloat(b.available || '0');
-        const locked = parseFloat(b.locked || '0');
-        const walletBalance = available + locked;
+    // Cash rows: merge REST/WS balanceMap with reconciler snapshot (prefer richer wallet per currency).
+    for (const b of balancesForTuiDisplay().filter(balanceRowVisibleForTui)) {
+      const currency = b.currency;
+      const available = parseFloat(b.available || '0');
+      const locked = parseFloat(b.locked || '0');
+      const mergedWallet = available + locked;
 
-        const isInrRow = currency === 'INR' || currency === 'USDTINR';
-        const isUsdtRow = currency === 'USDT' || currency === 'USD';
+      const isInrRow = currency === 'INR' || currency === 'USDTINR';
+      const isUsdtRow = currency === 'USDT' || currency === 'USD';
 
-        let rowPnl = 0;
-        if (isInrRow) rowPnl = totalPnlInr;
-        else if (isUsdtRow) rowPnl = totalPnlUsdt;
+      let walletBalance = mergedWallet;
+      let displayAvailable = available;
+      let displayLocked = locked;
+      if (isUsdtRow && cm && cm.totalWalletBalance > mergedWallet + 1e-8) {
+        walletBalance = cm.totalWalletBalance;
+        displayAvailable = cm.withdrawableBalance;
+        displayLocked =
+          cm.totalInitialMargin > 1e-8
+            ? cm.totalInitialMargin
+            : Math.max(0, cm.totalWalletBalance - cm.withdrawableBalance);
+      }
 
-        const pnlInRowCurrency = isInrRow ? totalPnlInr : (isUsdtRow ? totalPnlUsdt : 0);
-        const currentValue = walletBalance + pnlInRowCurrency;
-        const pnlPct = walletBalance > 0 ? (rowPnl / walletBalance) * 100 : 0;
-        const utilPct = walletBalance > 0 ? (locked / walletBalance) * 100 : 0;
+      const rowPnl = isInrRow
+        ? inrBalanceRowUnrealizedPnl(marginBuckets, totalPnlInr)
+        : isUsdtRow
+          ? marginBuckets.pnlUsdtMargin
+          : 0;
+      const currentValue = walletBalance + rowPnl;
+      const pnlPctN = pnlPctVsWallet(rowPnl, walletBalance);
+      const utilPctN = utilPctVsWallet(displayLocked, walletBalance);
 
-        // Global Totals (INR)
-        const inrValue = isInrRow ? currentValue : currentValue * state.usdtInrRate;
-        const inrWallet = isInrRow ? walletBalance : walletBalance * state.usdtInrRate;
-        totalEqInr += inrValue;
-        totalWalInr += inrWallet;
+      const inrWallet = isInrRow ? walletBalance : walletBalance * state.usdtInrRate;
+      totalWalInr += inrWallet;
 
-        const prefix = isInrRow ? '₹' : (isUsdtRow ? '$' : '');
-        rows.push([
-          isInrRow ? '₹ INR' : currency,
-          `${prefix}${formatQty(currentValue)}`,
-          `${prefix}${formatQty(walletBalance)}`,
-          formatPnl(rowPnl, prefix),
-          `{${pnlPct >= 0 ? 'green' : 'red'}-fg}${pnlPct.toFixed(2)}%{/${pnlPct >= 0 ? 'green' : 'red'}-fg}`,
-          `${prefix}${formatQty(available)}`,
-          `${prefix}${formatQty(locked)}`,
-          `{yellow-fg}${utilPct.toFixed(1)}%{/yellow-fg}`
-        ]);
+      const prefix = isInrRow ? '₹' : (isUsdtRow ? '$' : '');
+      const pctCell =
+        pnlPctN === null
+          ? (Math.abs(rowPnl) < 1e-12 ? `{gray-fg}0.00%{/gray-fg}` : '{gray-fg}—{/gray-fg}')
+          : `{${pnlPctN >= 0 ? 'green' : 'red'}-fg}${pnlPctN.toFixed(2)}%{/${pnlPctN >= 0 ? 'green' : 'red'}-fg}`;
+      const utilCell =
+        utilPctN === null
+          ? (Math.abs(displayLocked) < 1e-12 ? `{yellow-fg}0.0%{/yellow-fg}` : '{gray-fg}—{/gray-fg}')
+          : `{yellow-fg}${utilPctN.toFixed(1)}%{/yellow-fg}`;
 
-        // Virtual USD row below INR
-        if (isInrRow && state.usdtInrRate > 0) {
-          const usdEq = totalEqInr / state.usdtInrRate;
-          const usdWal = totalWalInr / state.usdtInrRate;
-          rows.push([
-            '{cyan-fg}$ USD{/cyan-fg}',
-            `{cyan-fg}$${formatQty(usdEq, 2)}{/cyan-fg}`,
-            `{cyan-fg}$${formatQty(usdWal, 2)}{/cyan-fg}`,
-            formatPnl(totalPnlUsdt, '$'),
-            `{${totalPnlUsdt >= 0 ? 'green' : 'red'}-fg}${pnlPct.toFixed(2)}%{/${totalPnlUsdt >= 0 ? 'green' : 'red'}-fg}`,
-            `{cyan-fg}$${formatQty(available / state.usdtInrRate, 2)}{/cyan-fg}`,
-            `{cyan-fg}$${formatQty(locked / state.usdtInrRate, 2)}{/cyan-fg}`,
-            `{yellow-fg}${utilPct.toFixed(1)}%{/yellow-fg}`
-          ]);
-        }
-      });
+      rows.push([
+        isInrRow ? '₹ INR' : currency,
+        `${prefix}${formatQty(currentValue)}`,
+        `${prefix}${formatQty(walletBalance)}`,
+        formatPnl(rowPnl, prefix),
+        pctCell,
+        `${prefix}${formatQty(displayAvailable)}`,
+        `${prefix}${formatQty(displayLocked)}`,
+        utilCell,
+      ]);
+    }
 
-    tui.updateBalances(rows.length > 0 ? rows : [['No balances', '—', '—', '—', '—', '—']]);
+    totalEqInr = totalWalInr + totalPnlInr;
 
-    // 3. Update Summary
-    tui.updateSummary({
-      equity: `₹${formatQty(totalEqInr)} (${formatQty(totalEqInr / state.usdtInrRate, 2)} USDT)`,
-      wallet: `₹${formatQty(totalWalInr)} (${formatQty(totalWalInr / state.usdtInrRate, 2)} USDT)`,
-      net: formatPnl(totalPnlInr, '₹'),
-      unrealUsdt: `${formatQty(totalPnlUsdt, 2)} USDT`
-    });
+    state.portfolioEquityPeakInr = Math.max(state.portfolioEquityPeakInr, totalEqInr);
+    const peakInr = Math.max(state.portfolioEquityPeakInr, 1e-9);
+    const ddFromPeakPct = ((totalEqInr - peakInr) / peakInr) * 100;
+    const netInr = totalEqInr - totalWalInr;
+    const realizedUsdt = sumRealizedPnlUsdt(positions);
+    const cmSnap = state.futuresMarginAccount;
+    const riskTier = classifyPortfolioRisk(ddFromPeakPct, cmSnap?.marginRatioCross ?? null);
+
+    const rate = state.usdtInrRate || 88;
+    // Strip EQ is always wallet (INR-terms) + unrealized PnL — same as totalEqInr after the cash loop.
+    const equityStr = `₹${formatQty(totalEqInr)} (${formatQty(totalEqInr / rate, 2)} USDT)`;
+    const walletStr = `₹${formatQty(totalWalInr)} (${formatQty(totalWalInr / rate, 2)} USDT)`;
+
+    const totals = {
+      equity: equityStr,
+      wallet: walletStr,
+      ur: `₹${formatQty(totalPnlInr, 2)} (${formatQty(totalPnlUsdt, 2)} USDT)`,
+      urInr: totalPnlInr,
+      eqInr: totalEqInr,
+      walInr: totalWalInr,
+      netInr,
+      realizedUsdt,
+      unrealUsdt: totalPnlUsdt,
+      ddFromPeakPct,
+      riskTier,
+    };
+    tui.updateBalances(rows.length > 0 ? rows : [['No balances', '—', '—', '—', '—', '—']], totals);
   }
 
   // ── Set initial placeholders ──
@@ -1084,18 +1128,17 @@ async function runApp(ctx: Context) {
       log('Fetching account balances...');
       const balances = await CoinDCXApi.getBalances();
       const balArr = Array.isArray(balances) ? balances : [];
+      const balanceClock = new Date().toISOString();
       balArr.forEach((b: any) => {
-        const currency = b.currency || b.currency_short_name;
-        if (!currency) return;
-        const newBal = b.balance?.toString() || '0';
-        const newLocked = (b.locked_balance ?? b.locked ?? '0').toString();
-
-        state.balanceMap.set(currency, {
-          balance: newBal,
-          locked: newLocked,
+        const norm = normalizeBalance(b, 'rest', balanceClock);
+        if (!norm.currency) return;
+        state.balanceMap.set(norm.currency, {
+          balance: norm.available,
+          locked: norm.locked,
         });
       });
       log(`✓ Loaded ${state.balanceMap.size} balances`);
+      await hydrateFuturesMarginAccount();
       refreshBalanceDisplay();
     } catch (err: any) {
       tui.log(`{red-fg}⚠ Balance fetch failed: ${err.message}{/red-fg}`, 'error');
@@ -1409,13 +1452,22 @@ async function runApp(ctx: Context) {
     const balances = Array.isArray(data) ? data : [data];
     log(`Balance update: ${balances.length} assets`);
 
+    const balanceClock = new Date().toISOString();
     balances.forEach((b: any) => {
-      const name = b.currency_short_name || b.currency || 'N/A';
-      state.balanceMap.set(name, {
-        balance: b.balance?.toString() || '0',
-        locked: (b.locked_balance ?? '0').toString(),
+      const norm = normalizeBalance(b, 'ws', balanceClock);
+      if (!norm.currency) return;
+      const prev = state.balanceMap.get(norm.currency);
+      const merged = mergeCoinDcxBalanceWsPayload(prev, norm.available, norm.locked);
+      state.balanceMap.set(norm.currency, {
+        balance: merged.balance,
+        locked: merged.locked,
       });
-      void account.ingest('balance', b);
+      void account.ingest('balance', {
+        ...b,
+        currency_short_name: norm.currency,
+        balance: merged.balance,
+        locked_balance: merged.locked,
+      });
     });
     refreshBalanceDisplay();
   });
@@ -1464,13 +1516,16 @@ async function runApp(ctx: Context) {
       }
 
       const balances = await CoinDCXApi.getBalances();
+      const balanceClock = new Date().toISOString();
       (Array.isArray(balances) ? balances : []).forEach((b: any) => {
-        const name = b.currency_short_name || b.currency || 'N/A';
-        state.balanceMap.set(name, {
-          balance: b.balance?.toString() || '0',
-          locked: (b.locked_balance ?? b.locked ?? '0').toString(),
+        const norm = normalizeBalance(b, 'rest', balanceClock);
+        if (!norm.currency) return;
+        state.balanceMap.set(norm.currency, {
+          balance: norm.available,
+          locked: norm.locked,
         });
       });
+      await hydrateFuturesMarginAccount();
       refreshBalanceDisplay();
     } catch (err: any) {
       tui.log(`{red-fg}Refresh error: ${err.message}{/red-fg}`, 'error');

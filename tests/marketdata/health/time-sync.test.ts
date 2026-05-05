@@ -2,46 +2,53 @@ import { describe, it, expect, vi } from 'vitest';
 import { TimeSync } from '../../../src/marketdata/health/time-sync';
 
 describe('TimeSync', () => {
-  it('fires critical alert when skew exceeds threshold', async () => {
+  it('does not fire skew_exceeded when only exchange and NTP disagree (not host clock)', async () => {
     const onSkew = vi.fn();
-    const ts = new TimeSync({
-      thresholdMs: 100,
-      fetchExchangeMs: async () => 1_000_000,
-      fetchNtpMs:      async () => 1_000_000,
-      now: () => 1_000_500,
+    const local = 1_000_000;
+    const sync = new TimeSync({
+      thresholdMs: 500,
+      now: () => local,
+      fetchExchangeMs: async () => local,
+      fetchNtpMs: async () => local + 5_000,
       onSkew,
     });
-    await ts.checkOnce();
-    expect(onSkew).toHaveBeenCalled();
-    const arg = onSkew.mock.calls[0]![0];
-    expect(arg.severity).toBe('critical');
-    expect(Math.abs(arg.localVsExchange)).toBeGreaterThanOrEqual(500);
-  });
-
-  it('silent when within threshold', async () => {
-    const onSkew = vi.fn();
-    const ts = new TimeSync({
-      thresholdMs: 1000,
-      fetchExchangeMs: async () => 1_000_000,
-      fetchNtpMs:      async () => 1_000_000,
-      now: () => 1_000_000,
-      onSkew,
-    });
-    await ts.checkOnce();
+    await sync.checkOnce();
     expect(onSkew).not.toHaveBeenCalled();
   });
 
-  it('warns when one source unavailable', async () => {
+  it('fires skew_exceeded from local vs exchange when NTP is unavailable', async () => {
     const onSkew = vi.fn();
-    const ts = new TimeSync({
-      thresholdMs: 1000,
-      fetchExchangeMs: async () => { throw new Error('down'); },
-      fetchNtpMs:      async () => 1_000_000,
-      now: () => 1_000_000,
+    const local = 10_000;
+    const sync = new TimeSync({
+      thresholdMs: 100,
+      now: () => local,
+      fetchExchangeMs: async () => local - 500,
+      fetchNtpMs: async () => {
+        throw new Error('ntp blocked');
+      },
       onSkew,
     });
-    await ts.checkOnce();
-    expect(onSkew).toHaveBeenCalled();
-    expect(onSkew.mock.calls[0]![0].severity).toBe('warn');
+    await sync.checkOnce();
+    expect(onSkew).toHaveBeenCalledTimes(1);
+    expect(onSkew.mock.calls[0][0].severity).toBe('critical');
+    expect(onSkew.mock.calls[0][0].reason).toBe('skew_exceeded');
+  });
+
+  it('warns ntp_unavailable when NTP fails but local matches exchange', async () => {
+    const onSkew = vi.fn();
+    const t = 5_000_000;
+    const sync = new TimeSync({
+      thresholdMs: 100,
+      now: () => t,
+      fetchExchangeMs: async () => t,
+      fetchNtpMs: async () => {
+        throw new Error('ntp blocked');
+      },
+      onSkew,
+    });
+    await sync.checkOnce();
+    expect(onSkew).toHaveBeenCalledWith(
+      expect.objectContaining({ severity: 'warn', reason: 'ntp_unavailable' }),
+    );
   });
 });
