@@ -9,6 +9,8 @@ import { Cursors } from '../resume/cursors';
 import { FileSink } from '../sinks/file-sink';
 import { TelegramSink } from '../sinks/telegram-sink';
 import type { Sink } from '../sinks/types';
+import { PredictionOutcomePendingSink } from '../sinks/prediction-outcome-pending-sink';
+import { PredictionOutcomeRepository } from '../prediction-outcomes/repository';
 import type { Context } from './context';
 import { MarketCatalog } from '../marketdata/market-catalog';
 import { CoreRuntimePipeline } from '../runtime/runtime-pipeline';
@@ -76,6 +78,10 @@ export async function bootstrap(): Promise<Context> {
   audit.start();
 
   const sinks: Sink[] = [];
+  const predictionOutcomeRepo = new PredictionOutcomeRepository(pool);
+  if (config.PREDICTION_OUTCOME_ENABLED) {
+    sinks.push(new PredictionOutcomePendingSink(predictionOutcomeRepo));
+  }
   // if (config.SIGNAL_SINKS.includes('stdout')) sinks.push(new StdoutSink());
   if (config.SIGNAL_SINKS.includes('file')) sinks.push(new FileSink({ dir: config.LOG_DIR }));
   if (config.SIGNAL_SINKS.includes('telegram') && config.TELEGRAM_BOT_TOKEN && config.TELEGRAM_CHAT_ID) {
@@ -115,7 +121,11 @@ export async function bootstrap(): Promise<Context> {
   const { AiAnalyzer } = await import('../ai/analyzer');
   const { MarketStateBuilder } = await import('../ai/state-builder');
   const analyzer = new AiAnalyzer(config, logger);
-  const stateBuilder = new MarketStateBuilder(logger, pool);
+  const stateBuilder = new MarketStateBuilder(logger, pool, {
+    repo: predictionOutcomeRepo,
+    config,
+    cacheTtlMs: config.PREDICTION_FEEDBACK_CACHE_TTL_MS,
+  });
 
   let webhook: import('../gateways/webhook').WebhookGateway | undefined;
   if (config.WEBHOOK_ENABLED) {
@@ -158,5 +168,6 @@ export async function bootstrap(): Promise<Context> {
     webhook,
     marketCatalog,
     runtime,
+    predictionOutcomeRepo,
   };
 }

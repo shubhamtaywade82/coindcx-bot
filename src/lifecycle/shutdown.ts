@@ -6,6 +6,10 @@ export async function shutdown(ctx: Context, signal: string): Promise<void> {
   ctx.audit.recordEvent({ kind: 'shutdown', source: 'lifecycle', payload: { signal } });
 
   const grace = ctx.config.SHUTDOWN_GRACE_MS;
+  if (ctx.predictionOutcomeResolverTimer) {
+    clearInterval(ctx.predictionOutcomeResolverTimer);
+    ctx.predictionOutcomeResolverTimer = undefined;
+  }
   if (ctx.runtimeWorkers) {
     ctx.runtimeWorkers.stop();
   }

@@ -22,7 +22,8 @@
     "sidecar:ws": "ts-node src/cli/ws-sidecar.ts",
     "backtest": "ts-node src/cli/backtest.ts",
     "backtest:candles": "ts-node src/cli/candle-history.ts",
-    "backtest:record-microstructure": "ts-node src/cli/microstructure-recorder.ts"
+    "backtest:record-microstructure": "ts-node src/cli/microstructure-recorder.ts",
+    "export:prediction-dataset": "ts-node src/cli/export-prediction-dataset.ts"
   },
   "keywords": [],
   "author": "",

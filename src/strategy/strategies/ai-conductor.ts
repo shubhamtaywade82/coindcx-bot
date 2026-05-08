@@ -9,8 +9,7 @@ interface AnalyzerLike {
 const MANIFEST: StrategyManifest = {
   id: 'ai.conductor.v1',
   version: '1.0.0',
-  mode: 'interval',
-  intervalMs: 30_000,
+  mode: 'manual',
   evaluationTimeoutMs: 180_000,
   pairs: ['*'],
   warmupCandles: 50,
@@ -67,11 +66,16 @@ export class AiConductor implements Strategy {
   constructor(
     private analyzer: AnalyzerLike,
     private store: RecentSignalsStore,
-    private readonly minConfidence: number = 0.6,
+    private readonly baseMinConfidence: number = 0.6,
   ) {}
 
+  private effectiveMinConfidence(ctx: StrategyContext): number {
+    const a = ctx.marketState.prediction_feedback?.adaptive_min_confidence_conductor;
+    return typeof a === 'number' && Number.isFinite(a) ? a : this.baseMinConfidence;
+  }
+
   clone(): Strategy {
-    return new AiConductor(this.analyzer, this.store, this.minConfidence);
+    return new AiConductor(this.analyzer, this.store, this.baseMinConfidence);
   }
 
   async evaluate(ctx: StrategyContext): Promise<StrategySignal> {
@@ -112,9 +116,10 @@ export class AiConductor implements Strategy {
     if (recomputed !== undefined) rr = recomputed;
 
     const confidence = clamp(Number(resp?.confidence ?? 0));
-    const passesGate = (side === 'LONG' || side === 'SHORT') && confidence >= this.minConfidence;
+    const minC = this.effectiveMinConfidence(ctx);
+    const passesGate = (side === 'LONG' || side === 'SHORT') && confidence >= minC;
     const finalSide: Side = passesGate ? side : 'WAIT';
-    const reasonPrefix = passesGate ? '' : `[gated c=${(confidence * 100).toFixed(0)}%<min=${(this.minConfidence * 100).toFixed(0)}%] `;
+    const reasonPrefix = passesGate ? '' : `[gated c=${(confidence * 100).toFixed(0)}%<min=${(minC * 100).toFixed(0)}%] `;
 
     return {
       side: finalSide,

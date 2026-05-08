@@ -10,6 +10,7 @@ import type { WebhookGateway } from '../gateways/webhook';
 import type { MarketCatalog } from '../marketdata/market-catalog';
 import type { CoreRuntimePipeline } from '../runtime/runtime-pipeline';
 import type { RuntimeWorkerSet } from '../runtime/workers/runtime-workers';
+import type { PredictionOutcomeRepository } from '../prediction-outcomes/repository';
 
 export interface Context {
   config: Config;
@@ -24,4 +25,7 @@ export interface Context {
   runtime: CoreRuntimePipeline;
   runtimeWorkers?: RuntimeWorkerSet;
   webhook?: WebhookGateway;
+  predictionOutcomeRepo: PredictionOutcomeRepository;
+  /** Cleared on shutdown when prediction outcome resolver interval is used. */
+  predictionOutcomeResolverTimer?: ReturnType<typeof setInterval>;
 }

@@ -65,7 +65,18 @@ export class LlmPulse implements Strategy {
       }
     };
     const resp = await this.analyzer.analyze(stateInput);
-    const side = normSide(resp?.signal);
+    let side = normSide(resp?.signal);
+    let confidence = clamp(Number(resp?.confidence ?? 0));
+
+    const adaptive = ctx.marketState.prediction_feedback?.adaptive_min_confidence_llm;
+    const floor =
+      typeof adaptive === 'number' && Number.isFinite(adaptive)
+        ? adaptive
+        : undefined;
+    if (floor !== undefined && (side === 'LONG' || side === 'SHORT') && confidence < floor) {
+      side = 'WAIT';
+      confidence = Math.max(confidence, 0);
+    }
 
     const entry = resp?.setup?.entry ? parseFloat(String(resp.setup.entry)) : undefined;
     let sl = resp?.setup?.sl ? parseFloat(String(resp.setup.sl)) : undefined;
@@ -82,23 +93,28 @@ export class LlmPulse implements Strategy {
     }
 
     let rr = resp?.setup?.rr;
-    const recomputed = entry !== undefined && sl !== undefined && tp !== undefined
-      ? rewardRiskRatio(side, entry, sl, tp)
-      : undefined;
+    const recomputed =
+      side === 'LONG' || side === 'SHORT'
+        ? entry !== undefined && sl !== undefined && tp !== undefined
+          ? rewardRiskRatio(side, entry, sl, tp)
+          : undefined
+        : undefined;
     if (recomputed !== undefined) rr = recomputed;
+
+    const tradable = side === 'LONG' || side === 'SHORT';
 
     return {
       side,
-      confidence: clamp(Number(resp?.confidence ?? 0)),
-      entry: entry ? String(entry) : undefined,
-      stopLoss: sl ? String(sl) : undefined,
-      takeProfit: tp ? String(tp) : undefined,
+      confidence,
+      entry: tradable && entry !== undefined ? String(entry) : undefined,
+      stopLoss: tradable && sl !== undefined ? String(sl) : undefined,
+      takeProfit: tradable && tp !== undefined ? String(tp) : undefined,
       reason: String(resp?.verdict ?? ''),
       management: resp?.management_advice ? String(resp.management_advice) : undefined,
       noTradeCondition: resp?.no_trade_condition ? String(resp.no_trade_condition) : undefined,
       ttlMs: 5 * 60_000,
       meta: {
-        rr,
+        rr: tradable ? rr : undefined,
         alternate: resp?.alternate_scenario,
         levels: resp?.levels,
         management: resp?.management_advice,

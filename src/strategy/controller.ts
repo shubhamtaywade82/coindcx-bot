@@ -135,15 +135,17 @@ export class StrategyController {
 
   private async emit(signal: StrategySignal, manifest: StrategyManifest, pair: string): Promise<void> {
     const ts = this.clock();
+    const clientSignalId = `${manifest.id}:${pair}:${ts}`;
     const severity: Severity = signal.side === 'WAIT' ? 'info' : (signal.confidence > 0.7 ? 'critical' : 'warn');
     const out: Signal = {
-      id: `${manifest.id}:${pair}:${ts}`,
+      id: clientSignalId,
       ts: new Date(ts).toISOString(),
       strategy: manifest.id,
       type: `strategy.${signal.side.toLowerCase()}`,
       pair,
       severity,
       payload: {
+        clientSignalId,
         confidence: signal.confidence, entry: signal.entry, stopLoss: signal.stopLoss,
         takeProfit: signal.takeProfit, reason: signal.reason,
         noTradeCondition: signal.noTradeCondition, ttlMs: signal.ttlMs,

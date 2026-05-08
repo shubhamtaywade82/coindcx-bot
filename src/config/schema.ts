@@ -93,6 +93,18 @@ export const ConfigSchema = z.object({
     .transform(s => s.split(',').map(x => x.trim()).filter(Boolean)),
   AI_CONDUCTOR_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.6),
   AI_CONDUCTOR_TTL_MS: z.coerce.number().int().positive().default(5 * 60_000),
+  /** Score LLM/conductor levels vs 15m candles; persist outcomes + optional adaptive floors. */
+  PREDICTION_OUTCOME_ENABLED: z.string().default('false').transform(s => s === 'true'),
+  /** Attach recent outcomes + adaptive floors into market state (and thus the LLM JSON prompt). */
+  PREDICTION_FEEDBACK_IN_PROMPT: z.string().default('true').transform(s => s !== 'false'),
+  /** Per-pair cache TTL for Postgres prediction feedback loads inside MarketStateBuilder (ms). */
+  PREDICTION_FEEDBACK_CACHE_TTL_MS: z.coerce.number().int().positive().default(45_000),
+  /** Nudge min-confidence from rolling tp_first vs sl_first when enough samples exist. */
+  PREDICTION_ADAPTIVE_ENABLED: z.string().default('true').transform(s => s !== 'false'),
+  PREDICTION_RESOLVER_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
+  LLM_PULSE_ADAPTIVE_BASE_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.5),
+  PREDICTION_ADAPTIVE_MIN_FLOOR: z.coerce.number().min(0).max(1).default(0.42),
+  PREDICTION_ADAPTIVE_MAX_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.88),
   BACKTEST_PESSIMISTIC: z.string().default('true').transform(s => s !== 'false'),
   BACKTEST_OUTPUT_DIR: z.string().default('./logs/backtest'),
   BACKTEST_CANDLE_MAX_BARS_PER_CALL: z.coerce.number().int().positive().max(1000).default(1000),

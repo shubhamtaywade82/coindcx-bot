@@ -1,6 +1,9 @@
 import type { AppLogger } from '../logging/logger';
 import type { Pool } from 'pg';
 import type { FusionSnapshot } from '../marketdata/coindcx-fusion';
+import type { Config } from '../config/schema';
+import type { PredictionOutcomeRepository } from '../prediction-outcomes/repository';
+import type { PredictionFeedback } from '../prediction-outcomes/types';
 
 export interface Candle {
   timestamp: number;
@@ -73,10 +76,29 @@ export interface MarketState {
   };
   pine_signals?: any[];
   fusion?: FusionSnapshot;
+  /** Filled at runtime when prediction outcome tracking injects calibration context. */
+  prediction_feedback?: PredictionFeedback;
+}
+
+/** Optional Postgres-backed calibration context (cached per pair). */
+export interface MarketStateBuilderPredictionDeps {
+  repo: Pick<PredictionOutcomeRepository, 'loadFeedbackForPair'>;
+  config: Config;
+  cacheTtlMs: number;
+  clock?: () => number;
 }
 
 export class MarketStateBuilder {
-  constructor(private logger: AppLogger, private pool?: Pool) {}
+  private readonly predictionFeedbackCache = new Map<
+    string,
+    { feedback: PredictionFeedback; expiresAtMs: number }
+  >();
+
+  constructor(
+    private logger: AppLogger,
+    private pool?: Pool,
+    private predictionDeps?: MarketStateBuilderPredictionDeps,
+  ) {}
 
   async build(
     htfCandles: Candle[],
@@ -122,7 +144,7 @@ export class MarketStateBuilder {
       }
     }
 
-    return {
+    const base: MarketState = {
       symbol: pair || 'unknown',
       current_price: ltfCandles[ltfCandles.length - 1].close,
       htf: {
@@ -133,23 +155,75 @@ export class MarketStateBuilder {
       ltf: {
         ...ltf,
         ...smc,
-        premium_discount: this.calculatePremiumDiscount(ltfCandles, ltf.swing_high, ltf.swing_low)
+        premium_discount: this.calculatePremiumDiscount(ltfCandles, ltf.swing_high, ltf.swing_low),
       },
       confluence: {
         aligned: htf.trend === ltf.trend,
-        narrative: this.generateNarrative(htf.trend, ltf.trend, liquidity.event)
+        narrative: this.generateNarrative(htf.trend, ltf.trend, liquidity.event),
       },
       liquidity,
       state: {
         is_trending: ltf.trend !== 'range',
         is_post_sweep: liquidity.event === 'sweep',
-        is_pre_expansion: smc.displacement.present && !smc.mitigation.status.includes('full')
+        is_pre_expansion: smc.displacement.present && !smc.mitigation.status.includes('full'),
       },
       ...(bookSnapshot ? { book: bookSnapshot } : {}),
       position: positionData,
       pine_signals,
-      fusion: fusion ?? undefined
+      fusion: fusion ?? undefined,
     };
+
+    return await this.mergePredictionFeedbackWhenConfigured(base, pair);
+  }
+
+  /** Exposed for tests; production path is `build()`. */
+  async mergePredictionFeedbackWhenConfigured(base: MarketState, pair?: string): Promise<MarketState> {
+    const p = pair?.trim();
+    if (!p || !this.predictionDeps) return base;
+
+    const { config, repo, cacheTtlMs, clock = Date.now } = this.predictionDeps;
+    if (!config.PREDICTION_FEEDBACK_IN_PROMPT && !config.PREDICTION_ADAPTIVE_ENABLED) return base;
+
+    try {
+      const prediction_feedback = await this.getPredictionFeedbackCached(p, repo, config, cacheTtlMs, clock);
+      if (!config.PREDICTION_FEEDBACK_IN_PROMPT && config.PREDICTION_ADAPTIVE_ENABLED) {
+        return {
+          ...base,
+          prediction_feedback: {
+            recent_resolved: [],
+            wins_vs_losses: {
+              tp_first: 0,
+              sl_first: 0,
+              ttl_neutral: 0,
+              invalid_geometry: 0,
+              sample_n: 0,
+            },
+            adaptive_min_confidence_llm: prediction_feedback.adaptive_min_confidence_llm,
+            adaptive_min_confidence_conductor: prediction_feedback.adaptive_min_confidence_conductor,
+          },
+        };
+      }
+      return { ...base, prediction_feedback };
+    } catch (err: any) {
+      this.logger.warn({ mod: 'state', err: err?.message, pair: p }, 'prediction feedback load failed');
+      return base;
+    }
+  }
+
+  private async getPredictionFeedbackCached(
+    pair: string,
+    repo: Pick<PredictionOutcomeRepository, 'loadFeedbackForPair'>,
+    config: Config,
+    cacheTtlMs: number,
+    clock: () => number,
+  ): Promise<PredictionFeedback> {
+    const now = clock();
+    const hit = this.predictionFeedbackCache.get(pair);
+    if (hit && hit.expiresAtMs > now) return hit.feedback;
+
+    const feedback = await repo.loadFeedbackForPair(pair, config);
+    this.predictionFeedbackCache.set(pair, { feedback, expiresAtMs: now + cacheTtlMs });
+    return feedback;
   }
 
   private analyzeStructure(candles: Candle[], tf: string) {

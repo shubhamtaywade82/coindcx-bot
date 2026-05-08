@@ -52,6 +52,7 @@ import type { OrderBook } from './marketdata/book/orderbook';
 import type { IntentMarketContext } from './execution/intent-validator';
 import type { RegimeFeatures } from './runtime/regime-classifier';
 import { RuntimeWorkerSet } from './runtime/workers/runtime-workers';
+import { PredictionOutcomeResolver } from './prediction-outcomes/resolver';
 import { RuntimePersistence } from './persistence/runtime-persistence';
 import { TradePersistence } from './persistence/trade-persistence';
 import { OrderbookPersistence } from './persistence/orderbook-persistence';
@@ -568,6 +569,19 @@ async function runApp(ctx: Context) {
     }),
   );
 
+  const predictionOutcomeResolver = new PredictionOutcomeResolver({
+    repo: ctx.predictionOutcomeRepo,
+    config: ctx.config,
+    logger: ctx.logger.child({ mod: 'prediction_outcomes' }),
+    getBars15m: pair => mtfStore.get(pair, '15m'),
+  });
+  if (ctx.config.PREDICTION_OUTCOME_ENABLED) {
+    ctx.predictionOutcomeResolverTimer = setInterval(() => {
+      void predictionOutcomeResolver.tick();
+    }, ctx.config.PREDICTION_RESOLVER_INTERVAL_MS);
+    void predictionOutcomeResolver.tick();
+  }
+
   const buildRiskFilter = (): RiskFilter => {
     if (ctx.config.RISK_FILTER_MODE === 'passthrough') return new PassthroughRiskFilter();
     const cooldown = new PerPairCooldownRule(ctx.config.RISK_PER_PAIR_COOLDOWN_MS);
@@ -591,7 +605,7 @@ async function runApp(ctx: Context) {
     ws,
     signalBus: ctx.bus,
     riskFilter: buildRiskFilter(),
-    buildMarketState: (htf, ltf, pair) => {
+    buildMarketState: async (htf, ltf, pair) => {
       const book = integrity.books.get(pair);
       const bookSnap = book && book.state() === 'live' ? computeBookSnapshot(book) : null;
       return ctx.stateBuilder.build(htf, ltf, bookSnap, fusion.getLatest(pair), account.snapshot().positions, pair);
@@ -605,7 +619,7 @@ async function runApp(ctx: Context) {
     recentFills: (n = 20) => account.fills.recent(n),
     extractPair: (raw: any) => raw?.pair ?? raw?.s,
     beforeEvaluate: async (id, pair, _trigger) => {
-      if (id === 'llm.pulse.v1') {
+      if (id === 'llm.pulse.v1' || id === 'ai.conductor.v1') {
         tui.updateAi({
           verdict: ' {yellow-fg}Analyzing market pulse...{/yellow-fg}',
           signal: 'WAIT',
@@ -617,6 +631,13 @@ async function runApp(ctx: Context) {
     onEvaluatedSignal: (signal, manifest, pair) => {
       if (manifest.id !== 'ai.conductor.v1') {
         recentSignalsStore.record(pair, manifest.id, signal);
+        
+        // Event-driven Orchestration: Only trigger the AI Conductor for "Medium to High" probability setups (>= 0.5 confidence).
+        // This keeps the Brain focused on high-quality sensor confluence.
+        if (signal.side !== 'WAIT' && (signal.confidence ?? 0) >= 0.5 && enabledIds.has('ai.conductor.v1')) {
+          strategyController.runOnce('ai.conductor.v1', pair, { kind: 'signal', source: manifest.id })
+            .catch(err => ctx.logger.error({ mod: 'index', err: err.message, strat: manifest.id }, 'conductor trigger failed'));
+        }
       }
       const tag = manifest.id.replace(/\.v\d+$/, '');
       tui.updateAi({
@@ -681,6 +702,9 @@ async function runApp(ctx: Context) {
         if (!allowedTimeframes.includes(timeframe)) continue;
         if (!manifest.pairs.includes('*') && !manifest.pairs.includes(pair)) continue;
         await strategyController.runOnce(manifest.id, pair, { kind: 'bar_close', tf: timeframe });
+      }
+      if (timeframe === '15m' && ctx.config.PREDICTION_OUTCOME_ENABLED) {
+        void predictionOutcomeResolver.tick();
       }
     },
     onBreakevenArm: async ({ pair, positionId, markPrice, avgPrice, side }) => {

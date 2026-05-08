@@ -111,7 +111,12 @@ export class AiAnalyzer {
          from the list and align your verdict, signal, and setup with it. Set "chosen_strategy" to its
          strategyId. If no strategy is convincing per the directive, return "signal": "WAIT".
 
-      5. Provide your response as a JSON object with:
+      5. CALIBRATION / SELF-REVIEW: If the JSON includes "prediction_feedback" with recent_resolved outcomes,
+         treat it as ground truth from prior TP/SL paths on this pair. When tp_first is rare vs sl_first,
+         prefer WAIT unless structure is exceptional; mention the calibration in "verdict" briefly. Never
+         invent outcomes — only react to the provided summary.
+
+      6. Provide your response as a JSON object with:
          {
            "verdict": "Detailed summary of structural confluence. Be consistent with the signal.",
            "signal": "LONG", "SHORT", or "WAIT",

@@ -2,7 +2,7 @@ import type { MarketState, Candle } from '../ai/state-builder';
 import type { AccountSnapshot, Fill } from '../account/types';
 import type { FusionSnapshot } from '../marketdata/coindcx-fusion';
 
-export type StrategyMode = 'interval' | 'tick' | 'bar_close';
+export type StrategyMode = 'interval' | 'tick' | 'bar_close' | 'manual';
 export type Side = 'LONG' | 'SHORT' | 'WAIT';
 export type TickChannel = 'depth-update' | 'new-trade' | 'currentPrices@futures#update';
 
@@ -22,7 +22,8 @@ export interface StrategyManifest {
 export type StrategyTrigger =
   | { kind: 'interval' }
   | { kind: 'tick'; channel: TickChannel; raw: unknown }
-  | { kind: 'bar_close'; tf: string };
+  | { kind: 'bar_close'; tf: string }
+  | { kind: 'signal'; source: string };
 
 export interface StrategyContext {
   ts: number;
