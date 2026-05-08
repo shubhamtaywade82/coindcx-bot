@@ -59,6 +59,11 @@ describe('F4 strategy config defaults', () => {
     expect(cfg.PREDICTION_ADAPTIVE_ENABLED).toBe(true);
     expect(cfg.PREDICTION_RESOLVER_INTERVAL_MS).toBe(60_000);
     expect(cfg.LLM_PULSE_ADAPTIVE_BASE_CONFIDENCE).toBe(0.5);
+    expect(cfg.LLM_PULSE_MIN_INTERVAL_MS).toBe(900_000);
+    expect(cfg.AI_CONDUCTOR_MIN_INTERVAL_MS).toBe(300_000);
+    expect(cfg.AI_STARTUP_PULSE_ENABLED).toBe(false);
+    expect(cfg.OLLAMA_FALLBACK_URL).toBe('http://127.0.0.1:11434');
+    expect(cfg.OLLAMA_FALLBACK_MODEL).toBe('llama3');
   });
 });
 

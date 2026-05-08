@@ -57,6 +57,7 @@ import { RuntimePersistence } from './persistence/runtime-persistence';
 import { TradePersistence } from './persistence/trade-persistence';
 import { OrderbookPersistence } from './persistence/orderbook-persistence';
 import { ProbabilityAnalyticsRepository } from './runtime/probability-analytics';
+import { AiTriggerGate } from './ai/trigger-gate';
 import { PaperTradeGate } from './runtime/paper-trade-gate';
 import {
   shouldAllowNegativeClose,
@@ -526,6 +527,11 @@ async function runApp(ctx: Context) {
   const enabledIds = new Set(ctx.config.STRATEGY_ENABLED_IDS);
   const configuredPairs: string[] = ctx.config.COINDCX_PAIRS as unknown as string[];
   const recentSignalsStore = new RecentSignalsStore(ctx.config.AI_CONDUCTOR_TTL_MS ?? 5 * 60_000);
+  const aiTriggerGate = new AiTriggerGate({
+    llmPulseMinIntervalMs: ctx.config.LLM_PULSE_MIN_INTERVAL_MS,
+    aiConductorMinIntervalMs: ctx.config.AI_CONDUCTOR_MIN_INTERVAL_MS,
+    startupPulseEnabled: ctx.config.AI_STARTUP_PULSE_ENABLED,
+  });
 
   /** Fetch candles from REST, normalise to Candle[], oldest-first. */
   async function fetchCandlesForStore(pair: string, tf: string, limit: number): Promise<Candle[]> {
@@ -618,7 +624,11 @@ async function runApp(ctx: Context) {
     accountSnapshot: () => account.snapshot(),
     recentFills: (n = 20) => account.fills.recent(n),
     extractPair: (raw: any) => raw?.pair ?? raw?.s,
-    beforeEvaluate: async (id, pair, _trigger) => {
+    beforeEvaluate: async (id, pair, trigger) => {
+      if (id === 'llm.pulse.v1' && !aiTriggerGate.allowLlmPulse(pair, trigger)) {
+        ctx.logger.debug({ mod: 'ai.trigger_gate', strategy: id, pair, trigger }, 'LLM pulse skipped by trigger gate');
+        return false;
+      }
       if (id === 'llm.pulse.v1' || id === 'ai.conductor.v1') {
         tui.updateAi({
           verdict: ' {yellow-fg}Analyzing market pulse...{/yellow-fg}',
@@ -634,7 +644,12 @@ async function runApp(ctx: Context) {
         
         // Event-driven Orchestration: Only trigger the AI Conductor for "Medium to High" probability setups (>= 0.5 confidence).
         // This keeps the Brain focused on high-quality sensor confluence.
-        if (signal.side !== 'WAIT' && (signal.confidence ?? 0) >= 0.5 && enabledIds.has('ai.conductor.v1')) {
+        if (
+          signal.side !== 'WAIT' &&
+          (signal.confidence ?? 0) >= 0.5 &&
+          enabledIds.has('ai.conductor.v1') &&
+          aiTriggerGate.allowAiConductor(pair)
+        ) {
           strategyController.runOnce('ai.conductor.v1', pair, { kind: 'signal', source: manifest.id })
             .catch(err => ctx.logger.error({ mod: 'index', err: err.message, strat: manifest.id }, 'conductor trigger failed'));
         }
@@ -841,6 +856,7 @@ async function runApp(ctx: Context) {
 
   async function seedInitialAiPulse(): Promise<void> {
     if (!enabledIds.has('llm.pulse.v1')) return;
+    if (!aiTriggerGate.allowStartupPulse()) return;
     tui.log(`{gray-fg}[AI] Starting initial analysis for ${configuredPairs.length} pairs...{/gray-fg}`);
     
     await Promise.all(configuredPairs.map(async (rawPair) => {

@@ -33,7 +33,7 @@ export interface StrategyControllerOptions {
   accountSnapshot: () => AccountSnapshot;
   recentFills: (n?: number) => Fill[];
   extractPair: (raw: unknown) => string | undefined;
-  beforeEvaluate?: (id: string, pair: string, trigger: StrategyTrigger) => Promise<void> | void;
+  beforeEvaluate?: (id: string, pair: string, trigger: StrategyTrigger) => Promise<boolean | void> | boolean | void;
   onEvaluatedSignal?: (signal: StrategySignal, manifest: StrategyManifest, pair: string) => void;
   config: ControllerConfig;
   clock?: () => number;
@@ -101,7 +101,8 @@ export class StrategyController {
     let raw: StrategySignal | null;
     let evalCtx: import('./types').StrategyContext | null;
     try {
-      await this.opts.beforeEvaluate?.(id, pair, trigger);
+      const shouldEvaluate = await this.opts.beforeEvaluate?.(id, pair, trigger);
+      if (shouldEvaluate === false) return;
       evalCtx = await this.contextBuilder.build({ pair, trigger });
       if (!evalCtx) return;
       raw = await this.withTimeout(

@@ -42,6 +42,10 @@ export const ConfigSchema = z.object({
   /** Retry attempts when Ollama returns 429 / concurrent / rate errors. */
   OLLAMA_RETRY_MAX: z.coerce.number().int().min(0).default(3),
   OLLAMA_RETRY_BASE_MS: z.coerce.number().int().positive().default(1500),
+  /** Local Ollama daemon used when the primary host (typically Cloud) is unreachable. Empty disables failover. */
+  OLLAMA_FALLBACK_URL: z.string().default('http://127.0.0.1:11434'),
+  /** Model name to use on the fallback host (often differs from cloud names). */
+  OLLAMA_FALLBACK_MODEL: z.string().default('llama3'),
   WEBHOOK_ENABLED: z.string().default('false').transform(s => s === 'true'),
   WEBHOOK_PORT: z.coerce.number().int().positive().default(4003),
   WEBHOOK_PATH: z.string().default('/webhook/tradingview'),
@@ -103,6 +107,9 @@ export const ConfigSchema = z.object({
   PREDICTION_ADAPTIVE_ENABLED: z.string().default('true').transform(s => s !== 'false'),
   PREDICTION_RESOLVER_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
   LLM_PULSE_ADAPTIVE_BASE_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.5),
+  LLM_PULSE_MIN_INTERVAL_MS: z.coerce.number().int().nonnegative().default(900_000),
+  AI_CONDUCTOR_MIN_INTERVAL_MS: z.coerce.number().int().nonnegative().default(300_000),
+  AI_STARTUP_PULSE_ENABLED: z.string().default('false').transform(s => s === 'true'),
   PREDICTION_ADAPTIVE_MIN_FLOOR: z.coerce.number().min(0).max(1).default(0.42),
   PREDICTION_ADAPTIVE_MAX_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.88),
   BACKTEST_PESSIMISTIC: z.string().default('true').transform(s => s !== 'false'),

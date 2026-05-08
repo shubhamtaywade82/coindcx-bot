@@ -47,6 +47,8 @@ export async function bootstrap(): Promise<Context> {
         ollama: config.OLLAMA_URL,
         model: config.OLLAMA_MODEL,
         ollamaAuth: config.OLLAMA_API_KEY?.trim() ? 'bearer' : 'none',
+        ollamaFallback: config.OLLAMA_FALLBACK_URL?.trim() || 'disabled',
+        ollamaFallbackModel: config.OLLAMA_FALLBACK_MODEL,
       },
       'boot start',
     );

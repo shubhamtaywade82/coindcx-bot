@@ -2,8 +2,32 @@ import type { Config } from '../config/schema';
 import type { AppLogger } from '../logging/logger';
 import { ollamaHostRequiresApiKey } from './ollama-host';
 
-// Use require to bypass ESM/CJS interop issues with ollama-js in ts-node
-const { Ollama } = require('ollama');
+interface OllamaChatArgs {
+  model: string;
+  messages: Array<{ role: string; content: string }>;
+  format: string;
+  stream: boolean;
+}
+
+interface OllamaResponse {
+  message: { content: string };
+}
+
+interface OllamaLike {
+  chat(args: OllamaChatArgs): Promise<OllamaResponse>;
+}
+
+type OllamaCtor = new (opts: { host: string; headers?: Record<string, string> }) => OllamaLike;
+
+interface AnalyzerOptions {
+  ollamaCtor?: OllamaCtor;
+}
+
+interface OllamaEndpoint {
+  client: OllamaLike;
+  model: string;
+  host: string;
+}
 
 export interface MarketPulse {
   symbol: string;
@@ -18,8 +42,8 @@ export interface MarketPulse {
 }
 
 export class AiAnalyzer {
-  private ollama: any;
-  private model: string;
+  private readonly primary: OllamaEndpoint;
+  private readonly fallback: OllamaEndpoint | null;
   private readonly cloudWithoutKey: boolean;
   private readonly maxConcurrency: number;
   private readonly minIntervalMs: number;
@@ -29,22 +53,90 @@ export class AiAnalyzer {
   private waiters: Array<() => void> = [];
   private lastDispatchAt = 0;
 
-  constructor(config: Config, private logger: AppLogger) {
-    const key = config.OLLAMA_API_KEY?.trim();
-    const headers =
-      key !== ''
-        ? { Authorization: `Bearer ${key}` }
-        : undefined;
+  constructor(config: Config, private logger: AppLogger, opts: AnalyzerOptions = {}) {
+    const Ctor: OllamaCtor = opts.ollamaCtor ?? loadOllamaCtor();
+    const key = config.OLLAMA_API_KEY?.trim() ?? '';
+    const headers = key !== '' ? { Authorization: `Bearer ${key}` } : undefined;
     this.cloudWithoutKey = ollamaHostRequiresApiKey(config.OLLAMA_URL) && key === '';
-    this.ollama = new Ollama({
+    this.primary = {
+      client: new Ctor({ host: config.OLLAMA_URL, ...(headers ? { headers } : {}) }),
+      model: config.OLLAMA_MODEL,
       host: config.OLLAMA_URL,
-      ...(headers ? { headers } : {}),
-    });
-    this.model = config.OLLAMA_MODEL;
+    };
+    this.fallback = buildFallback(config, Ctor);
     this.maxConcurrency = Math.max(1, config.OLLAMA_MAX_CONCURRENCY ?? 1);
     this.minIntervalMs = Math.max(0, config.OLLAMA_MIN_INTERVAL_MS ?? 0);
     this.retryMax = Math.max(0, config.OLLAMA_RETRY_MAX ?? 0);
     this.retryBaseMs = Math.max(100, config.OLLAMA_RETRY_BASE_MS ?? 1000);
+  }
+
+  async analyze(state: any) {
+    if (this.cloudWithoutKey && !this.fallback) return cloudKeyMissingResponse();
+    const prompt = buildPrompt(state);
+    this.logger.info({ mod: 'ai', symbol: state?.symbol }, 'Institutional AI analysis start');
+
+    if (this.cloudWithoutKey && this.fallback) {
+      return this.runWithErrorWrap(this.fallback, prompt, state);
+    }
+    return this.runWithFailover(prompt, state);
+  }
+
+  private async runWithFailover(prompt: string, state: any): Promise<any> {
+    try {
+      return await this.runOn(this.primary, prompt, state);
+    } catch (err: any) {
+      if (this.fallback && shouldFailover(err, this.isConcurrencyError(err))) {
+        this.logger.warn(
+          { mod: 'ai', host: this.primary.host, fallback: this.fallback.host, err: String(err?.message ?? err) },
+          'primary Ollama unavailable — using fallback',
+        );
+        return this.runWithErrorWrap(this.fallback, prompt, state);
+      }
+      return this.errorResponse(err);
+    }
+  }
+
+  private async runWithErrorWrap(endpoint: OllamaEndpoint, prompt: string, state: any): Promise<any> {
+    try {
+      return await this.runOn(endpoint, prompt, state);
+    } catch (err: any) {
+      return this.errorResponse(err);
+    }
+  }
+
+  private async runOn(endpoint: OllamaEndpoint, prompt: string, state: any): Promise<any> {
+    await this.acquire();
+    try {
+      const response = await this.chatWithRetry(endpoint, prompt, state);
+      this.logger.debug({ mod: 'ai', host: endpoint.host }, 'AI response received');
+      return JSON.parse(response.message.content);
+    } finally {
+      this.release();
+    }
+  }
+
+  private async chatWithRetry(endpoint: OllamaEndpoint, prompt: string, state: any): Promise<OllamaResponse> {
+    let attempt = 0;
+    while (true) {
+      await this.paceDispatch();
+      try {
+        return await endpoint.client.chat({
+          model: endpoint.model,
+          messages: [{ role: 'user', content: prompt }],
+          format: 'json',
+          stream: false,
+        });
+      } catch (chatErr: any) {
+        if (attempt >= this.retryMax || !this.isConcurrencyError(chatErr)) throw chatErr;
+        const backoff = this.retryBaseMs * Math.pow(2, attempt) + Math.floor(Math.random() * 250);
+        this.logger.warn(
+          { mod: 'ai', host: endpoint.host, symbol: state?.symbol, attempt: attempt + 1, backoffMs: backoff, err: String(chatErr?.message ?? chatErr) },
+          'Ollama concurrency/rate error — backing off',
+        );
+        await new Promise(r => setTimeout(r, backoff));
+        attempt += 1;
+      }
+    }
   }
 
   private async acquire(): Promise<void> {
@@ -76,18 +168,73 @@ export class AiAnalyzer {
     return /too many concurrent|rate limit|429|temporarily unavailable|busy/.test(msg);
   }
 
-  async analyze(state: any) {
-    if (this.cloudWithoutKey) {
-      this.logger.warn({ mod: 'ai', symbol: state?.symbol }, 'Ollama Cloud URL set but OLLAMA_API_KEY is empty');
-      return {
-        verdict: 'Ollama Cloud needs an API key',
-        signal: 'WAIT',
-        confidence: 0,
-        no_trade_condition:
-          'Set OLLAMA_API_KEY in .env (create one at https://ollama.com/settings/keys). Empty key cannot call https://ollama.com.',
-      };
-    }
-    const prompt = `
+  private errorResponse(err: any): any {
+    const msg = typeof err?.message === 'string' ? err.message : String(err);
+    const status = err?.status_code ?? err?.status;
+    this.logger.error({ mod: 'ai', err: msg, status }, 'AI analysis failed');
+    const shortDetail = msg.length > 140 ? `${msg.slice(0, 140)}…` : msg;
+    return {
+      verdict: `AI request failed: ${shortDetail}`,
+      signal: 'WAIT',
+      confidence: 0,
+      no_trade_condition: errorHint(err, msg, status),
+    };
+  }
+}
+
+function loadOllamaCtor(): OllamaCtor {
+  // require to bypass ESM/CJS interop issues with ollama-js in ts-node
+  return require('ollama').Ollama;
+}
+
+function buildFallback(config: Config, Ctor: OllamaCtor): OllamaEndpoint | null {
+  const url = config.OLLAMA_FALLBACK_URL?.trim();
+  if (!url) return null;
+  if (url === config.OLLAMA_URL) return null;
+  return {
+    client: new Ctor({ host: url }),
+    model: config.OLLAMA_FALLBACK_MODEL?.trim() || config.OLLAMA_MODEL,
+    host: url,
+  };
+}
+
+function shouldFailover(err: any, isConcurrency: boolean): boolean {
+  if (isConcurrency) return false;
+  const msg = String(err?.message ?? err ?? '').toLowerCase();
+  const status = err?.status_code ?? err?.status;
+  if (status === 401 || status === 403) return true;
+  if (typeof status === 'number' && status >= 500) return true;
+  return /fetch failed|econnrefused|enotfound|etimedout|network|service unavailable|temporarily unavailable/.test(msg);
+}
+
+function errorHint(err: any, msg: string, status: number | undefined): string {
+  if (status === 401 || /401|unauthorized/i.test(msg)) {
+    return 'HTTP 401: invalid or missing OLLAMA_API_KEY for Ollama Cloud (https://ollama.com/settings/keys).';
+  }
+  if (status === 404 || /model not found|unknown model|invalid model|file does not exist/i.test(msg)) {
+    return 'Model or path not found: confirm OLLAMA_MODEL exists on this host (Cloud names differ from local ollama list).';
+  }
+  if (/fetch failed|ECONNREFUSED|ENOTFOUND|network/i.test(msg)) {
+    return 'Network error: confirm OLLAMA_URL is reachable from this machine.';
+  }
+  if (err instanceof SyntaxError || /JSON|Unexpected token/i.test(msg)) {
+    return 'Model did not return valid JSON (try another model or reduce prompt constraints).';
+  }
+  return 'Check logs. Typical fixes: set OLLAMA_API_KEY for Cloud; use a valid OLLAMA_MODEL for that host.';
+}
+
+function cloudKeyMissingResponse(): any {
+  return {
+    verdict: 'Ollama Cloud needs an API key',
+    signal: 'WAIT',
+    confidence: 0,
+    no_trade_condition:
+      'Set OLLAMA_API_KEY in .env (create one at https://ollama.com/settings/keys). Empty key cannot call https://ollama.com.',
+  };
+}
+
+function buildPrompt(state: any): string {
+  return `
       You are a professional SMC-based crypto futures trading system.
       Input: Multi-Timeframe (MTF) market state for ${state.symbol || 'asset'}.
 
@@ -148,70 +295,4 @@ export class AiAnalyzer {
       - IF the setup is weak, return "WAIT".
       - Only return the JSON object, no other text.
     `;
-
-    try {
-      this.logger.info({ mod: 'ai', symbol: state.symbol }, 'Institutional AI analysis start');
-      await this.acquire();
-      let response: any;
-      try {
-        let attempt = 0;
-        while (true) {
-          await this.paceDispatch();
-          try {
-            response = await this.ollama.chat({
-              model: this.model,
-              messages: [{ role: 'user', content: prompt }],
-              format: 'json',
-              stream: false,
-            });
-            break;
-          } catch (chatErr: any) {
-            if (attempt >= this.retryMax || !this.isConcurrencyError(chatErr)) throw chatErr;
-            const backoff = this.retryBaseMs * Math.pow(2, attempt) + Math.floor(Math.random() * 250);
-            this.logger.warn(
-              { mod: 'ai', symbol: state.symbol, attempt: attempt + 1, backoffMs: backoff, err: String(chatErr?.message ?? chatErr) },
-              'Ollama concurrency/rate error — backing off',
-            );
-            await new Promise(r => setTimeout(r, backoff));
-            attempt += 1;
-          }
-        }
-      } finally {
-        this.release();
-      }
-
-      const content = response.message.content;
-      this.logger.debug({ mod: 'ai', content }, 'AI response received');
-      return JSON.parse(content);
-    } catch (err: any) {
-      const msg = typeof err?.message === 'string' ? err.message : String(err);
-      const status = err?.status_code ?? err?.status;
-      this.logger.error({ mod: 'ai', err: msg, status }, 'AI analysis failed');
-
-      let hint =
-        'Check logs. Typical fixes: set OLLAMA_API_KEY for Cloud; use a valid OLLAMA_MODEL for that host.';
-      if (status === 401 || /401|unauthorized/i.test(msg)) {
-        hint =
-          'HTTP 401: invalid or missing OLLAMA_API_KEY for Ollama Cloud (https://ollama.com/settings/keys).';
-      } else if (
-        status === 404 ||
-        /model not found|unknown model|invalid model|file does not exist/i.test(msg)
-      ) {
-        hint =
-          'Model or path not found: confirm OLLAMA_MODEL exists on this host (Cloud names differ from local ollama list).';
-      } else if (/fetch failed|ECONNREFUSED|ENOTFOUND|network/i.test(msg)) {
-        hint = 'Network error: confirm OLLAMA_URL is reachable from this machine.';
-      } else if (err instanceof SyntaxError || /JSON|Unexpected token/i.test(msg)) {
-        hint = 'Model did not return valid JSON (try another model or reduce prompt constraints).';
-      }
-
-      const shortDetail = msg.length > 140 ? `${msg.slice(0, 140)}…` : msg;
-      return {
-        verdict: `AI request failed: ${shortDetail}`,
-        signal: 'WAIT',
-        confidence: 0,
-        no_trade_condition: hint,
-      };
-    }
-  }
 }
