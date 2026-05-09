@@ -86,6 +86,12 @@ export class TradeFlow {
     return this.windowMetricsFromBuffer(buf, windowMs, now);
   }
 
+  lastTick(pair: string): TradeTick | undefined {
+    const buf = this.buffers.get(pair);
+    if (!buf || buf.length === 0) return undefined;
+    return buf[buf.length - 1];
+  }
+
   ticks(pair: string, windowMs: number, now: number = Date.now()): TradeTick[] {
     const buf = this.buffers.get(pair);
     if (!buf || buf.length === 0) return [];

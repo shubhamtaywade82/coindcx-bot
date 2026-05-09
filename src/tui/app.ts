@@ -2,6 +2,8 @@ import * as blessed from 'blessed';
 import * as contrib from 'blessed-contrib';
 import { config } from '../config/config';
 import { cleanPair, formatPrice, formatQty, toCoinDcxFuturesInstrument } from '../utils/format';
+import type { FusionSnapshot } from '../marketdata/coindcx-fusion';
+import { formatConfluencePanelBlock } from './confluence-signals';
 
 interface AiPanelState {
   verdict: string;
@@ -202,9 +204,10 @@ export class TuiApp {
       border: { type: 'line', fg: 'gray' },
       tags: true,
       scrollable: true,
-      alwaysScroll: true,
+      /** `true` tends to keep the viewport at the bottom — hides the fusion block above the divider. */
+      alwaysScroll: false,
       scrollbar: { ch: ' ' },
-      content: ' {gray-fg}Awaiting strategy signals...{/gray-fg}',
+      content: '',
     });
 
     this.positionsTable = this.grid.set(7, 0, 2, 12, blessed.box, {
@@ -444,7 +447,8 @@ export class TuiApp {
   private renderBookCached(): void {
     const data = this.bookByPair.get(this.focusedPair);
     if (!data) return;
-    this.updateOrderBook(data.asks, data.bids, data.lastPrice, this.focusedPair);
+    const fusion = this.fusionByPair.get(this.focusedPair);
+    this.updateOrderBook(data.asks, data.bids, data.lastPrice, this.focusedPair, fusion);
   }
 
   updateStatus(data: Partial<{ connected: boolean; lastUpdate: number }>) {
@@ -478,6 +482,7 @@ export class TuiApp {
     this.aiBox.setLabel(` ◈ AI Strategy Pulse — ${this.focusedPairClean} `);
     this.renderBookCached();
     this.renderAi();
+    this.renderSignals();
     this.render();
     if (this.onFocusChange) {
       this.onFocusChange(this.focusedPair);
@@ -529,9 +534,15 @@ export class TuiApp {
     }
   }
 
-  private fusionByPair = new Map<string, any>();
+  private fusionByPair = new Map<string, FusionSnapshot>();
 
-  updateOrderBook(asks: string[][], bids: string[][], lastPrice: string, pair?: string, metrics?: any) {
+  updateOrderBook(
+    asks: string[][],
+    bids: string[][],
+    lastPrice: string,
+    pair?: string,
+    metrics?: FusionSnapshot,
+  ) {
     const target = pair ?? this.focusedPair;
     this.bookByPair.set(target, { asks, bids, lastPrice });
     if (metrics) this.fusionByPair.set(target, metrics);
@@ -544,6 +555,8 @@ export class TuiApp {
     }
 
     const fusion = this.fusionByPair.get(target);
+    const askWallPrice = fusion?.bookMetrics?.askWallPrice ?? null;
+    const bidWallPrice = fusion?.bookMetrics?.bidWallPrice ?? null;
 
     // ── Compute max amount across all visible levels for bar scaling ──
     const parseAmt = (s: string) => parseFloat(s.replace(/,/g, '')) || 0;
@@ -574,7 +587,7 @@ export class TuiApp {
     // ── Asks (Red) ──
     const askRows = askSlice.map(row => {
       const priceVal = parseFloat(row[0].replace(/,/g, ''));
-      const isWall = fusion?.askWallPrice === priceVal;
+      const isWall = askWallPrice != null && askWallPrice > 0 && askWallPrice === priceVal;
       const amt = parseAmt(row[1]);
       const bar = renderBar(amt, 'red');
       const wallMarker = isWall ? '{bold}W{/bold}' : ' ';
@@ -612,7 +625,7 @@ export class TuiApp {
     // ── Bids (Green) ──
     const bidRows = bidSlice.map(row => {
       const priceVal = parseFloat(row[0].replace(/,/g, ''));
-      const isWall = fusion?.bidWallPrice === priceVal;
+      const isWall = bidWallPrice != null && bidWallPrice > 0 && bidWallPrice === priceVal;
       const amt = parseAmt(row[1]);
       const bar = renderBar(amt, 'green');
       const wallMarker = isWall ? '{bold}W{/bold}' : ' ';
@@ -622,7 +635,7 @@ export class TuiApp {
     });
 
     this.tradeTable.setContent(header + askRows.join('\n') + '\n' + ltpRow + bidRows.join('\n'));
-    this.render();
+    this.renderSignals();
   }
 
   updateAi(data: {
@@ -1044,11 +1057,11 @@ export class TuiApp {
   }
 
   private renderSignals(): void {
-    if (this.recentSignals.length === 0) {
-      this.signalsBox.setContent(' {gray-fg}Awaiting strategy signals...{/gray-fg}');
-      this.render();
-      return;
-    }
+    const sym = this.formatSignalSymbol(this.focusedPair);
+    const fusionSnap = this.fusionByPair.get(this.focusedPair);
+    const confluenceBlock = formatConfluencePanelBlock(sym, fusionSnap);
+    const divider = ' {gray-fg}────────────────{/gray-fg}';
+
     const lines = this.recentSignals.map(s => {
       const t = new Date(s.ts).toLocaleTimeString();
       const sym = this.formatSignalSymbol(s.pair);
@@ -1063,7 +1076,22 @@ export class TuiApp {
       const conf = `${((s.conf ?? 0) * 100).toFixed(0)}%`.padStart(4);
       return ` {gray-fg}${t}{/gray-fg} {${color}-fg}${tag}{/${color}-fg} ${this.padRight(sym, 10)} ${conf}`;
     });
-    this.signalsBox.setContent(lines.join('\n'));
+
+    const parts: string[] = [confluenceBlock];
+    if (lines.length > 0) {
+      parts.push(divider);
+      parts.push(...lines);
+    } else {
+      parts.push(divider);
+      parts.push(
+        ' {gray-fg}No strategy alerts yet (LONG/SHORT/WAIT).{/gray-fg}\n' +
+          ' {gray-fg}Fusion readout is above — scroll up if clipped.{/gray-fg}',
+      );
+    }
+    this.signalsBox.setContent(parts.join('\n'));
+    if (typeof this.signalsBox.resetScroll === 'function') {
+      this.signalsBox.resetScroll();
+    }
     this.render();
   }
 

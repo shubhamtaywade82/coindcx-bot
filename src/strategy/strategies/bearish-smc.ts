@@ -1,5 +1,14 @@
 import type { Strategy, StrategyContext, StrategyManifest, StrategySignal } from '../types';
 
+function liquidityRaidMicro(ctx: StrategyContext): number | undefined {
+  const lc = ctx.fusion?.liquidityRaid?.lastConfirmed;
+  if (!lc || lc.outcome !== 'reversalCandidate') return undefined;
+  if (!(lc.actionable || lc.watchlistQuality)) return undefined;
+  if (lc.side === 'buySide') return 0.35;
+  if (lc.side === 'sellSide') return -0.35;
+  return undefined;
+}
+
 /**
  * Three entry models from the bearish SMC rulebook (ordered by confluence strength):
  *
@@ -166,6 +175,8 @@ export class BearishSmc implements Strategy {
         atPremium:     ltf.premium_discount === 'premium',
         hasBearishFvg: !!bearishFvg,
         bookImbalance: book?.imbalance ?? 'unavailable',
+        liquidityRaidScore: ctx.fusion?.liquidityRaid?.lastConfirmed?.score,
+        liquidityRaidContribution: liquidityRaidMicro(ctx),
       },
     };
   }

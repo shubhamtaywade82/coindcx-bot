@@ -17,6 +17,8 @@ import {
   type SwingHistoryPoint,
   type SwingIndicators,
 } from './swing-indicators';
+import type { LiquidityRaidSnapshot } from './liquidity/types';
+import type { LiquidityEngine } from './liquidity/liquidity-engine';
 
 export interface L2Snapshot {
   pair: string;
@@ -60,6 +62,8 @@ export interface FusionSnapshot {
   microstructure: MicrostructureMetrics;
   intraday: IntradayIndicators;
   swing: SwingIndicators;
+  /** Stateful buy/sell-side raid model (tape + OHLCV); absent when engine disabled. */
+  liquidityRaid?: LiquidityRaidSnapshot;
   generatedAt: number;
 }
 
@@ -82,6 +86,7 @@ export class CoinDcxFusion extends EventEmitter {
     private books: BookManager,
     private trades?: TradeFlow,
     clock: () => number = Date.now,
+    private readonly liquidity?: LiquidityEngine | null,
   ) {
     super();
     this.now = clock;
@@ -212,6 +217,28 @@ export class CoinDcxFusion extends EventEmitter {
       return 'flat';
     };
 
+    const swing = computeSwingIndicators({
+      pair,
+      candles1h: mtf.timeframes['1h'] || [],
+      ltp,
+      historyByPair: this.swingHistoryByPair,
+      nowMs,
+    });
+
+    const poolTf = this.liquidity?.poolTimeframe ?? '15m';
+    const liquidityRaid = this.liquidity?.step({
+      pair,
+      poolCandles: mtf.timeframes[poolTf] || [],
+      ltf1mCandles: mtf.timeframes['1m'] || [],
+      bestBid,
+      bestAsk,
+      ltpPrice: ltp.price,
+      lastTradePrice: this.trades?.lastTick(pair)?.price,
+      tradeMetrics: this.trades?.metrics(pair) ?? null,
+      swing,
+      nowMs,
+    });
+
     return {
       pair,
       l2: {
@@ -231,10 +258,10 @@ export class CoinDcxFusion extends EventEmitter {
         bidWallSize,
         askWallPrice,
         askWallSize,
-        imbalance: bidDepth1pct > askDepth1pct * 1.5 
-          ? 'bid-heavy' 
-          : askDepth1pct > bidDepth1pct * 1.5 
-            ? 'ask-heavy' 
+        imbalance: bidDepth1pct > askDepth1pct * 1.5
+          ? 'bid-heavy'
+          : askDepth1pct > bidDepth1pct * 1.5
+            ? 'ask-heavy'
             : 'neutral',
       },
       candleMetrics: {
@@ -256,13 +283,8 @@ export class CoinDcxFusion extends EventEmitter {
         tradeFlow: this.trades,
         nowMs,
       }),
-      swing: computeSwingIndicators({
-        pair,
-        candles1h: mtf.timeframes['1h'] || [],
-        ltp,
-        historyByPair: this.swingHistoryByPair,
-        nowMs,
-      }),
+      swing,
+      ...(liquidityRaid ? { liquidityRaid } : {}),
       generatedAt: nowMs,
     };
   }

@@ -56,6 +56,30 @@ function cooldownForType(type: string, table: Record<string, number>): number | 
   return null;
 }
 
+/** Appends when strategies attach fusion liquidity raid meta (e.g. bearish.smc / smc.rule). */
+function liquidityRaidTelegramLine(meta: unknown): string {
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return '';
+  const m = meta as Record<string, unknown>;
+  const score =
+    typeof m.liquidityRaidScore === 'number' && Number.isFinite(m.liquidityRaidScore)
+      ? m.liquidityRaidScore
+      : undefined;
+  const contrib =
+    typeof m.liquidityRaidContribution === 'number' && Number.isFinite(m.liquidityRaidContribution)
+      ? m.liquidityRaidContribution
+      : undefined;
+  if (score === undefined && contrib === undefined) return '';
+  const bits: string[] = [];
+  if (m.postSweep === true) bits.push('sweep context');
+  if (score !== undefined) bits.push(`raid score \`${Number(score).toFixed(1)}\``);
+  if (contrib !== undefined) {
+    const c = Number(contrib);
+    const sign = c > 0 ? '+' : '';
+    bits.push(`flow \`${sign}${c.toFixed(2)}\``);
+  }
+  return `\n💧 *Liquidity:* ${bits.join(' · ')}`;
+}
+
 function fmt(s: Signal): string {
   const type = s.type || 'unknown';
   const payload = s.payload as any || {};
@@ -87,8 +111,9 @@ function fmt(s: Signal): string {
         ? `\n🧭 *Bias:* ${cb || '—'} → ${nb || '—'}${trig ? `\n   _Trigger:_ ${trig}` : ''}`
         : '';
       const chosen = payload.meta?.chosen_strategy ? `\n🎯 *Chosen:* \`${String(payload.meta.chosen_strategy)}\`` : '';
+      const raidLine = liquidityRaidTelegramLine(payload.meta);
 
-      msg = `*${side} ${pair}*${entry}${rr}${tp}${sl}${conf}${biasLine}${chosen}\n\n*Verdict:* ${payload.reason || 'No reasoning provided.'}${mgmt}`;
+      msg = `*${side} ${pair}*${entry}${rr}${tp}${sl}${conf}${biasLine}${chosen}${raidLine}\n\n*Verdict:* ${payload.reason || 'No reasoning provided.'}${mgmt}`;
     }
   } else if (type === 'risk.blocked') {
     icon = '🟡';

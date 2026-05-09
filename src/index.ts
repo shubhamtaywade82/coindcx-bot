@@ -232,6 +232,10 @@ function inferRuntimeMicrostructureContribution(payload: unknown): number | unde
   if (typeof raw === 'number' && Number.isFinite(raw)) {
     return Math.max(-1, Math.min(1, raw));
   }
+  const raid = meta.liquidityRaidContribution;
+  if (typeof raid === 'number' && Number.isFinite(raid)) {
+    return Math.max(-1, Math.min(1, raid));
+  }
   return undefined;
 }
 
@@ -250,6 +254,7 @@ function buildRuntimeConfluenceComponents(payload: unknown): Record<string, numb
     'microstructureContribution',
     'bookImbalanceContribution',
     'orderFlowContribution',
+    'liquidityRaidContribution',
   ]);
   const risk = pickFirstFinite(source, ['riskContribution']);
   const entries = Object.entries({
@@ -554,7 +559,17 @@ async function runApp(ctx: Context) {
   });
 
   const tradeFlow = new (await import('./marketdata/trade-flow')).TradeFlow();
-  const fusion = new CoinDcxFusion(ctx.logger.child({ mod: 'fusion' }), ws as any, mtfStore, integrity.books, tradeFlow);
+  const { LiquidityEngine, liquidityEngineConfigFromApp } = await import('./marketdata/liquidity/liquidity-engine');
+  const liquidityEngine = new LiquidityEngine(liquidityEngineConfigFromApp(ctx.config));
+  const fusion = new CoinDcxFusion(
+    ctx.logger.child({ mod: 'fusion' }),
+    ws as any,
+    mtfStore,
+    integrity.books,
+    tradeFlow,
+    undefined,
+    liquidityEngine,
+  );
   fusion.on('fusion', (snap) => {
     if (snap.pair === getFocusedCleanPair() || snap.pair === tui.focusedPair) {
       refreshBookDisplay();
@@ -976,18 +991,7 @@ async function runApp(ctx: Context) {
          return formatBookRow(p, q, bidCumulative);
       });
 
-    tui.updateOrderBook(
-      asks,
-      bids,
-      ticker?.price || '—',
-      rawPair,
-      snap
-        ? {
-            ...snap.bookMetrics,
-            microstructure: snap.microstructure,
-          }
-        : undefined,
-    );
+    tui.updateOrderBook(asks, bids, ticker?.price || '—', rawPair, snap ?? undefined);
     tui.updateStatus({ lastUpdate: Date.now() });
   }
 

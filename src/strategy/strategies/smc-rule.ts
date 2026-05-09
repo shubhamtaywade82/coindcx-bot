@@ -40,14 +40,30 @@ export class SmcRule implements Strategy {
     const sl = (isUp ? ltf.swing_low : ltf.swing_high).toString();
     const range = Math.abs(ltf.swing_high - ltf.swing_low);
     const tp = (isUp ? ltf.swing_high + range : ltf.swing_low - range).toString();
-    const strength = ltf.displacement.strength === 'strong' ? 0.85 : 0.65;
+    let confidence = ltf.displacement.strength === 'strong' ? 0.85 : 0.65;
+    const lc = ctx.fusion?.liquidityRaid?.lastConfirmed;
+    if (lc && lc.outcome === 'reversalCandidate' && (lc.actionable || lc.watchlistQuality)) {
+      if (isUp && lc.side === 'sellSide') confidence = Math.min(1, confidence + 0.05);
+      if (isDown && lc.side === 'buySide') confidence = Math.min(1, confidence + 0.05);
+    }
     return {
       side: isUp ? 'LONG' : 'SHORT',
-      confidence: strength,
+      confidence,
       entry, stopLoss: sl, takeProfit: tp,
       reason: `aligned ${htf.trend} + BOS + ${ltf.displacement.strength} displacement + ${wantFvg} FVG`,
       ttlMs: 5 * 60_000,
-      meta: { fvg, premium_discount: ltf.premium_discount },
+      meta: {
+        fvg,
+        premium_discount: ltf.premium_discount,
+        liquidityRaidScore: lc?.score,
+        liquidityRaidContribution: (() => {
+          if (!lc || lc.outcome !== 'reversalCandidate' || !(lc.actionable || lc.watchlistQuality)) {
+            return undefined;
+          }
+          if (lc.side === 'buySide') return isDown ? 0.35 : -0.15;
+          return isUp ? 0.35 : -0.15;
+        })(),
+      },
     };
   }
 }

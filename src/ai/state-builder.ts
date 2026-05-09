@@ -1,6 +1,7 @@
 import type { AppLogger } from '../logging/logger';
 import type { Pool } from 'pg';
 import type { FusionSnapshot } from '../marketdata/coindcx-fusion';
+import { displacementFromCandles } from '../marketdata/displacement';
 import type { Config } from '../config/schema';
 import type { PredictionOutcomeRepository } from '../prediction-outcomes/repository';
 import type { PredictionFeedback } from '../prediction-outcomes/types';
@@ -48,9 +49,18 @@ export interface MarketStateConfluence {
   narrative: string;
 }
 
+export interface MarketStateLiquidityRaid {
+  lastScore: number;
+  actionable: boolean;
+  watchlistQuality: boolean;
+  side: 'buySide' | 'sellSide';
+  atMs: number;
+}
+
 export interface MarketStateLiquidity {
-  pools: unknown[];
-  event: string;
+  pools: Array<{ type: 'high' | 'low'; price: number; age: number }>;
+  event: 'none' | 'sweep' | 'raid_confirmed' | string;
+  raid?: MarketStateLiquidityRaid;
 }
 
 export interface MarketStateFlags {
@@ -129,7 +139,7 @@ export class MarketStateBuilder {
     const htf = this.analyzeStructure(htfCandles, '1h');
     const ltf = this.analyzeStructure(ltfCandles, '15m');
     const smc = this.analyzeSMC(ltfCandles);
-    const liquidity = this.analyzeLiquidity(ltfCandles);
+    const liquidity = this.buildLiquidity(ltfCandles, fusion);
 
     let pine_signals: any[] = [];
     if (this.pool && pair) {
@@ -159,12 +169,12 @@ export class MarketStateBuilder {
       },
       confluence: {
         aligned: htf.trend === ltf.trend,
-        narrative: this.generateNarrative(htf.trend, ltf.trend, liquidity.event),
+        narrative: this.generateNarrative(htf.trend, ltf.trend, liquidity.event, liquidity.raid?.side),
       },
       liquidity,
       state: {
         is_trending: ltf.trend !== 'range',
-        is_post_sweep: liquidity.event === 'sweep',
+        is_post_sweep: this.isPostSweepLiquidity(liquidity, fusion),
         is_pre_expansion: smc.displacement.present && !smc.mitigation.status.includes('full'),
       },
       ...(bookSnapshot ? { book: bookSnapshot } : {}),
@@ -249,10 +259,65 @@ export class MarketStateBuilder {
     };
   }
 
-  private generateNarrative(htfTrend: string, ltfTrend: string, liqEvent: string) {
+  private generateNarrative(
+    htfTrend: string,
+    ltfTrend: string,
+    liqEvent: string,
+    raidSide?: 'buySide' | 'sellSide',
+  ) {
     if (htfTrend === ltfTrend) return `Strong ${htfTrend} momentum confirmed across timeframes.`;
     if (liqEvent === 'sweep') return `Counter-trend sweep detected. Potential reversal in play.`;
+    if (liqEvent === 'raid_confirmed') {
+      const sideLabel = raidSide === 'sellSide' ? 'Sell-side' : 'Buy-side';
+      return `${sideLabel} liquidity raid: rejection + opposite displacement (engine).`;
+    }
     return `Timeframe divergence. HTF ${htfTrend} vs LTF ${ltfTrend}. Exercise caution.`;
+  }
+
+  private buildLiquidity(ltfCandles: Candle[], fusion: FusionSnapshot | null): MarketStateLiquidity {
+    const raid = fusion?.liquidityRaid;
+    if (raid?.enabled) {
+      const lc = raid.lastConfirmed;
+      const pools: MarketStateLiquidity['pools'] = raid.pools.map(p => ({
+        type: p.side === 'buySide' ? 'high' : 'low',
+        price: p.price,
+        age: 0,
+      }));
+      const sweepish =
+        lc &&
+        lc.outcome === 'reversalCandidate' &&
+        (lc.actionable || lc.watchlistQuality);
+      return {
+        pools,
+        event: sweepish ? 'raid_confirmed' : 'none',
+        raid: lc
+          ? {
+              lastScore: lc.score,
+              actionable: lc.actionable,
+              watchlistQuality: lc.watchlistQuality,
+              side: lc.side,
+              atMs: lc.atMs,
+            }
+          : undefined,
+      };
+    }
+    const legacy = this.analyzeLiquidity(ltfCandles);
+    return {
+      pools: legacy.pools,
+      event: legacy.event === 'sweep' ? 'sweep' : 'none',
+    };
+  }
+
+  private isPostSweepLiquidity(liquidity: MarketStateLiquidity, fusion: FusionSnapshot | null): boolean {
+    if (fusion?.liquidityRaid?.enabled) {
+      const lc = fusion.liquidityRaid.lastConfirmed;
+      if (lc && lc.outcome === 'reversalCandidate' && (lc.actionable || lc.watchlistQuality)) {
+        const anchor = fusion.generatedAt ?? Date.now();
+        return anchor - lc.atMs < 3_600_000;
+      }
+      return false;
+    }
+    return liquidity.event === 'sweep';
   }
 
   private analyzeSMC(candles: Candle[]) {
@@ -271,14 +336,12 @@ export class MarketStateBuilder {
       }
     }
 
-    // Displacement (Strong move detection)
-    const lastBody = Math.abs(candles[candles.length - 1].close - candles[candles.length - 1].open);
-    const avgBody = candles.slice(-10).reduce((acc, c) => acc + Math.abs(c.close - c.open), 0) / 10;
+    const disp = displacementFromCandles(candles, 10);
 
     return {
       displacement: {
-        present: lastBody > avgBody * 1.5,
-        strength: (lastBody > avgBody * 2.5 ? 'strong' : 'weak') as 'strong' | 'weak',
+        present: disp.present,
+        strength: disp.strength,
       },
       fvg: fvgs.slice(-3) as Array<{ type: 'bullish' | 'bearish'; gap: [number, number]; filled: boolean }>,
       mitigation: {

@@ -74,4 +74,34 @@ describe('TelegramSink', () => {
     });
     expect(scope.isDone()).toBe(true);
   });
+
+  it('includes liquidity raid meta in strategy Telegram body', async () => {
+    const scope = nock(baseUrl)
+      .post(`/bot${token}/sendMessage`, (body: { text?: string }) => {
+        const t = body.text ?? '';
+        return t.includes('Liquidity') && t.includes('raid score') && t.includes('8.0') && t.includes('flow') && t.includes('+0.35');
+      })
+      .reply(200, { ok: true });
+    const sink = new TelegramSink({
+      token, chatId: chat, ratePerMin: 60, retryDelaysMs: [1, 1, 1],
+    });
+    await sink.emit({
+      id: '1',
+      ts: 't',
+      strategy: 'bearish.smc.v1',
+      type: 'strategy.short',
+      severity: 'info',
+      pair: 'B-SOL_USDT',
+      payload: {
+        reason: 'test',
+        confidence: 0.7,
+        meta: {
+          postSweep: true,
+          liquidityRaidScore: 8,
+          liquidityRaidContribution: 0.35,
+        },
+      },
+    });
+    expect(scope.isDone()).toBe(true);
+  });
 });
