@@ -225,10 +225,16 @@ export class CoinDcxFusion extends EventEmitter {
       nowMs,
     });
 
-    const poolTf = this.liquidity?.poolTimeframe ?? '15m';
+    const poolTfs = this.liquidity?.poolTimeframes?.length
+      ? [...this.liquidity.poolTimeframes]
+      : ['15m'];
+    const poolCandlesByTf: Record<string, Candle[]> = {};
+    for (const tf of poolTfs) {
+      poolCandlesByTf[tf] = mtf.timeframes[tf] || [];
+    }
     const liquidityRaid = this.liquidity?.step({
       pair,
-      poolCandles: mtf.timeframes[poolTf] || [],
+      poolCandlesByTf,
       ltf1mCandles: mtf.timeframes['1m'] || [],
       bestBid,
       bestAsk,

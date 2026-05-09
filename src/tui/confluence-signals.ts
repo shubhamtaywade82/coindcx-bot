@@ -147,13 +147,13 @@ export function buildConfluenceReadout(fusion: FusionSnapshot): ConfluenceReadou
     if (raid.activeEvent) {
       const ae = raid.activeEvent;
       bits.push(
-        `${ae.state} ${ae.side} @${formatPrice(String(ae.poolPrice))} sc:${(ae.score ?? 0).toFixed(0)}`,
+        `[${ae.timeframe}] ${ae.state} ${ae.side} @${formatPrice(String(ae.poolPrice))} sc:${(ae.score ?? 0).toFixed(0)}`,
       );
     }
     if (raid.lastConfirmed) {
       const lc = raid.lastConfirmed;
       const tag = lc.actionable ? '*' : lc.watchlistQuality ? '·' : '';
-      bits.push(`✓ ${lc.outcome} ${lc.side} ${lc.score}${tag}`);
+      bits.push(`✓[${lc.timeframe}] ${lc.outcome} ${lc.side} ${lc.score}${tag}`);
     }
     detailLines.push(
       bits.length > 0

@@ -7,7 +7,7 @@ import type { SwingIndicators } from '../../../src/marketdata/swing-indicators';
 
 const cfg: LiquidityEngineConfig = {
   enabled: true,
-  poolTimeframe: '15m',
+  poolTimeframes: ['15m'],
   lookbackBars: 48,
   equalClusterFloorPct: 0.1,
   equalClusterAtrMult: 0.25,
@@ -48,7 +48,7 @@ describe('liquidity scoring', () => {
 
   it('awards displacement and MSS when inputs match', () => {
     const pool: LiquidityPool = {
-      id: 'buySide-100',
+      id: '15m:buySide-100.000000',
       side: 'buySide',
       price: 100,
       createdAtBarTs: 0,

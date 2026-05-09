@@ -82,8 +82,8 @@ function clusterPrices(
   return clusters;
 }
 
-function makePoolId(side: LiquidityPoolSide, price: number): string {
-  return `${side}-${price.toFixed(6)}`;
+function makePoolId(tf: string, side: LiquidityPoolSide, price: number): string {
+  return `${tf}:${side}-${price.toFixed(6)}`;
 }
 
 function clusterCenterPrice(indices: number[], closed: Candle[], mode: 'high' | 'low'): number {
@@ -117,7 +117,7 @@ export function discoverLiquidityPools(
     const createdAtBarTs = Math.max(...idxs.map(i => slice[i]!.timestamp));
     const side: LiquidityPoolSide = 'buySide';
     pools.push({
-      id: makePoolId(side, price),
+      id: makePoolId(timeframe, side, price),
       side,
       price,
       createdAtBarTs,
@@ -135,7 +135,7 @@ export function discoverLiquidityPools(
     const createdAtBarTs = Math.max(...idxs.map(i => slice[i]!.timestamp));
     const side: LiquidityPoolSide = 'sellSide';
     pools.push({
-      id: makePoolId(side, price),
+      id: makePoolId(timeframe, side, price),
       side,
       price,
       createdAtBarTs,

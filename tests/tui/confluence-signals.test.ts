@@ -121,11 +121,13 @@ describe('confluence-signals', () => {
     const f = baseFusion();
     f.liquidityRaid = {
       enabled: true,
+      poolTimeframes: ['15m'],
       timeframe: '15m',
       pools: [],
       activeEvent: null,
       lastConfirmed: {
         poolId: 'p1',
+        timeframe: '15m',
         side: 'buySide',
         poolPrice: 99,
         outcome: 'reversalCandidate',

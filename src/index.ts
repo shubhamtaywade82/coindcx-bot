@@ -583,7 +583,11 @@ async function runApp(ctx: Context) {
         await mtfStore.seed(rawPair);
         const ltfCount = mtfStore.get(rawPair, '15m').length;
         const htfCount = mtfStore.get(rawPair, '1h').length;
-        tui.log(`{gray-fg}[MTF] Seeded ${cleanPair(rawPair)}: 1m=${mtfStore.get(rawPair, '1m').length} 15m=${ltfCount} 1h=${htfCount}{/gray-fg}`);
+        const c5m = mtfStore.get(rawPair, '5m').length;
+        const c4h = mtfStore.get(rawPair, '4h').length;
+        tui.log(
+          `{gray-fg}[MTF] Seeded ${cleanPair(rawPair)}: 1m=${mtfStore.get(rawPair, '1m').length} 5m=${c5m} 15m=${ltfCount} 1h=${htfCount} 4h=${c4h}{/gray-fg}`,
+        );
       } catch (err: any) {
         tui.log(`{red-fg}⚠ [MTF] Seed failed for ${rawPair}: ${err.message}{/red-fg}`, 'error');
       }
@@ -859,12 +863,17 @@ async function runApp(ctx: Context) {
     for (const rawPair of configuredPairs) {
       const symbol = cleanPair(rawPair);
       const c1m  = mtfStore.get(rawPair, '1m').length;
+      const c5m  = mtfStore.get(rawPair, '5m').length;
       const c15m = mtfStore.get(rawPair, '15m').length;
       const c1h  = mtfStore.get(rawPair, '1h').length;
+      const c4h  = mtfStore.get(rawPair, '4h').length;
       if (c15m > 0 && c1h > 0) {
-        tui.log(`{gray-fg}[MTF] ${symbol}: 1m=${c1m} 15m=${c15m} 1h=${c1h}{/gray-fg}`);
+        tui.log(`{gray-fg}[MTF] ${symbol}: 1m=${c1m} 5m=${c5m} 15m=${c15m} 1h=${c1h} 4h=${c4h}{/gray-fg}`);
       } else {
-        tui.log(`{red-fg}⚠ [MTF] No candles for ${rawPair} (1m=${c1m} 15m=${c15m} 1h=${c1h}){/red-fg}`, 'error');
+        tui.log(
+          `{red-fg}⚠ [MTF] No candles for ${rawPair} (1m=${c1m} 5m=${c5m} 15m=${c15m} 1h=${c1h} 4h=${c4h}){/red-fg}`,
+          'error',
+        );
       }
     }
   }

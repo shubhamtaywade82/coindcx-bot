@@ -10,7 +10,7 @@ const BAR_MS = 60_000;
 
 const baseConfig: LiquidityEngineConfig = {
   enabled: true,
-  poolTimeframe: '1m',
+  poolTimeframes: ['1m'],
   lookbackBars: 80,
   equalClusterFloorPct: 0.2,
   equalClusterAtrMult: 0.25,
@@ -98,7 +98,27 @@ function stepInput(
 ): LiquidityEngineStepInput {
   return {
     pair: PAIR,
-    poolCandles,
+    poolCandlesByTf: { '1m': poolCandles },
+    ltf1mCandles: [],
+    bestBid: price,
+    bestAsk: price,
+    ltpPrice: price,
+    lastTradePrice: price,
+    swing: bearishSwing,
+    nowMs,
+    ...overrides,
+  };
+}
+
+function stepInputMulti(
+  poolCandlesByTf: Record<string, Candle[]>,
+  price: number,
+  nowMs: number,
+  overrides: Partial<LiquidityEngineStepInput> = {},
+): LiquidityEngineStepInput {
+  return {
+    pair: PAIR,
+    poolCandlesByTf,
     ltf1mCandles: [],
     bestBid: price,
     bestAsk: price,
@@ -111,6 +131,15 @@ function stepInput(
 }
 
 describe('LiquidityEngine', () => {
+  it('discovers pools on each configured pool timeframe', () => {
+    const engine = new LiquidityEngine({ ...baseConfig, poolTimeframes: ['1m', '5m'] });
+    const candles = withForming(buySideClosedCandles());
+    const snapshot = engine.step(stepInputMulti({ '1m': candles, '5m': candles }, 99.5, START_TS));
+    const timeframes = new Set(snapshot?.pools.map(p => p.timeframe));
+    expect(timeframes.has('1m')).toBe(true);
+    expect(timeframes.has('5m')).toBe(true);
+  });
+
   it('keeps a touched buy-side raid active without emitting a confirmed signal', () => {
     const engine = new LiquidityEngine(baseConfig);
     const candles = withForming(buySideClosedCandles());

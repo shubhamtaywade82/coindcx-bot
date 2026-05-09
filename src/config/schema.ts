@@ -123,7 +123,20 @@ export const ConfigSchema = z.object({
 
   /** Stateful liquidity raid engine (Fusion). */
   LIQUIDITY_ENGINE_ENABLED: z.string().default('true').transform(s => s !== 'false'),
-  LIQUIDITY_POOL_TIMEFRAME: z.enum(['1m', '15m', '1h']).default('15m'),
+  /** Comma-separated list. If unset, falls back to `LIQUIDITY_POOL_TIMEFRAME` (single TF) then default. */
+  LIQUIDITY_POOL_TIMEFRAMES: z.preprocess((val: unknown) => {
+    if (typeof val === 'string' && val.trim() !== '') return val.trim();
+    const leg = process.env.LIQUIDITY_POOL_TIMEFRAME;
+    if (typeof leg === 'string' && leg.trim() !== '') return leg.trim();
+    return '5m,15m,1h,4h';
+  }, z.string()).transform((s) => {
+    const allowed = new Set(['1m', '5m', '15m', '30m', '1h', '4h', '1d']);
+    const parts = s.split(',').map((x) => x.trim()).filter(Boolean);
+    const out = parts.filter((p) => allowed.has(p));
+    return out.length > 0 ? out : ['5m', '15m', '1h', '4h'];
+  }),
+  /** @deprecated Use `LIQUIDITY_POOL_TIMEFRAMES`. Still read when TIMEFRAMES is unset (see preprocess). */
+  LIQUIDITY_POOL_TIMEFRAME: z.enum(['1m', '5m', '15m', '30m', '1h', '4h', '1d']).optional(),
   LIQUIDITY_LOOKBACK_BARS: z.coerce.number().int().positive().max(500).default(48),
   LIQUIDITY_EQUAL_CLUSTER_FLOOR_PCT: z.coerce.number().positive().max(2).default(0.1),
   LIQUIDITY_EQUAL_CLUSTER_ATR_MULT: z.coerce.number().positive().max(2).default(0.25),

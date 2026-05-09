@@ -5,7 +5,7 @@ import type { Candle } from '../../../src/ai/state-builder';
 
 const baseCfg: LiquidityEngineConfig = {
   enabled: true,
-  poolTimeframe: '15m',
+  poolTimeframes: ['15m'],
   lookbackBars: 80,
   equalClusterFloorPct: 0.15,
   equalClusterAtrMult: 0.25,

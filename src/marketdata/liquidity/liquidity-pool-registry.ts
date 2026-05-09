@@ -11,16 +11,27 @@ export class LiquidityPoolRegistry {
   }
 
   /**
-   * Refresh pools from closed candle history on each new pool-TF bar close.
+   * Refresh pools for one timeframe when that TF prints a new **closed** bar.
+   * Pools from other timeframes are preserved; merges only against prior pools of the same TF.
    */
-  refreshFromClosed(pair: string, closed: Candle[], timeframe: string, cfg: LiquidityEngineConfig): void {
+  refreshFromClosedForTimeframe(
+    pair: string,
+    closed: Candle[],
+    timeframe: string,
+    cfg: LiquidityEngineConfig,
+  ): void {
     const discovered = discoverLiquidityPools(closed, timeframe, cfg);
     const previous = this.pools.get(pair) ?? [];
-    const merged = discovered
-      .map(pool => this.mergePool(pool, previous, cfg))
+    const sameTfPrev = previous.filter(p => p.timeframe === timeframe);
+    const otherTf = previous.filter(p => p.timeframe !== timeframe);
+    const mergedTf = discovered
+      .map(pool => this.mergePool(pool, sameTfPrev, cfg))
       .map(pool => (pool.strength < 0.05 ? { ...pool, status: 'invalidated' as const } : pool))
       .filter(pool => pool.strength >= 0.05 && pool.status !== 'invalidated');
-    this.pools.set(pair, merged);
+    const combined = [...otherTf, ...mergedTf]
+      .sort((a, b) => b.strength - a.strength)
+      .slice(0, cfg.maxPoolsPerPair);
+    this.pools.set(pair, combined);
   }
 
   /** Light intrabar decay (optional softening between bar closes). */

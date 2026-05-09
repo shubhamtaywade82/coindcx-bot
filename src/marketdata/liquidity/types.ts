@@ -56,6 +56,7 @@ export interface LiquidityRaidPoolPublic {
 
 export interface LiquidityRaidActivePublic {
   poolId: string;
+  timeframe: string;
   side: LiquidityPoolSide;
   poolPrice: number;
   state: RaidEventState;
@@ -66,6 +67,8 @@ export interface LiquidityRaidActivePublic {
 
 export interface LiquidityRaidConfirmedPublic {
   poolId: string;
+  /** Candle timeframe this pool was derived from. */
+  timeframe: string;
   side: LiquidityPoolSide;
   poolPrice: number;
   outcome: RaidOutcome;
@@ -79,6 +82,9 @@ export interface LiquidityRaidConfirmedPublic {
 
 export interface LiquidityRaidSnapshot {
   enabled: true;
+  /** Pool discovery / sweep timeframes (engine config). */
+  poolTimeframes: string[];
+  /** Joined list for compact display (same order as config). */
   timeframe: string;
   pools: LiquidityRaidPoolPublic[];
   activeEvent: LiquidityRaidActivePublic | null;
@@ -88,7 +94,8 @@ export interface LiquidityRaidSnapshot {
 
 export interface LiquidityEngineConfig {
   enabled: boolean;
-  poolTimeframe: '1m' | '15m' | '1h';
+  /** Pool discovery runs on each listed timeframe (e.g. 5m + 15m + 1h + 4h). */
+  poolTimeframes: string[];
   lookbackBars: number;
   equalClusterFloorPct: number;
   equalClusterAtrMult: number;
@@ -112,7 +119,8 @@ export interface LiquidityEngineConfig {
 
 export interface LiquidityEngineStepInput {
   pair: string;
-  poolCandles: Candle[];
+  /** Closed+forming series per pool timeframe (keys must cover `cfg.poolTimeframes`). */
+  poolCandlesByTf: Record<string, Candle[]>;
   ltf1mCandles: Candle[];
   bestBid: number;
   bestAsk: number;

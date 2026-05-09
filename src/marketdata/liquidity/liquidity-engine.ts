@@ -18,7 +18,7 @@ import type {
 const PRICE_RING_MAX = 32;
 
 interface PairLiquidityState {
-  lastPoolClosedBarTs: number;
+  lastPoolClosedBarTsByTf: Map<string, number>;
   events: Map<string, LiquidityRaidEvent>;
   priceRing: Array<{ ts: number; price: number }>;
   lastConfirmed: LiquidityRaidConfirmedPublic | null;
@@ -136,7 +136,7 @@ function penetrationSweetSpot(pct: number, band: { min: number; max: number }): 
 export function liquidityEngineConfigFromApp(app: Config): LiquidityEngineConfig {
   return {
     enabled: app.LIQUIDITY_ENGINE_ENABLED,
-    poolTimeframe: app.LIQUIDITY_POOL_TIMEFRAME,
+    poolTimeframes: app.LIQUIDITY_POOL_TIMEFRAMES,
     lookbackBars: app.LIQUIDITY_LOOKBACK_BARS,
     equalClusterFloorPct: app.LIQUIDITY_EQUAL_CLUSTER_FLOOR_PCT,
     equalClusterAtrMult: app.LIQUIDITY_EQUAL_CLUSTER_ATR_MULT,
@@ -165,19 +165,18 @@ export class LiquidityEngine {
 
   constructor(private readonly cfg: LiquidityEngineConfig) {}
 
-  get poolTimeframe(): LiquidityEngineConfig['poolTimeframe'] {
-    return this.cfg.poolTimeframe;
+  get poolTimeframes(): readonly string[] {
+    return this.cfg.poolTimeframes;
   }
 
   step(input: LiquidityEngineStepInput): LiquidityRaidSnapshot | null {
     if (!this.cfg.enabled) return null;
-    const { pair, poolCandles, ltf1mCandles, swing, nowMs } = input;
-    if (poolCandles.length < 8) return this.emptySnapshot(pair);
+    const { pair, poolCandlesByTf, ltf1mCandles, swing, nowMs } = input;
 
     let st = this.pairState.get(pair);
     if (!st) {
       st = {
-        lastPoolClosedBarTs: 0,
+        lastPoolClosedBarTsByTf: new Map(),
         events: new Map(),
         priceRing: [],
         lastConfirmed: null,
@@ -185,15 +184,30 @@ export class LiquidityEngine {
       this.pairState.set(pair, st);
     }
 
-    const closed = poolCandles.slice(0, -1);
-    if (closed.length < 5) return this.emptySnapshot(pair);
+    let anyTfReady = false;
+    let advancedAnyBar = false;
+    for (const tf of this.cfg.poolTimeframes) {
+      const poolCandles = poolCandlesByTf[tf] ?? [];
+      if (poolCandles.length < 8) continue;
+      anyTfReady = true;
+      const closed = poolCandles.slice(0, -1);
+      if (closed.length < 5) continue;
 
-    const lastClosedTs = closed[closed.length - 1]!.timestamp;
-    if (lastClosedTs > st.lastPoolClosedBarTs) {
-      st.lastPoolClosedBarTs = lastClosedTs;
-      this.registry.refreshFromClosed(pair, closed, this.cfg.poolTimeframe, this.cfg);
-      this.onNewClosedBar(pair, closed, ltf1mCandles, swing, nowMs, st);
-    } else {
+      const lastClosedTs = closed[closed.length - 1]!.timestamp;
+      const prevTs = st.lastPoolClosedBarTsByTf.get(tf) ?? 0;
+      if (lastClosedTs > prevTs) {
+        advancedAnyBar = true;
+        st.lastPoolClosedBarTsByTf.set(tf, lastClosedTs);
+        this.registry.refreshFromClosedForTimeframe(pair, closed, tf, this.cfg);
+        this.onNewClosedBar(pair, closed, tf, ltf1mCandles, swing, nowMs, st);
+      }
+    }
+
+    if (!anyTfReady) {
+      return this.emptySnapshot(pair);
+    }
+
+    if (!advancedAnyBar) {
       this.registry.tickDecay(pair, this.cfg);
     }
 
@@ -203,13 +217,16 @@ export class LiquidityEngine {
       st.priceRing.splice(0, st.priceRing.length - PRICE_RING_MAX);
     }
 
-    const band = penetrationBand(closed, this.cfg);
-    const volSpike = volumeSpikeClosed(closed, this.cfg);
-    const velOk = velocityOk(st.priceRing, ref, nowMs, this.cfg);
-
     const pools = this.registry.getPools(pair);
     for (const pool of pools) {
       if (pool.status === 'invalidated') continue;
+      const poolCandles = poolCandlesByTf[pool.timeframe] ?? [];
+      if (poolCandles.length < 8) continue;
+      const closed = poolCandles.slice(0, -1);
+      if (closed.length < 5) continue;
+      const band = penetrationBand(closed, this.cfg);
+      const volSpike = volumeSpikeClosed(closed, this.cfg);
+      const velOk = velocityOk(st.priceRing, ref, nowMs, this.cfg);
       this.processPoolIntrabar(pool, ref, closed, volSpike, velOk, band, nowMs, st, input);
     }
 
@@ -220,9 +237,11 @@ export class LiquidityEngine {
 
   private emptySnapshot(pair: string): LiquidityRaidSnapshot {
     void pair;
+    const tfs = [...this.cfg.poolTimeframes];
     return {
       enabled: true,
-      timeframe: this.cfg.poolTimeframe,
+      poolTimeframes: tfs,
+      timeframe: tfs.join('+'),
       pools: [],
       activeEvent: null,
       lastConfirmed: null,
@@ -232,6 +251,7 @@ export class LiquidityEngine {
   private onNewClosedBar(
     pair: string,
     closed: Candle[],
+    tf: string,
     ltf1m: Candle[],
     swing: LiquidityEngineStepInput['swing'],
     nowMs: number,
@@ -247,6 +267,7 @@ export class LiquidityEngine {
         st.events.delete(poolId);
         continue;
       }
+      if (pool.timeframe !== tf) continue;
       ev.barsSinceSweep += 1;
       ev.updatedAtMs = nowMs;
 
@@ -288,6 +309,7 @@ export class LiquidityEngine {
             const actionable = isActionableScore(total, this.cfg);
             st.lastConfirmed = {
               poolId: pool.id,
+              timeframe: pool.timeframe,
               side: pool.side,
               poolPrice: pool.price,
               outcome: ev.outcome,
@@ -338,6 +360,7 @@ export class LiquidityEngine {
             const actionable = isActionableScore(total, this.cfg);
             st.lastConfirmed = {
               poolId: pool.id,
+              timeframe: pool.timeframe,
               side: pool.side,
               poolPrice: pool.price,
               outcome: ev.outcome,
@@ -473,6 +496,7 @@ export class LiquidityEngine {
       if (!pool) continue;
       activeCandidates.push({
         poolId,
+        timeframe: pool.timeframe,
         side: pool.side,
         poolPrice: pool.price,
         state: ev.state as RaidEventState,
@@ -487,6 +511,7 @@ export class LiquidityEngine {
     const activePublic: LiquidityRaidActivePublic | null = active
       ? {
           poolId: active.poolId,
+          timeframe: active.timeframe,
           side: active.side,
           poolPrice: active.poolPrice,
           state: active.state,
@@ -496,9 +521,11 @@ export class LiquidityEngine {
         }
       : null;
 
+    const tfs = [...this.cfg.poolTimeframes];
     return {
       enabled: true,
-      timeframe: this.cfg.poolTimeframe,
+      poolTimeframes: tfs,
+      timeframe: tfs.join('+'),
       pools: poolsPub,
       activeEvent: activePublic,
       lastConfirmed: st.lastConfirmed,

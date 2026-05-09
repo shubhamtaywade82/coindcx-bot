@@ -12,9 +12,11 @@ export interface TfConfig {
 }
 
 export const DEFAULT_TF_CONFIGS: TfConfig[] = [
-  { interval: '1m',  historyLength: 100, pollMs: 0 },        // live via WS candlestick
-  { interval: '15m', historyLength: 50,  pollMs: 60_000 },   // REST poll 60 s
-  { interval: '1h',  historyLength: 30,  pollMs: 300_000 },  // REST poll 5 min
+  { interval: '1m',  historyLength: 100, pollMs: 0 }, // live via WS candlestick
+  { interval: '5m',  historyLength: 80,  pollMs: 60_000 },
+  { interval: '15m', historyLength: 50,  pollMs: 60_000 },
+  { interval: '1h',  historyLength: 30,  pollMs: 300_000 },
+  { interval: '4h',  historyLength: 40,  pollMs: 600_000 },
 ];
 
 export interface MtfStoreOptions {
