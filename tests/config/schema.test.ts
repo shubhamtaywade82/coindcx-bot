@@ -52,7 +52,13 @@ describe('F4 strategy config defaults', () => {
       'llm.pulse.v1',
       'trendline.breakout.v1',
       'ai.conductor.v1',
+      'paper.supertrend.v1',
     ]);
+    expect(cfg.PAPER_SUPERTREND_ENABLED).toBe(true);
+    expect(cfg.PAPER_SUPERTREND_PAIRS).toEqual(['B-ETH_USDT', 'B-SOL_USDT']);
+    expect(cfg.PAPER_SUPERTREND_CAPITAL_USDT).toBe(1000);
+    expect(cfg.PAPER_SUPERTREND_MAX_LEGS).toBe(4);
+    expect(cfg.PAPER_SUPERTREND_TF).toBe('15m');
     expect(cfg.PREDICTION_OUTCOME_ENABLED).toBe(false);
     expect(cfg.PREDICTION_FEEDBACK_IN_PROMPT).toBe(true);
     expect(cfg.PREDICTION_FEEDBACK_CACHE_TTL_MS).toBe(45_000);

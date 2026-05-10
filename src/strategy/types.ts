@@ -1,6 +1,7 @@
 import type { MarketState, Candle } from '../ai/state-builder';
 import type { AccountSnapshot, Fill } from '../account/types';
 import type { FusionSnapshot } from '../marketdata/coindcx-fusion';
+import type { Severity } from '../signals/types';
 
 export type StrategyMode = 'interval' | 'tick' | 'bar_close' | 'manual';
 export type Side = 'LONG' | 'SHORT' | 'WAIT';
@@ -35,6 +36,12 @@ export interface StrategyContext {
   fusion?: FusionSnapshot;
 }
 
+/** When set, StrategyController emits this type/severity to SignalBus and skips the risk filter. */
+export interface StrategyDirectEmit {
+  type: string;
+  severity: Severity;
+}
+
 export interface StrategySignal {
   side: Side;
   confidence: number;
@@ -46,6 +53,7 @@ export interface StrategySignal {
   management?: string;
   ttlMs?: number;
   meta?: Record<string, unknown>;
+  directEmit?: StrategyDirectEmit;
 }
 
 export interface Strategy {

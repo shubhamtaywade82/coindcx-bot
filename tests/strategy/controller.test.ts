@@ -45,6 +45,26 @@ const baseDeps = () => {
 };
 
 describe('StrategyController', () => {
+  it('emits directEmit payloads without invoking the risk filter', async () => {
+    const deps = baseDeps();
+    const filter = { filter: vi.fn() };
+    const ctrl = new StrategyController({ ...deps, riskFilter: filter as any });
+    ctrl.register(
+      makeStrategy('paper.test', ['B-ETH_USDT'], () => ({
+        side: 'LONG',
+        confidence: 1,
+        reason: 'paper',
+        directEmit: { type: 'paper.supertrend.entry', severity: 'info' },
+        meta: { pair: 'B-ETH_USDT', legCount: 1 },
+      })),
+    );
+    await ctrl.runOnce('paper.test', 'B-ETH_USDT', { kind: 'interval' });
+    expect(filter.filter).not.toHaveBeenCalled();
+    expect(deps.signalBus.emit).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'paper.supertrend.entry', strategy: 'paper.test' }),
+    );
+  });
+
   it('emits a signal through the pipeline', async () => {
     const deps = baseDeps();
     const ctrl = new StrategyController(deps);

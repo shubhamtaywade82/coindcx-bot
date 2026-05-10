@@ -117,6 +117,11 @@ export class StrategyController {
       this.registry.resetErrorStreak(id, pair);
       return;
     }
+    if (raw.directEmit) {
+      this.registry.resetErrorStreak(id, pair);
+      await this.emitDirect(raw, manifest, pair);
+      return;
+    }
     if (!VALID_SIDES.has(raw.side as Side)) {
       await this.handleError(id, pair, new Error(`invalid side: ${raw.side}`));
       return;
@@ -132,6 +137,34 @@ export class StrategyController {
     if (!filtered) return;
     if (filtered.side === 'WAIT' && !this.opts.config.emitWait) return;
     await this.emit(filtered, manifest, pair);
+  }
+
+  private async emitDirect(signal: StrategySignal, manifest: StrategyManifest, pair: string): Promise<void> {
+    const ts = this.clock();
+    const de = signal.directEmit!;
+    const clientSignalId = `${manifest.id}:${pair}:${de.type}:${ts}`;
+    const out: Signal = {
+      id: clientSignalId,
+      ts: new Date(ts).toISOString(),
+      strategy: manifest.id,
+      type: de.type,
+      pair,
+      severity: de.severity,
+      payload: {
+        clientSignalId,
+        confidence: signal.confidence,
+        entry: signal.entry,
+        stopLoss: signal.stopLoss,
+        takeProfit: signal.takeProfit,
+        reason: signal.reason,
+        noTradeCondition: signal.noTradeCondition,
+        ttlMs: signal.ttlMs,
+        manifestVersion: manifest.version,
+        ...(signal.meta ?? {}),
+      },
+    };
+    await this.opts.signalBus.emit(out);
+    this.registry.recordEmit(manifest.id);
   }
 
   private async emit(signal: StrategySignal, manifest: StrategyManifest, pair: string): Promise<void> {

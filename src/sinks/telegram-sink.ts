@@ -57,6 +57,75 @@ function cooldownForType(type: string, table: Record<string, number>): number | 
 }
 
 /** Appends when strategies attach fusion liquidity raid meta (e.g. bearish.smc / smc.rule). */
+function formatHoldMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  const m = Math.floor(ms / 60_000) % 60;
+  const h = Math.floor(ms / 3_600_000);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function formatPaperSupertrend(s: Signal): string {
+  const type = s.type || '';
+  const p = (s.payload ?? {}) as Record<string, unknown>;
+  const pairRaw = s.pair ?? '';
+  const sym = String(pairRaw).replace(/^B-/, '').replace(/_USDT$/i, '');
+  const side = String(p.side ?? '—').toUpperCase();
+  const entry = typeof p.entryPrice === 'number' ? p.entryPrice : Number(p.entry);
+  const exitPx = typeof p.exitPrice === 'number' ? p.exitPrice : undefined;
+  const legCount = typeof p.legCount === 'number' ? p.legCount : Number(p.legCount);
+  const legsLabel =
+    Number.isFinite(legCount) && legCount > 1 ? ` (avg over ${legCount} legs)` : '';
+
+  if (type === 'paper.supertrend.tp') {
+    const pnl = typeof p.realizedPnlUsdt === 'number' ? p.realizedPnlUsdt : Number(p.realizedPnlUsdt);
+    const pnlVsCapPct =
+      typeof p.realizedPnlPct === 'number' ? p.realizedPnlPct : Number(p.realizedPnlPct);
+    const holdMs = typeof p.holdDurationMs === 'number' ? p.holdDurationMs : Number(p.holdDurationMs);
+    const bars = typeof p.barsHeld === 'number' ? p.barsHeld : Number(p.barsHeld);
+    const exitPct =
+      Number.isFinite(entry) && entry > 0 && exitPx !== undefined && Number.isFinite(exitPx)
+        ? (side === 'SHORT'
+          ? ((entry - exitPx) / entry) * 100
+          : ((exitPx - entry) / entry) * 100)
+        : Number.NaN;
+    const pnlStr = Number.isFinite(pnl) ? `${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USDT` : '—';
+    const capPctStr =
+      Number.isFinite(pnlVsCapPct) ? ` (${pnlVsCapPct >= 0 ? '+' : ''}${pnlVsCapPct.toFixed(2)}% vs cap)` : '';
+    const pctStr = Number.isFinite(exitPct) ? `${exitPct >= 0 ? '+' : ''}${exitPct.toFixed(2)}%` : '—';
+    return (
+      `✅ *PAPER TP ${sym} ${side}*\n` +
+      `*Entry:* \`${Number.isFinite(entry) ? entry.toFixed(2) : '—'}\`${legsLabel}\n` +
+      `*Exit:* \`${exitPx !== undefined && Number.isFinite(exitPx) ? exitPx.toFixed(2) : '—'}\` (${pctStr})\n` +
+      `*PnL:* \`${pnlStr}\`${capPctStr}\n` +
+      `*Hold:* ${formatHoldMs(holdMs)} / ${Number.isFinite(bars) ? bars : '—'} bars`
+    );
+  }
+
+  if (type === 'paper.supertrend.add') {
+    const dd = typeof p.markPnlPct === 'number' ? p.markPnlPct : Number(p.markPnlPct);
+    const newAvg = typeof p.entryPrice === 'number' ? p.entryPrice : Number(p.entryPrice);
+    const priorAvg =
+      typeof p.priorAvgEntry === 'number' ? p.priorAvgEntry : Number(p.priorAvgEntry);
+    const tp = typeof p.tpPrice === 'number' ? p.tpPrice : Number(p.tpPrice);
+    const tpPct = typeof p.tpPct === 'number' ? p.tpPct : Number(p.tpPct);
+    const totalN = typeof p.totalNotionalUsdt === 'number' ? p.totalNotionalUsdt : Number(p.totalNotionalUsdt);
+    const addN = typeof p.addNotionalUsdt === 'number' ? p.addNotionalUsdt : Number(p.addNotionalUsdt);
+    const perLeg = Number.isFinite(addN) && Number.isFinite(legCount) && legCount > 0 ? addN : totalN / (legCount || 1);
+    const ddRef = Number.isFinite(priorAvg) ? priorAvg : entry;
+    return (
+      `➕ *PAPER ADD ${sym} ${side}* (leg ${Number.isFinite(legCount) ? legCount : '—'})\n` +
+      `*DD trigger:* \`${Number.isFinite(dd) ? dd.toFixed(2) : '—'}%\` on avg \`${Number.isFinite(ddRef) ? ddRef.toFixed(2) : '—'}\`\n` +
+      `*New avg:* \`${Number.isFinite(newAvg) ? newAvg.toFixed(2) : '—'}\` | *new TP:* \`${Number.isFinite(tp) ? tp.toFixed(2) : '—'}\` (+${Number.isFinite(tpPct) ? tpPct.toFixed(1) : '—'}%)\n` +
+      `*Notional:* \`${Number.isFinite(totalN) ? totalN.toFixed(0) : '—'} USDT\` (${Number.isFinite(legCount) ? legCount : '—'} legs × ${Number.isFinite(perLeg) ? perLeg.toFixed(0) : '—'})`
+    );
+  }
+
+  const icon = type.includes('warn') ? '🟡' : '🟢';
+  const line = typeof p.reason === 'string' ? p.reason : type;
+  return `${icon} *PAPER ST ${sym}*\n\`${type}\`\n${line}`;
+}
+
 function liquidityRaidTelegramLine(meta: unknown): string {
   if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return '';
   const m = meta as Record<string, unknown>;
@@ -89,6 +158,10 @@ function fmt(s: Signal): string {
   let icon = s.severity === 'critical' ? '🔴' : s.severity === 'warn' ? '🟡' : '🟢';
   let title = `*${s.strategy.toUpperCase()}*`;
   let msg = '';
+
+  if (type.startsWith('paper.supertrend.')) {
+    return formatPaperSupertrend(s);
+  }
 
   if (type.startsWith('strategy.')) {
     if (type.includes('error')) {

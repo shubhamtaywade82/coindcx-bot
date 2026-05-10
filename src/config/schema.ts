@@ -93,7 +93,7 @@ export const ConfigSchema = z.object({
   STRATEGY_EMIT_WAIT: z.string().default('false').transform(s => s === 'true'),
   STRATEGY_INTERVAL_DEFAULT_MS: z.coerce.number().int().positive().default(15000),
   STRATEGY_BACKPRESSURE_DROP_RATIO_ALARM: z.coerce.number().default(0.5),
-  STRATEGY_ENABLED_IDS: z.string().default('smc.rule.v1,ma.cross.v1,llm.pulse.v1,trendline.breakout.v1,ai.conductor.v1')
+  STRATEGY_ENABLED_IDS: z.string().default('smc.rule.v1,ma.cross.v1,llm.pulse.v1,trendline.breakout.v1,ai.conductor.v1,paper.supertrend.v1')
     .transform(s => s.split(',').map(x => x.trim()).filter(Boolean)),
   AI_CONDUCTOR_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.6),
   AI_CONDUCTOR_TTL_MS: z.coerce.number().int().positive().default(5 * 60_000),
@@ -162,6 +162,19 @@ export const ConfigSchema = z.object({
   PAPER_GATE_MIN_BE_LOCK_BEFORE_STOP_RATE: z.coerce.number().positive().max(100).default(0.99),
   PAPER_GATE_MIN_EXPECTANCY_R: z.coerce.number().default(0.4),
   PAPER_GATE_MAX_DRAWDOWN_PCT: z.coerce.number().positive().max(100).default(0.08),
+
+  PAPER_SUPERTREND_ENABLED: z.string().default('true').transform(s => s === 'true'),
+  PAPER_SUPERTREND_PAIRS: z.string().default('B-ETH_USDT,B-SOL_USDT')
+    .transform(s => s.split(',').map(x => x.trim()).filter(Boolean).map(toCoinDcxFuturesInstrument)),
+  PAPER_SUPERTREND_CAPITAL_USDT: z.coerce.number().positive().default(1000),
+  PAPER_SUPERTREND_LEG_PCT: z.coerce.number().positive().max(100).default(50),
+  PAPER_SUPERTREND_INITIAL_TP_PCT: z.coerce.number().positive().max(100).default(5),
+  PAPER_SUPERTREND_ADD_TP_PCT: z.coerce.number().positive().max(100).default(10),
+  PAPER_SUPERTREND_DD_TRIGGER_PCT: z.coerce.number().positive().max(100).default(10),
+  PAPER_SUPERTREND_MAX_LEGS: z.coerce.number().int().positive().max(20).default(4),
+  PAPER_SUPERTREND_ST_LENGTH: z.coerce.number().int().positive().max(200).default(14),
+  PAPER_SUPERTREND_ST_MULTIPLIER: z.coerce.number().positive().max(20).default(2.0),
+  PAPER_SUPERTREND_TF: z.enum(['1m', '5m', '15m', '30m', '1h', '4h', '1d']).default('15m'),
 
   // F5 Risk Alert Engine
   RISK_FILTER_MODE: z.enum(['passthrough', 'composite']).default('composite'),

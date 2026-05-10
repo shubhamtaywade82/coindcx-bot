@@ -18,6 +18,8 @@ import { LlmPulse } from './strategy/strategies/llm-pulse';
 import { BearishSmc } from './strategy/strategies/bearish-smc';
 import { TrendlineBreakout } from './strategy/strategies/trendline-breakout';
 import { AiConductor } from './strategy/strategies/ai-conductor';
+import { PaperSupertrendStrategy } from './strategy/strategies/paper-supertrend';
+import { PaperSupertrendRepository } from './persistence/paper-supertrend-repository';
 import { RecentSignalsStore } from './strategy/recent-signals-store';
 import { PassthroughRiskFilter } from './strategy/risk/risk-filter';
 import { CompositeRiskFilter } from './strategy/risk/composite-filter';
@@ -658,6 +660,7 @@ async function runApp(ctx: Context) {
       }
     },
     onEvaluatedSignal: (signal, manifest, pair) => {
+      if (manifest.id === 'paper.supertrend.v1') return;
       if (manifest.id !== 'ai.conductor.v1') {
         recentSignalsStore.record(pair, manifest.id, signal);
         
@@ -716,6 +719,27 @@ async function runApp(ctx: Context) {
       ),
     );
   }
+
+  const paperSupertrendRepo = new PaperSupertrendRepository(ctx.pool);
+  if (ctx.config.PAPER_SUPERTREND_ENABLED && enabledIds.has('paper.supertrend.v1')) {
+    strategyController.register(
+      new PaperSupertrendStrategy({
+        repo: paperSupertrendRepo,
+        logger: ctx.logger.child({ mod: 'paper.supertrend' }),
+        PAPER_SUPERTREND_PAIRS: ctx.config.PAPER_SUPERTREND_PAIRS,
+        PAPER_SUPERTREND_CAPITAL_USDT: ctx.config.PAPER_SUPERTREND_CAPITAL_USDT,
+        PAPER_SUPERTREND_LEG_PCT: ctx.config.PAPER_SUPERTREND_LEG_PCT,
+        PAPER_SUPERTREND_INITIAL_TP_PCT: ctx.config.PAPER_SUPERTREND_INITIAL_TP_PCT,
+        PAPER_SUPERTREND_ADD_TP_PCT: ctx.config.PAPER_SUPERTREND_ADD_TP_PCT,
+        PAPER_SUPERTREND_DD_TRIGGER_PCT: ctx.config.PAPER_SUPERTREND_DD_TRIGGER_PCT,
+        PAPER_SUPERTREND_MAX_LEGS: ctx.config.PAPER_SUPERTREND_MAX_LEGS,
+        PAPER_SUPERTREND_ST_LENGTH: ctx.config.PAPER_SUPERTREND_ST_LENGTH,
+        PAPER_SUPERTREND_ST_MULTIPLIER: ctx.config.PAPER_SUPERTREND_ST_MULTIPLIER,
+        PAPER_SUPERTREND_TF: ctx.config.PAPER_SUPERTREND_TF,
+      }),
+    );
+  }
+
   strategyController.start();
 
   const runtimeWorkers = new RuntimeWorkerSet({

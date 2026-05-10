@@ -37,6 +37,7 @@ describe.skipIf(!dockerAvailable)('migrations', () => {
         'markets',
         'candles',
         'paper_trades',
+        'paper_supertrend_positions',
         'account_event_dedup',
         'signals',
         'risk_events',
